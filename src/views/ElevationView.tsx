@@ -16,6 +16,8 @@ import {
   wallSegmentQuad,
   wallThickness,
 } from '../model/geometry';
+import { fixtureSpec, leafSpans } from '../model/openings';
+import { wallGeom } from '../model/walls';
 
 export type Direction = 'sud' | 'nord' | 'est' | 'ovest';
 
@@ -78,6 +80,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
       const facing = Math.abs(dot(norm(sub(e.b, e.a)), u)) > 0.7;
       const holes: string[] = [];
       const glass: React.ReactNode[] = [];
+      const g = wallGeom(p, e);
       if (facing) {
         for (const s of openingSpans(p, e)) {
           const a = U({ x: e.a.x + (e.b.x - e.a.x) * (s.start / wallLength(e)), y: e.a.y + (e.b.y - e.a.y) * (s.start / wallLength(e)) });
@@ -88,15 +91,42 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
           const h1 = Math.min(z1, h0 + s.type.height);
           holes.push(`M${x0},${Z(h0)} L${x1},${Z(h0)} L${x1},${Z(h1)} L${x0},${Z(h1)} Z`);
           const isDoor = s.type.category === 'porta';
+          const spec = fixtureSpec(p, e, g, s.opening, s.type);
+          const US = (sv: number) => U({ x: e.a.x + g.d.x * sv, y: e.a.y + g.d.y * sv });
+          const tf = spec.ct + spec.tf; // telaio in vista
+          const dash = `${1.2 * mm} ${0.8 * mm}`;
           glass.push(
             <g key={s.opening.id}>
-              <rect x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className={isDoor ? 'ev-door' : 'ev-glass'} strokeWidth={0.18 * mm} />
-              {!isDoor && (
-                <line x1={(x0 + x1) / 2} y1={Z(h1)} x2={(x0 + x1) / 2} y2={Z(h0)} className="ev-frame" strokeWidth={0.13 * mm} />
-              )}
-              {!isDoor && s.type.sill > 0 && (
-                <line x1={x0 - 0.05} y1={Z(h0)} x2={x1 + 0.05} y2={Z(h0)} className="ev-frame" strokeWidth={0.35 * mm} />
-              )}
+              {/* telaio fisso */}
+              <rect x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame-fill" strokeWidth={0.25 * mm} />
+              {leafSpans(spec, s.start, s.end).map((l, i) => {
+                const la = US(l.s0);
+                const lb = US(l.s1);
+                const lx0 = Math.min(la, lb);
+                const lx1 = Math.max(la, lb);
+                const lz0 = isDoor ? h0 + 0.01 : h0 + tf;
+                const lz1 = h1 - tf;
+                const prof = isDoor ? 0 : 0.06; // profilo dell'anta attorno al vetro
+                const hx = US(l.hinge);
+                const fx = US(l.free);
+                return (
+                  <g key={i}>
+                    <rect x={lx0} y={Z(lz1)} width={lx1 - lx0} height={lz1 - lz0} className={isDoor ? 'ev-door' : 'ev-frame-fill'} strokeWidth={0.18 * mm} />
+                    {!isDoor && (
+                      <rect x={lx0 + prof} y={Z(lz1 - prof)} width={Math.max(0, lx1 - lx0 - 2 * prof)} height={Math.max(0, lz1 - lz0 - 2 * prof)} className="ev-glass" strokeWidth={0.13 * mm} />
+                    )}
+                    {/* simbolo d'apertura: il vertice indica il lato delle cerniere */}
+                    <polyline
+                      points={`${fx},${Z(lz1)} ${hx},${Z((lz0 + lz1) / 2)} ${fx},${Z(lz0)}`}
+                      className="ev-swing"
+                      strokeWidth={0.13 * mm}
+                      strokeDasharray={dash}
+                    />
+                  </g>
+                );
+              })}
+              {spec.hasSill && <rect x={x0 - 0.03} y={Z(h0)} width={x1 - x0 + 0.06} height={0.04} className="ev-sill" strokeWidth={0.25 * mm} />}
+              {spec.hasThreshold && <line x1={x0} y1={Z(h0)} x2={x1} y2={Z(h0)} className="ev-frame" strokeWidth={0.35 * mm} />}
             </g>,
           );
         }

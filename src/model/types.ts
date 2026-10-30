@@ -125,6 +125,8 @@ export interface OpeningType {
   priceCode: string;
   /** Trasmittanza (finestre) */
   uw?: number;
+  /** Numero di ante; se assente si deduce dalla larghezza */
+  leaves?: 1 | 2;
 }
 
 export interface RoofType {

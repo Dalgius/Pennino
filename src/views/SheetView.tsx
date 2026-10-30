@@ -423,6 +423,10 @@ export const SHEET_CSS = `
 .sheet-svg .pv-sill { fill: #fff; stroke: #111; }
 .sheet-svg .pv-frame { fill: #fff; stroke: #111; }
 .sheet-svg .pv-glass { stroke: #111; }
+.sheet-svg .pv-ct { fill: #bbb; stroke: #333; }
+.sheet-svg .pv-leaf { fill: #fff; stroke: #111; }
+.sheet-svg .pv-swing { fill: none; stroke: #333; }
+.sheet-svg .pv-door polyline, .sheet-svg .pv-door path { fill: none; }
 .sheet-svg .pv-door { stroke: #111; fill: none; }
 .sheet-svg .pv-dim { stroke: #333; }
 .sheet-svg .pv-dimtext { fill: #111; font-family: 'JetBrains Mono', Menlo, monospace; }
@@ -434,6 +438,9 @@ export const SHEET_CSS = `
 .sheet-svg .ev-glass { fill: #dbe9f2; stroke: #111; }
 .sheet-svg .ev-door { fill: #c9b79c; stroke: #111; }
 .sheet-svg .ev-frame { stroke: #111; }
+.sheet-svg .ev-frame-fill { fill: #f2f2f2; stroke: #111; }
+.sheet-svg .ev-swing { fill: none; stroke: #444; }
+.sheet-svg .ev-sill { fill: #fff; stroke: #111; }
 .sheet-svg .ev-ground { stroke: #111; }
 .sheet-svg .ev-level line { stroke: #111; }
 .sheet-svg .ev-level-mark { fill: #111; }

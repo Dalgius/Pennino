@@ -1781,7 +1781,7 @@ a.link {
   stroke: var(--ink-2);
 }
 .canvas2d .pv-sill {
-  fill: var(--canvas);
+  fill: color-mix(in srgb, var(--ink) 12%, var(--canvas));
   stroke: var(--ink);
 }
 .canvas2d .pv-frame {
@@ -1795,4 +1795,34 @@ a.link {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
+}
+
+/* Serramenti: controtelaio, telaio, ante */
+.canvas2d .pv-ct {
+  fill: var(--ink-soft);
+  stroke: var(--ink-2);
+}
+.canvas2d .pv-leaf {
+  fill: var(--canvas);
+  stroke: var(--ink);
+}
+.canvas2d .pv-swing {
+  fill: none;
+  stroke: var(--ink-2);
+}
+.canvas2d .pv-door polyline,
+.canvas2d .pv-door path {
+  fill: none;
+}
+.canvas2d .ev-frame-fill {
+  fill: var(--surface-3);
+  stroke: var(--ink);
+}
+.canvas2d .ev-swing {
+  fill: none;
+  stroke: var(--ink-2);
+}
+.canvas2d .ev-sill {
+  fill: var(--surface-2);
+  stroke: var(--ink);
 }

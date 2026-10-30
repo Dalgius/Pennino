@@ -2,8 +2,9 @@
 // Mappatura assi: modello (x, y, z) → three.js (x, z, −y).
 
 import * as THREE from 'three';
-import { bandPolygon, endAt, startAt, wallGeom } from '../model/walls';
-import type { Project, Vec2, Wall } from '../model/types';
+import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
+import { fixtureSpec, leafSpans } from '../model/openings';
+import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import {
   bbox,
   byId,
@@ -160,8 +161,6 @@ function buildWall(
   const L = wallLength(w);
   if (L < 1e-3) return;
   const g = wallGeom(p, w);
-  const d = { x: (w.b.x - w.a.x) / L, y: (w.b.y - w.a.y) / L };
-  const at = (s: number) => ({ x: w.a.x + d.x * s, y: w.a.y + d.y * s });
   const isConcrete = t?.layers.length === 1 && t.layers[0].role === 'struttura';
   const wallMat = pick(w.id, isConcrete ? M('column', COLORS.column) : M('wall', COLORS.wall));
   // tratti con le estremità tagliate secondo le giunzioni (angolo, T)
@@ -178,19 +177,75 @@ function buildWall(
     const head = Math.min(H, s.type.sill + s.type.height);
     add(s.start, s.end, 0, sill);
     add(s.start, s.end, head, H);
-    const isDoor = s.type.category === 'porta';
-    const infill = sel.has(s.opening.id)
-      ? pick(s.opening.id, wallMat)
-      : isDoor
-        ? M('door', COLORS.door)
-        : M('glass', COLORS.glass, { transparent: true, opacity: 0.45, roughness: 0.1, metalness: 0.2 });
-    const pane = segmentBox(at(s.start), at(s.end), isDoor ? 0.05 : 0.03, z0 + sill, z0 + head, infill);
-    pane.castShadow = false;
-    pane.userData.id = s.opening.id;
-    root.add(pane);
+    buildFixture(p, w, g, s.opening, s.type, s.start, s.end, z0 + sill, z0 + head, root, M, sel, wallMat, pick);
     cur = s.end;
   }
   if (cur === 'inizio' || Math.max(endAt(g, g.half), endAt(g, -g.half)) > cur + 1e-3) add(cur, 'fine', 0, H);
+}
+
+const FRAME_COLOR = 0x50555c;
+
+/** Serramento in 3D: telaio fisso, ante con profili e vetro (o anta piena per le porte), davanzale */
+function buildFixture(
+  p: Project,
+  w: Wall,
+  g: WallGeom,
+  o: Opening,
+  t: OpeningType,
+  start: number,
+  end: number,
+  zb: number,
+  zt: number,
+  root: THREE.Group,
+  M: (k: string, c: number, x?: Partial<THREE.MeshStandardMaterialParameters>) => THREE.Material,
+  sel: Set<string>,
+  wallMat: THREE.Material,
+  pick: (id: string, m: THREE.Material) => THREE.Material,
+) {
+  const spec = fixtureSpec(p, w, g, o, t);
+  const isDoor = t.category === 'porta';
+  const on = sel.has(o.id);
+  const frameMat = on ? pick(o.id, wallMat) : M('frame', FRAME_COLOR, { roughness: 0.5, metalness: 0.3 });
+  const glassMat = M('glass', COLORS.glass, { transparent: true, opacity: 0.4, roughness: 0.05, metalness: 0.2 });
+  const doorMat = on ? frameMat : M('door', COLORS.door);
+  const at = (sv: number, ov: number) => ({ x: w.a.x + g.d.x * sv + g.n.x * ov, y: w.a.y + g.d.y * sv + g.n.y * ov });
+  const box = (s0: number, s1: number, oc: number, depth: number, z0: number, z1: number, mat: THREE.Material, shadow = true) => {
+    if (s1 - s0 < 1e-3 || z1 - z0 < 1e-3) return;
+    const m = segmentBox(at(s0, oc), at(s1, oc), depth, z0, z1, mat);
+    m.userData.id = o.id;
+    m.castShadow = shadow;
+    m.receiveShadow = true;
+    root.add(m);
+  };
+  const tf = spec.ct + spec.tf;
+  // telaio fisso
+  box(start, start + tf, spec.fc, spec.fd, zb, zt, frameMat);
+  box(end - tf, end, spec.fc, spec.fd, zb, zt, frameMat);
+  box(start, end, spec.fc, spec.fd, zt - tf, zt, frameMat);
+  if (!isDoor) box(start, end, spec.fc, spec.fd, zb, zb + tf, frameMat);
+  // ante
+  for (const l of leafSpans(spec, start, end)) {
+    const lz0 = isDoor ? zb + 0.01 : zb + tf;
+    const lz1 = zt - tf;
+    if (isDoor) {
+      box(l.s0, l.s1, spec.fc, spec.leafT, lz0, lz1, doorMat);
+      continue;
+    }
+    const pr = 0.06; // profilo dell'anta
+    box(l.s0, l.s0 + pr, spec.fc, spec.leafT, lz0, lz1, frameMat);
+    box(l.s1 - pr, l.s1, spec.fc, spec.leafT, lz0, lz1, frameMat);
+    box(l.s0, l.s1, spec.fc, spec.leafT, lz0, lz0 + pr, frameMat);
+    box(l.s0, l.s1, spec.fc, spec.leafT, lz1 - pr, lz1, frameMat);
+    box(l.s0 + pr, l.s1 - pr, spec.fc, 0.024, lz0 + pr, lz1 - pr, glassMat, false);
+  }
+  // davanzale o soglia
+  const sg = g.extSign;
+  const outerFrame = spec.fc + sg * (spec.fd / 2);
+  if (spec.hasSill || spec.hasThreshold) {
+    const tip = sg * (g.half + (spec.hasSill ? 0.04 : 0.02));
+    const ext = spec.hasSill ? 0.03 : 0;
+    box(start - ext, end + ext, (outerFrame + tip) / 2, Math.abs(tip - outerFrame), zb - 0.04, zb, M('sill', 0xd8d4cc));
+  }
 }
 
 function gableRoof(points: Vec2[], pitch: number, o: number, base: number, th: number, material: THREE.Material) {

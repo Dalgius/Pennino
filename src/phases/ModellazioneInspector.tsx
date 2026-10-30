@@ -21,6 +21,7 @@ import {
 } from '../model/geometry';
 import { deleteElements } from '../model/edit';
 import { roofSurface } from '../model/quantities';
+import { leavesOf } from '../model/openings';
 import { NumberField, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 
@@ -398,6 +399,16 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         return (
           <>
             <SelectField label="Categoria" value={ot.category} options={[{ value: 'porta', label: 'Porta' }, { value: 'finestra', label: 'Finestra' }]} onChange={(v) => upd((x: { category: string }) => (x.category = v))} />
+            <SelectField
+              label="Ante"
+              value={ot.leaves ? String(ot.leaves) : 'auto'}
+              options={[
+                { value: 'auto', label: `Automatico (${leavesOf(ot) === 2 ? 'due ante' : 'un’anta'})` },
+                { value: '1', label: 'Un’anta' },
+                { value: '2', label: 'Due ante' },
+              ]}
+              onChange={(v) => upd((x: { leaves?: 1 | 2 }) => (x.leaves = v === 'auto' ? undefined : (Number(v) as 1 | 2)))}
+            />
             <div className="fields fields-2">
               <NumberField label="Larghezza" unit="cm" digits={0} step={5} value={ot.width * 100} min={30} onChange={(v) => upd((x: { width: number }) => (x.width = v / 100))} />
               <NumberField label="Altezza" unit="cm" digits={0} step={5} value={ot.height * 100} min={30} onChange={(v) => upd((x: { height: number }) => (x.height = v / 100))} />
