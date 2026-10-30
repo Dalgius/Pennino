@@ -25,6 +25,23 @@ export type ContextItem =
   | { id: ID; kind: 'strada'; name: string; points: Vec2[]; width: number }
   | { id: ID; kind: 'albero'; name: string; p: Vec2; radius: number };
 
+/** Immagine raster di base (catastale, planimetria, ortofoto) posizionata in scala */
+export interface Underlay {
+  id: ID;
+  name: string;
+  /** Riferimento all'immagine salvata a parte (IndexedDB) */
+  imageId: string;
+  /** Angolo inferiore sinistro (m) */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Rotazione antioraria attorno all'angolo inferiore sinistro (gradi) */
+  rotation: number;
+  opacity: number;
+  visible: boolean;
+}
+
 export interface Site {
   address: string;
   municipality: string;
@@ -47,6 +64,7 @@ export interface Site {
     maxCoverage: number; // rapporto di copertura (0-1)
   };
   sun: { month: number; day: number; hour: number };
+  underlays?: Underlay[];
 }
 
 // ───────────────────────── 02 · Modellazione ─────────────────────────

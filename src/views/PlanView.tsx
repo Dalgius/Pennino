@@ -35,9 +35,12 @@ interface Props {
   showLabels?: boolean;
   selectedIds?: string[];
   ghostLevelId?: string;
+  /** Ingrandimento dei testi a schermo (1 = dimensione di stampa) */
+  textScale?: number;
 }
 
-export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId }: Props) {
+export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1 }: Props) {
+  const ts = textScale;
   const els = p.elements;
   const onLevel = <T extends { levelId: string }>(e: T) => e.levelId === levelId;
   const walls = els.filter((e): e is Wall => e.kind === 'wall' && onLevel(e));
@@ -142,7 +145,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
         );
       })}
 
-      {showDimensions && <WallDimensions project={p} walls={walls} mm={mm} />}
+      {showDimensions && <WallDimensions project={p} walls={walls} mm={mm} ts={ts} />}
 
       {showLabels &&
         walls.map((w) => {
@@ -154,7 +157,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
               x={c.x}
               y={-c.y - wallThickness(t) / 2 - 1.2 * mm}
               className="pv-label"
-              fontSize={2 * mm}
+              fontSize={2 * mm * ts}
               textAnchor="middle"
             >
               {wallLength(w).toFixed(2)}
@@ -282,7 +285,7 @@ function GhostWalls({ project: p, levelId, mm }: { project: Project; levelId: st
 }
 
 /** Quote dei muri perimetrali, posizionate sul lato esterno */
-function WallDimensions({ project: p, walls, mm }: { project: Project; walls: Wall[]; mm: number }) {
+function WallDimensions({ project: p, walls, mm, ts }: { project: Project; walls: Wall[]; mm: number; ts: number }) {
   if (!walls.length) return null;
   const c = centroid(walls.flatMap((w) => [w.a, w.b]));
   const exterior = walls.filter((w) => {
@@ -322,7 +325,7 @@ function WallDimensions({ project: p, walls, mm }: { project: Project; walls: Wa
             <text
               x={txt.x}
               y={-txt.y}
-              fontSize={2.2 * mm}
+              fontSize={2.2 * mm * ts}
               textAnchor="middle"
               className="pv-dimtext"
               transform={`rotate(${ang} ${txt.x} ${-txt.y})`}
@@ -341,7 +344,7 @@ function WallDimensions({ project: p, walls, mm }: { project: Project; walls: Wa
                     key={`p${i}`}
                     x={q.x}
                     y={-q.y}
-                    fontSize={1.7 * mm}
+                    fontSize={1.7 * mm * ts}
                     textAnchor="middle"
                     className="pv-dimtext pv-dimpartial"
                     transform={`rotate(${ang} ${q.x} ${-q.y})`}

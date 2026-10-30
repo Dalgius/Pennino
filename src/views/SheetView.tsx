@@ -442,6 +442,11 @@ export const SHEET_CSS = `
 .sheet-svg .sv-roof { fill: #fff; stroke: #111; }
 .sheet-svg .sv-slab { fill: #f0f0f0; stroke: #888; }
 .sheet-svg .sv-wall { fill: #1a1a1a; }
+.sheet-svg .sv-walltop { fill: #e6e6e6; stroke: #555; }
+.sheet-svg .sv-roof-inner { fill: none; stroke: #555; }
+.sheet-svg .sv-ridge { stroke: #111; fill: none; }
+.sheet-svg .sv-slope line { stroke: #333; }
+.sheet-svg .sv-slope polygon { fill: #333; }
 .sheet-svg .sv-text { fill: #333; }
 .sheet-svg .sv-text-strong { fill: #111; font-weight: 600; }
 .sheet-svg .sv-north-ring { fill: none; stroke: #111; }

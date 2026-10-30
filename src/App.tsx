@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { exportProjectFile, resetToSample, useStore } from './model/store';
-import type { Phase, Project } from './model/types';
+import { exportProjectFile, importProjectFile, resetToSample, useStore } from './model/store';
+import type { Phase } from './model/types';
 import { fmtEuro } from './model/geometry';
 import { computeComputo } from './model/quantities';
 import { Icon } from './ui/icons';
@@ -64,9 +64,7 @@ export function App() {
 
   const openFile = async (f: File) => {
     try {
-      const p = JSON.parse(await f.text()) as Project;
-      if (p.version !== 1 || !Array.isArray(p.elements)) throw new Error('formato');
-      replace(p);
+      replace(await importProjectFile(await f.text()));
     } catch {
       alert('Il file non è un progetto Pennino valido.');
     }

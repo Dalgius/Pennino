@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { ContextItem, Project, Vec2 } from '../model/types';
+import type { ContextItem, Project, Underlay, Vec2 } from '../model/types';
 import {
   bbox,
   buildingHeight,
@@ -16,7 +16,9 @@ import {
 } from '../model/geometry';
 import { hitTestSite } from '../model/edit';
 import { projectMetrics } from '../model/quantities';
-import { Canvas2D } from '../ui/Canvas2D';
+import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
+import { putImage, readImageFile } from '../model/images';
+import { UnderlayLayer } from '../views/UnderlayLayer';
 import { NumberField, Panel, Segmented, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { useSiteEditor, type DrawKind, type Editable } from '../ui/useSiteEditor';
@@ -24,6 +26,9 @@ import { SiteView } from '../views/SiteView';
 import { ElevationView, elevationExtents } from '../views/ElevationView';
 import { pts } from '../views/PlanView';
 import { geocode, gridConvergence, suggestedCrs, terrainElevation, toUtm, type GeoResult } from '../model/geo';
+
+/** Ingrandimento dei testi nelle viste a schermo rispetto alla stampa */
+export const SCREEN_TEXT = 1.8;
 
 type SiteTool = 'select' | 'lotto' | 'edificio' | 'strada' | 'albero';
 
@@ -125,6 +130,107 @@ export function Inquadramento() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ───── Basi raster ─────
+  const underlays = site.underlays ?? [];
+  const [rasterId, setRasterId] = useState<string | null>(null);
+  const [rasterMode, setRasterMode] = useState<'sposta' | 'calibra' | null>(null);
+  const [calib, setCalib] = useState<Vec2[]>([]);
+  const [calibLen, setCalibLen] = useState('');
+  const [rasterCursor, setRasterCursor] = useState<Vec2 | null>(null);
+  const rasterDrag = useRef<{ start: Vec2; x: number; y: number; moved: boolean } | null>(null);
+  const checkpoint = useStore((s) => s.checkpoint);
+  const editLive = useStore((s) => s.editLive);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const activeRaster = underlays.find((u) => u.id === rasterId);
+
+  const startRasterMode = (id: string, mode: 'sposta' | 'calibra') => {
+    setRasterId(id);
+    setRasterMode(mode);
+    setCalib([]);
+    setCalibLen('');
+  };
+  const stopRasterMode = () => {
+    setRasterMode(null);
+    setCalib([]);
+    setRasterCursor(null);
+  };
+
+  const importRaster = async (file: File) => {
+    try {
+      const img = await readImageFile(file);
+      const imageId = uid('img');
+      await putImage(imageId, img.dataUrl);
+      // prima collocazione: centrata sul lotto, larga una volta e mezza il lotto
+      const ref = site.lot.length > 2 ? bbox(site.lot) : { minX: -20, minY: -20, maxX: 20, maxY: 20, w: 40, h: 40 };
+      const width = Math.max(ref.w, ref.h) * 1.5;
+      const height = (width * img.h) / img.w;
+      const id = uid('ras');
+      edit((d) => {
+        d.site.underlays = [
+          ...(d.site.underlays ?? []),
+          {
+            id,
+            name: file.name.replace(/\.[^.]+$/, ''),
+            imageId,
+            x: (ref.minX + ref.maxX) / 2 - width / 2,
+            y: (ref.minY + ref.maxY) / 2 - height / 2,
+            width,
+            height,
+            rotation: 0,
+            opacity: 0.6,
+            visible: true,
+          },
+        ];
+      });
+      startRasterMode(id, 'calibra');
+    } catch {
+      alert('Impossibile leggere l’immagine. Usa un file PNG o JPG (un PDF va prima esportato come immagine).');
+    }
+  };
+
+  const onRasterPointer = (e: CanvasPointer) => {
+    if (!activeRaster) return;
+    if (rasterMode === 'calibra') {
+      setRasterCursor(e.world);
+      if (e.type === 'down' && e.button === 0 && calib.length < 2) setCalib([...calib, e.world]);
+      return;
+    }
+    // sposta
+    if (e.type === 'down' && e.button === 0) rasterDrag.current = { start: e.world, x: activeRaster.x, y: activeRaster.y, moved: false };
+    else if (e.type === 'move' && rasterDrag.current) {
+      const d0 = rasterDrag.current;
+      if (!d0.moved) {
+        checkpoint();
+        d0.moved = true;
+      }
+      editLive((d) => {
+        const u = d.site.underlays?.find((x) => x.id === activeRaster.id);
+        if (u) {
+          u.x = d0.x + e.world.x - d0.start.x;
+          u.y = d0.y + e.world.y - d0.start.y;
+        }
+      });
+    } else if (e.type === 'up') rasterDrag.current = null;
+  };
+
+  const applyCalibration = () => {
+    const real = parseFloat(calibLen.replace(',', '.'));
+    if (!activeRaster || calib.length < 2 || !(real > 0)) return;
+    const measured = Math.hypot(calib[1].x - calib[0].x, calib[1].y - calib[0].y);
+    if (measured < 1e-6) return;
+    const k = real / measured;
+    const p0 = calib[0];
+    edit((d) => {
+      const u = d.site.underlays?.find((x) => x.id === activeRaster.id);
+      if (!u) return;
+      u.x = p0.x + (u.x - p0.x) * k;
+      u.y = p0.y + (u.y - p0.y) * k;
+      u.width *= k;
+      u.height *= k;
+    });
+    stopRasterMode();
+  };
+
   const selected = editor.selectedIds[0];
   const selItem = selected && selected !== 'lot' ? site.context.find((c) => c.id === selected) : undefined;
 
@@ -136,6 +242,24 @@ export function Inquadramento() {
             <span className="phase-num">01</span> Inquadramento
           </div>
           <LevelsPanel />
+          <RasterPanel
+            activeId={rasterId}
+            mode={rasterMode}
+            onImport={() => fileRef.current?.click()}
+            onMode={(id, m) => (m ? startRasterMode(id, m) : stopRasterMode())}
+            onSelect={setRasterId}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) importRaster(f);
+              e.target.value = '';
+            }}
+          />
         </div>
       </aside>
 
@@ -161,12 +285,48 @@ export function Inquadramento() {
         </div>
         <div className="stage-body">
           {view === 'planimetria' ? (
-            <Canvas2D bounds={bounds} onPointer={editor.onPointer} cursor={tool === 'select' ? 'default' : 'crosshair'}>
+            <Canvas2D
+              bounds={bounds}
+              onPointer={rasterMode ? onRasterPointer : editor.onPointer}
+              cursor={rasterMode === 'sposta' ? 'move' : tool === 'select' && !rasterMode ? 'default' : 'crosshair'}
+              hud={
+                rasterMode && activeRaster ? (
+                  <div className="canvas-hud-top raster-hud">
+                    {rasterMode === 'sposta' ? (
+                      <span className="chip">Trascina «{activeRaster.name}» nella posizione corretta</span>
+                    ) : calib.length < 2 ? (
+                      <span className="chip">
+                        Calibra «{activeRaster.name}»: clic sul {calib.length === 0 ? 'primo' : 'secondo'} punto di una misura nota (zoom per precisione)
+                      </span>
+                    ) : (
+                      <span className="chip raster-calib">
+                        Distanza reale tra i due punti
+                        <input
+                          autoFocus
+                          className="mono"
+                          value={calibLen}
+                          placeholder="es. 25.40"
+                          onChange={(ev) => setCalibLen(ev.target.value)}
+                          onKeyDown={(ev) => ev.key === 'Enter' && applyCalibration()}
+                        />
+                        m
+                        <button className="btn btn-primary" onClick={applyCalibration}>Applica scala</button>
+                      </span>
+                    )}
+                    <button className="chip" onClick={stopRasterMode}>{rasterMode === 'sposta' ? 'Fine' : 'Annulla'}</button>
+                  </div>
+                ) : undefined
+              }
+            >
               {(z) => {
                 const mm = 3 / z;
                 return (
                   <>
-                    <SiteView project={project} mm={mm} selectedIds={editor.selectedIds} />
+                    <UnderlayLayer underlays={underlays} selectedId={rasterMode ? rasterId : null} />
+                    {rasterMode === 'calibra' && (
+                      <SiteDraft draft={calib} cursor={calib.length < 2 ? rasterCursor : null} mm={mm} closed={false} />
+                    )}
+                    <SiteView project={project} mm={mm} selectedIds={editor.selectedIds} textScale={SCREEN_TEXT} />
                     <SelectionHandles items={contextList(project)} ids={editor.selectedIds} mm={mm} />
                     <SiteDraft draft={editor.draft} cursor={toolDef.draw ? editor.cursor : null} mm={mm} closed={toolDef.draw === 'polygon'} />
                   </>
@@ -178,10 +338,14 @@ export function Inquadramento() {
           )}
         </div>
         <div className="prompt">
-          <span className="prompt-label">{view === 'planimetria' ? toolDef.label : 'Quote'}</span>
+          <span className="prompt-label">{view === 'planimetria' ? (rasterMode ? 'Raster' : toolDef.label) : 'Quote'}</span>
           <span className="prompt-text">
             {view === 'planimetria'
-              ? toolDef.hint
+              ? rasterMode === 'calibra'
+                ? 'Scegli due punti di cui conosci la distanza reale (un lato del lotto, una quota del catastale), poi scrivi la misura.'
+                : rasterMode === 'sposta'
+                  ? 'Trascina il raster per sovrapporlo al lotto. Rotazione e trasparenza nel pannello a sinistra.'
+                  : toolDef.hint
               : 'Sezione schematica: livelli, terreno naturale e altezza massima ammessa. Si aggiorna con il modello.'}
           </span>
         </div>
@@ -193,6 +357,63 @@ export function Inquadramento() {
         </div>
       </aside>
     </div>
+  );
+}
+
+function RasterPanel({
+  activeId,
+  mode,
+  onImport,
+  onMode,
+  onSelect,
+}: {
+  activeId: string | null;
+  mode: 'sposta' | 'calibra' | null;
+  onImport: () => void;
+  onMode: (id: string, m: 'sposta' | 'calibra' | null) => void;
+  onSelect: (id: string) => void;
+}) {
+  const underlays = useStore((s) => s.project.site.underlays) ?? [];
+  const edit = useStore((s) => s.edit);
+  const upd = (id: string, fn: (u: Underlay) => void) =>
+    edit((d) => {
+      const u = d.site.underlays?.find((x) => x.id === id);
+      if (u) fn(u);
+    });
+  return (
+    <>
+      <div className="subhead">
+        Basi raster
+        <button className="link" onClick={onImport}>+ Importa immagine</button>
+      </div>
+      {!underlays.length && (
+        <p className="note">Importa un estratto catastale, una planimetria o un’ortofoto (PNG o JPG), calibrane la scala e ridisegna sopra lotto e contesto.</p>
+      )}
+      {underlays.map((u) => (
+        <div key={u.id} className={`level-card ${u.id === activeId ? 'raster-on' : ''}`} onClick={() => onSelect(u.id)}>
+          <div className="raster-head">
+            <label className="check">
+              <input type="checkbox" checked={u.visible} onChange={(e) => upd(u.id, (x) => (x.visible = e.target.checked))} />
+            </label>
+            <TextField label="Nome" value={u.name} onChange={(v) => upd(u.id, (x) => (x.name = v))} />
+          </div>
+          <div className="fields fields-2">
+            <NumberField label="Larghezza reale" unit="m" value={u.width} min={0.1} onChange={(v) => upd(u.id, (x) => { x.height *= v / x.width; x.width = v; })} />
+            <NumberField label="Rotazione" unit="°" digits={2} step={0.5} value={u.rotation} onChange={(v) => upd(u.id, (x) => (x.rotation = v))} />
+          </div>
+          <label className="field">
+            <span className="field-label">Opacità {Math.round(u.opacity * 100)}%</span>
+            <input type="range" min={0.1} max={1} step={0.05} value={u.opacity} onChange={(e) => upd(u.id, (x) => (x.opacity = parseFloat(e.target.value)))} />
+          </label>
+          <div className="level-card-foot">
+            <button className={`link ${mode === 'calibra' && u.id === activeId ? 'strong' : ''}`} onClick={() => onMode(u.id, mode === 'calibra' && u.id === activeId ? null : 'calibra')}>Calibra scala</button>
+            <button className={`link ${mode === 'sposta' && u.id === activeId ? 'strong' : ''}`} onClick={() => onMode(u.id, mode === 'sposta' && u.id === activeId ? null : 'sposta')}>Sposta</button>
+            <span className="spacer" />
+            <button className="link link-danger" onClick={() => edit((d) => void (d.site.underlays = (d.site.underlays ?? []).filter((x) => x.id !== u.id)))}>Rimuovi</button>
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -533,20 +754,20 @@ function LevelsSection({ project }: { project: Project }) {
         return (
           <g>
             <rect x={ext.min - 6} y={-project.site.groundLevel} width={ext.max - ext.min + 20} height={4} className="ls-ground" />
-            <ElevationView project={project} direction="sud" mm={mm} />
+            <ElevationView project={project} direction="sud" mm={mm} textScale={SCREEN_TEXT} />
             <line x1={ext.min - 6} y1={-z} x2={ext.max + 14} y2={-z} className="ls-limit" strokeWidth={0.35 * mm} strokeDasharray={`${3 * mm} ${1.5 * mm}`} />
-            <text x={ext.min - 5.5} y={-z - 1.2 * mm} fontSize={2.4 * mm} className="ls-limit-text">
+            <text x={ext.min - 5.5} y={-z - 1.2 * mm} fontSize={2.4 * mm * SCREEN_TEXT} className="ls-limit-text">
               ALTEZZA MASSIMA AMMESSA {fmtLevel(z)}
             </text>
             {levels.map((l) => (
               <line key={l.id} x1={ext.min - 6} y1={-l.elevation} x2={ext.max} y2={-l.elevation} className="ls-level" strokeWidth={0.18 * mm} strokeDasharray={`${1 * mm} ${1 * mm}`} />
             ))}
             {levels.map((l) => (
-              <text key={`t${l.id}`} x={ext.min - 5.5} y={-l.elevation - 1 * mm} fontSize={2.2 * mm} className="ls-level-text">
+              <text key={`t${l.id}`} x={ext.min - 5.5} y={-l.elevation - 1 * mm} fontSize={2.2 * mm * SCREEN_TEXT} className="ls-level-text">
                 {l.name} · {fmtLevel(l.elevation)} · h {fmt(l.height)}
               </text>
             ))}
-            <text x={ext.min - 5.5} y={-project.site.groundLevel + 3.5 * mm} fontSize={2 * mm} className="ls-level-text">
+            <text x={ext.min - 5.5} y={-project.site.groundLevel + 3.5 * mm} fontSize={2 * mm * SCREEN_TEXT} className="ls-level-text">
               Terreno naturale {fmtLevel(project.site.groundLevel)} · {fmt(project.site.altitude + project.site.groundLevel, 2)} m s.l.m.
             </text>
           </g>

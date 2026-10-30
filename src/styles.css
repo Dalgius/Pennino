@@ -1675,3 +1675,63 @@ a.link {
   accent-color: var(--ochre);
   width: 150px;
 }
+
+/* Piano delle coperture */
+.canvas2d .sv-walltop {
+  fill: var(--surface-3);
+  stroke: var(--ink-2);
+}
+.canvas2d .sv-roof {
+  fill: var(--surface-2);
+  stroke: var(--ink);
+}
+.canvas2d .sv-roof-inner {
+  fill: none;
+  stroke: var(--ink-2);
+}
+.canvas2d .sv-ridge {
+  stroke: var(--ink);
+  fill: none;
+}
+.canvas2d .sv-slope line {
+  stroke: var(--ink-2);
+}
+.canvas2d .sv-slope polygon {
+  fill: var(--ink-2);
+}
+
+/* Basi raster */
+.raster-on {
+  border-color: var(--primary);
+}
+.raster-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: end;
+}
+.raster-head .check {
+  padding-bottom: 8px;
+}
+.raster-hud {
+  right: 10px;
+}
+.raster-calib input {
+  width: 90px;
+  border: 1px solid var(--primary);
+  background: var(--canvas);
+  padding: 3px 6px;
+  outline: none;
+}
+.raster-calib .btn {
+  padding: 3px 10px;
+}
+.underlay-sel {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+.field input[type='range'] {
+  accent-color: var(--primary);
+}

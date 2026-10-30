@@ -27,6 +27,7 @@ import { Model3D } from '../views/Model3D';
 import { Icon } from '../ui/icons';
 import { KeyHint, Segmented } from '../ui/controls';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
+import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof';
 
@@ -418,6 +419,7 @@ export function Modellazione() {
               selectedIds={selectedIds}
               ghostLevelId={ghost ? below?.id : undefined}
               showDimensions={z > 18}
+              textScale={SCREEN_TEXT}
             />
             <DraftOverlay
               tool={tool}
@@ -815,7 +817,7 @@ function ElevationsBoard({ project }: { project: Project }) {
             const oy = Math.floor(i / 2) * rowH;
             return (
               <g key={d} transform={`translate(${ox} ${oy})`}>
-                <ElevationView project={project} direction={d} mm={3 / z} />
+                <ElevationView project={project} direction={d} mm={3 / z} textScale={SCREEN_TEXT} />
                 <text x={ext.min} y={-h.top - 1.2} fontSize={12 / z} className="board-title">
                   PROSPETTO {d.toUpperCase()}
                 </text>

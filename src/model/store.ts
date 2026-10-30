@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { produce } from 'immer';
 import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
+import { getImage, putImage } from './images';
 
 const STORAGE_KEY = 'pennino.project.v1';
 const HISTORY_LIMIT = 120;
@@ -144,13 +145,28 @@ useStore.subscribe((s, prev) => {
   }, 400);
 });
 
-export function exportProjectFile(p: Project) {
-  const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
+export async function exportProjectFile(p: Project) {
+  // le immagini raster viaggiano dentro il file di progetto
+  const images: Record<string, string> = {};
+  for (const u of p.site.underlays ?? []) {
+    const url = await getImage(u.imageId);
+    if (url) images[u.imageId] = url;
+  }
+  const blob = new Blob([JSON.stringify({ ...p, images }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${p.name.replace(/[^\w\- ]+/g, '').trim() || 'progetto'}.pennino.json`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/** Legge un file di progetto, salvando a parte le immagini raster incluse */
+export async function importProjectFile(text: string): Promise<Project> {
+  const raw = JSON.parse(text) as Project & { images?: Record<string, string> };
+  if (raw.version !== 1 || !Array.isArray(raw.elements)) throw new Error('formato');
+  const { images, ...p } = raw;
+  for (const [id, url] of Object.entries(images ?? {})) await putImage(id, url);
+  return p;
 }
 
 export function downloadText(name: string, text: string, mime = 'text/plain') {

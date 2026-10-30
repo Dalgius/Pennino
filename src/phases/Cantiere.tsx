@@ -9,7 +9,8 @@ import { NumberField, Panel, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { useSiteEditor, type DrawKind } from '../ui/useSiteEditor';
 import { SiteView } from '../views/SiteView';
-import { SelectionHandles, SiteDraft } from './Inquadramento';
+import { UnderlayLayer } from '../views/UnderlayLayer';
+import { SCREEN_TEXT, SelectionHandles, SiteDraft } from './Inquadramento';
 
 type CTool = 'select' | SiteItemKind;
 
@@ -141,7 +142,8 @@ export function Cantiere() {
               const mm = 3 / z;
               return (
                 <>
-                  <SiteView project={project} mm={mm} logistics selectedIds={editor.selectedIds} />
+                  <UnderlayLayer underlays={project.site.underlays ?? []} />
+                  <SiteView project={project} mm={mm} logistics selectedIds={editor.selectedIds} textScale={SCREEN_TEXT} />
                   <SelectionHandles items={project.siteLogistics} ids={editor.selectedIds} mm={mm} />
                   <SiteDraft draft={editor.draft} cursor={def.draw ? editor.cursor : null} mm={mm} closed={def.draw === 'polygon'} />
                 </>

@@ -52,9 +52,11 @@ interface Props {
   project: Project;
   direction: Direction;
   mm: number;
+  textScale?: number;
 }
 
-export function ElevationView({ project: p, direction, mm }: Props) {
+export function ElevationView({ project: p, direction, mm, textScale = 1 }: Props) {
+  const ts = textScale;
   const { u, depth } = axes(direction);
   const U = (q: Vec2) => dot(q, u);
   const D = (q: Vec2) => dot(q, depth);
@@ -210,10 +212,10 @@ export function ElevationView({ project: p, direction, mm }: Props) {
             transform={`translate(${0.5 + 1.5 * mm} 0)`}
             className="ev-level-mark"
           />
-          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) - 1 * mm} fontSize={2 * mm} className="ev-text">
+          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) - 1 * mm} fontSize={2 * mm * ts} className="ev-text">
             {fmtLevel(l.elevation)}
           </text>
-          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) + 2.6 * mm} fontSize={1.7 * mm} className="ev-text ev-text-soft">
+          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) + 2.6 * mm} fontSize={1.7 * mm * ts} className="ev-text ev-text-soft">
             {l.name}
           </text>
         </g>
