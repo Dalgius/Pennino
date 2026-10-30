@@ -72,13 +72,18 @@ export const useStore = create<State>((set, get) => ({
 
   edit: (fn) => {
     const { project, past, revision } = get();
-    const next = produce(project, fn);
+    // il valore restituito dalla funzione viene ignorato: conta solo ciò che modifica nella bozza
+    const next = produce(project, (d) => {
+      fn(d);
+    });
     if (next === project) return;
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [], revision: revision + 1 });
   },
   editLive: (fn) => {
     const { project, revision } = get();
-    const next = produce(project, fn);
+    const next = produce(project, (d) => {
+      fn(d);
+    });
     if (next !== project) set({ project: next, revision: revision + 1 });
   },
   checkpoint: () => {

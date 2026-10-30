@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useStore } from '../model/store';
+import { fmt } from '../model/geometry';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Project } from '../model/types';
@@ -25,6 +27,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     sun: THREE.DirectionalLight;
     raf: number;
   } | null>(null);
+  const [azimuth, setAzimuth] = useState(0);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
@@ -45,6 +48,9 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     controls.target.copy(target);
     controls.enableDamping = true;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    const onCam = () => setAzimuth((controls.getAzimuthalAngle() * 180) / Math.PI);
+    controls.addEventListener('change', onCam);
+    onCam();
     scene.add(new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.1));
     const sun = new THREE.DirectionalLight(0xfff4e0, 2.6);
     sun.castShadow = true;
@@ -99,6 +105,8 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Geometria: si ricostruisce quando cambia il modello, non quando cambia solo il sole
+  const site = project.site;
   useEffect(() => {
     const c = ctx.current;
     if (!c) return;
@@ -108,6 +116,14 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     }
     c.model = buildScene(project, { selectedIds, maxElevation });
     c.scene.add(c.model);
+    c.scene.background = new THREE.Color(dark ? 0x1a1c22 : 0xeef0f2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.elements, project.levels, project.catalog, site.context, site.lot, site.groundLevel, selectedIds, maxElevation, dark]);
+
+  // Sole: direzione da latitudine, longitudine, data, ora e nord geografico
+  useEffect(() => {
+    const c = ctx.current;
+    if (!c) return;
     const b = sceneBounds(project);
     const target = new THREE.Vector3(b.cx, 0, -b.cy);
     const sv = sunVector(project);
@@ -116,9 +132,61 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     const R = Math.max(b.w, b.h) + 30;
     Object.assign(c.sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 250 });
     c.sun.shadow.camera.updateProjectionMatrix();
-    c.sun.intensity = sv.altitude > 0 ? 2.6 : 0.3;
-    c.scene.background = new THREE.Color(dark ? 0x1a1c22 : 0xeef0f2);
-  }, [project, revision, selectedIds, maxElevation, dark]);
+    c.sun.intensity = sv.altitude > 0 ? 2.6 : 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site.latitude, site.longitude, site.trueNorth, site.sun, project.elements, revision]);
 
-  return <div ref={host} className="view3d" />;
+  return (
+    <div className="view3d-wrap">
+      <div ref={host} className="view3d" />
+      <SunHud cameraAzimuth={azimuth} />
+    </div>
+  );
+}
+
+const MONTHS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+
+/** Bussola e sole: il nord ruota con la vista, l'ora si regola dal cursore */
+function SunHud({ cameraAzimuth }: { cameraAzimuth: number }) {
+  const site = useStore((s) => s.project.site);
+  const editLive = useStore((s) => s.editLive);
+  const checkpoint = useStore((s) => s.checkpoint);
+  const project = useStore((s) => s.project);
+  const sv = sunVector(project);
+  const h = Math.floor(site.sun.hour);
+  const m = Math.round((site.sun.hour - h) * 60);
+  return (
+    <div className="hud3d">
+      <svg width="52" height="52" viewBox="-26 -26 52 52" className="hud3d-compass" aria-label="Nord geografico">
+        <circle r="22" />
+        <g style={{ transform: `rotate(${cameraAzimuth + site.trueNorth}deg)` }}>
+          <path d="M0,-19 L5,4 L0,0 L-5,4 Z" className="hud3d-n" />
+          <text y="-8" textAnchor="middle" transform="translate(0 -9)">N</text>
+        </g>
+      </svg>
+      <div className="hud3d-sun">
+        <div className="mono">
+          {site.sun.day} {MONTHS[site.sun.month - 1]} · ore {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}
+        </div>
+        <div className="muted mono">
+          {sv.altitude > 0 ? `sole az ${fmt(sv.azimuth, 0)}° · h ${fmt(sv.altitude, 0)}°` : 'sole sotto l’orizzonte'}
+        </div>
+        <input
+          type="range"
+          min={4}
+          max={21}
+          step={0.25}
+          value={site.sun.hour}
+          aria-label="Ora del giorno"
+          onPointerDown={checkpoint}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value);
+            editLive((d) => {
+              d.site.sun.hour = v;
+            });
+          }}
+        />
+      </div>
+    </div>
+  );
 }

@@ -168,7 +168,7 @@ const labelAt = (c: Vec2, dy: number) => ({ x: c.x, y: -c.y + dy });
 export function NorthArrow({ at, angle, mm }: { at: Vec2; angle: number; mm: number }) {
   const r = 6 * mm;
   return (
-    <g transform={`translate(${at.x} ${-at.y}) rotate(${-angle})`} className="sv-north">
+    <g transform={`translate(${at.x} ${-at.y}) rotate(${angle})`} className="sv-north">
       <circle r={r} strokeWidth={0.18 * mm} className="sv-north-ring" />
       <path d={`M0,${-r} L${r * 0.32},${r * 0.55} L0,${r * 0.3} z`} className="sv-north-fill" />
       <path d={`M0,${-r} L${-r * 0.32},${r * 0.55} L0,${r * 0.3} z`} className="sv-north-open" strokeWidth={0.18 * mm} />

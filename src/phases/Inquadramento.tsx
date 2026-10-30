@@ -23,6 +23,7 @@ import { useSiteEditor, type DrawKind, type Editable } from '../ui/useSiteEditor
 import { SiteView } from '../views/SiteView';
 import { ElevationView, elevationExtents } from '../views/ElevationView';
 import { pts } from '../views/PlanView';
+import { geocode, gridConvergence, suggestedCrs, terrainElevation, toUtm, type GeoResult } from '../model/geo';
 
 type SiteTool = 'select' | 'lotto' | 'edificio' | 'strada' | 'albero';
 
@@ -299,18 +300,7 @@ function SitePanels() {
 
   return (
     <>
-      <Panel title="Localizzazione">
-        <TextField label="Indirizzo" value={site.address} onChange={(v) => set((s) => (s.address = v))} />
-        <div className="fields fields-2">
-          <TextField label="Comune" value={site.municipality} onChange={(v) => set((s) => (s.municipality = v))} />
-          <TextField label="Catasto" value={site.cadastre} onChange={(v) => set((s) => (s.cadastre = v))} />
-          <NumberField label="Latitudine" unit="°N" digits={5} step={0.0001} value={site.latitude} min={-90} max={90} onChange={(v) => set((s) => (s.latitude = v))} />
-          <NumberField label="Longitudine" unit="°E" digits={5} step={0.0001} value={site.longitude} min={-180} max={180} onChange={(v) => set((s) => (s.longitude = v))} />
-          <NumberField label="Quota ±0.00 s.l.m." unit="m" value={site.altitude} onChange={(v) => set((s) => (s.altitude = v))} />
-          <NumberField label="Terreno naturale" unit="m" value={site.groundLevel} onChange={(v) => set((s) => (s.groundLevel = v))} />
-        </div>
-        <TextField label="Sistema di riferimento" value={site.crs} onChange={(v) => set((s) => (s.crs = v))} />
-      </Panel>
+      <LocationPanel />
 
       <Panel title="Orientamento e soleggiamento">
         <div className="sun-row">
@@ -328,7 +318,10 @@ function SitePanels() {
           <div><span>Azimut solare</span><b className="mono">{fmt(sun.azimuth, 1)}°</b></div>
           <div><span>Altezza solare</span><b className="mono">{fmt(sun.altitude, 1)}°</b></div>
         </div>
-        <p className="note">Il sole orienta luci e ombre della vista 3D in 02 · Modellazione.</p>
+        <p className="note">
+          Angolo, in senso orario, tra il nord di progetto (alto del foglio) e il nord geografico. Se il progetto è orientato sulla cartografia UTM vale circa {fmt(gridConvergence(site.latitude, site.longitude), 2)}°.
+          Il sole orienta luci e ombre della vista 3D in 02 · Modellazione.
+        </p>
       </Panel>
 
       <Panel title="Vincoli urbanistici" aside={<span className="badge">{site.zoning.zone.split('·')[0]}</span>}>
@@ -347,6 +340,97 @@ function SitePanels() {
         </div>
       </Panel>
     </>
+  );
+}
+
+function LocationPanel() {
+  const project = useStore((s) => s.project);
+  const edit = useStore((s) => s.edit);
+  const site = project.site;
+  const set = (fn: (s: Project['site']) => void) => edit((d) => fn(d.site));
+  const [results, setResults] = useState<GeoResult[] | null>(null);
+  const [status, setStatus] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const utm = toUtm(site.latitude, site.longitude);
+
+  const search = async () => {
+    const q = [site.address, site.municipality].filter(Boolean).join(', ');
+    if (!q.trim()) return setStatus({ kind: 'err', text: 'Scrivi un indirizzo o un comune da cercare.' });
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await geocode(q);
+      if (!r.length) setStatus({ kind: 'err', text: `Nessun risultato per «${q}». Prova a indicare solo via e comune.` });
+      else if (r.length === 1) await apply(r[0]);
+      else setResults(r);
+    } catch {
+      setStatus({ kind: 'err', text: 'Ricerca non riuscita: serve la connessione a internet. Puoi inserire le coordinate a mano.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async (r: GeoResult) => {
+    setResults(null);
+    set((s) => {
+      s.latitude = +r.latitude.toFixed(6);
+      s.longitude = +r.longitude.toFixed(6);
+      if (r.address) s.address = r.address;
+      if (r.municipality) s.municipality = r.municipality;
+      s.crs = suggestedCrs(r.latitude, r.longitude);
+    });
+    let msg = 'Coordinate aggiornate.';
+    try {
+      const z = await terrainElevation(r.latitude, r.longitude);
+      if (z !== null) {
+        set((s) => {
+          s.altitude = +(z - s.groundLevel).toFixed(2);
+        });
+        msg = `Coordinate e quota aggiornate: terreno a ${fmt(z, 1)} m s.l.m.`;
+      }
+    } catch {
+      msg = 'Coordinate aggiornate; quota s.l.m. non disponibile, inseriscila a mano.';
+    }
+    setStatus({ kind: 'info', text: msg });
+  };
+
+  return (
+    <Panel title="Localizzazione">
+      <TextField label="Indirizzo" value={site.address} onChange={(v) => set((s) => (s.address = v))} />
+      <div className="fields fields-2">
+        <TextField label="Comune" value={site.municipality} onChange={(v) => set((s) => (s.municipality = v))} />
+        <TextField label="Catasto" value={site.cadastre} onChange={(v) => set((s) => (s.cadastre = v))} />
+      </div>
+      <button className="btn btn-primary btn-block" onClick={search} disabled={busy}>
+        {busy ? 'Ricerca in corso…' : 'Trova coordinate dall’indirizzo'}
+      </button>
+      {results && (
+        <div className="geo-results">
+          <div className="subhead">Scegli la località</div>
+          {results.map((r, i) => (
+            <button key={i} className="geo-row" onClick={() => apply(r)}>
+              {r.label}
+            </button>
+          ))}
+          <button className="link" onClick={() => setResults(null)}>Annulla</button>
+        </div>
+      )}
+      {status && <div className={`check-row ${status.kind === 'err' ? 'warn' : 'ok'}`}><span>{status.text}</span></div>}
+      <div className="fields fields-2">
+        <NumberField label="Latitudine" unit="°N" digits={6} step={0.0001} value={site.latitude} min={-90} max={90} onChange={(v) => set((s) => { s.latitude = v; s.crs = suggestedCrs(v, s.longitude); })} />
+        <NumberField label="Longitudine" unit="°E" digits={6} step={0.0001} value={site.longitude} min={-180} max={180} onChange={(v) => set((s) => { s.longitude = v; s.crs = suggestedCrs(s.latitude, v); })} />
+        <NumberField label="Quota ±0.00 s.l.m." unit="m" value={site.altitude} onChange={(v) => set((s) => (s.altitude = v))} />
+        <NumberField label="Terreno naturale" unit="m" value={site.groundLevel} onChange={(v) => set((s) => (s.groundLevel = v))} />
+      </div>
+      <TextField label="Sistema di riferimento" value={site.crs} onChange={(v) => set((s) => (s.crs = v))} />
+      <div className="kv-grid">
+        <div><span>Est (UTM {utm.zone})</span><b className="mono">{fmt(utm.easting, 2)} m</b></div>
+        <div><span>Nord (UTM {utm.zone})</span><b className="mono">{fmt(utm.northing, 2)} m</b></div>
+      </div>
+      <a className="link" href={`https://www.openstreetmap.org/?mlat=${site.latitude}&mlon=${site.longitude}#map=18/${site.latitude}/${site.longitude}`} target="_blank" rel="noreferrer">
+        Apri la posizione su OpenStreetMap ↗
+      </a>
+    </Panel>
   );
 }
 

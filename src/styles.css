@@ -1609,3 +1609,69 @@ td.num .cell-input {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Ricerca località */
+.geo-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.geo-row {
+  text-align: left;
+  padding: 7px 9px;
+  font-size: 11.5px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+.geo-row:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+a.link {
+  text-decoration: none;
+}
+
+/* Bussola e sole nella vista 3D */
+.view3d-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.view3d-wrap > .view3d {
+  flex: 1;
+}
+.hud3d {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  font-size: 11px;
+}
+.hud3d-compass circle {
+  fill: var(--canvas);
+  stroke: var(--line-strong);
+}
+.hud3d-compass .hud3d-n {
+  fill: var(--terra);
+}
+.hud3d-compass text {
+  fill: var(--text);
+  font: 600 9px 'JetBrains Mono', monospace;
+}
+.hud3d-sun {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hud3d-sun input {
+  accent-color: var(--ochre);
+  width: 150px;
+}
