@@ -40,6 +40,12 @@ npm run dev
 
 `npm run build` genera la versione statica in `dist/`.
 
+### App desktop per Windows
+
+- `npm run desktop` apre Pennino come applicazione desktop (Electron).
+- `npm run dist:win` crea l'installer `release/Pennino-Setup-<versione>.exe` (su Linux serve Wine).
+- Il workflow **Installer Windows** in GitHub Actions crea l'installer su Windows; con un tag `v*` pubblica anche la release.
+
 ## Comandi principali (02 · Modellazione)
 
 | Tasto | Strumento | | Tasto | Azione |

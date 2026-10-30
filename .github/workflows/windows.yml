@@ -1,0 +1,32 @@
+# Crea l'installer Windows. Si avvia a mano (Actions → Run workflow) o con un tag v*;
+# con un tag pubblica anche una release GitHub con l'installer allegato.
+name: Installer Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pennino-Setup
+          path: release/Pennino-Setup-*.exe
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/Pennino-Setup-*.exe
