@@ -49,6 +49,14 @@ interface State {
   toggleTheme: () => void;
 }
 
+function readTheme(): 'scuro' | 'chiaro' {
+  try {
+    return (localStorage.getItem('pennino.theme') as 'scuro' | 'chiaro') || 'scuro';
+  } catch {
+    return 'scuro';
+  }
+}
+
 const initial = loadInitial();
 
 export const useStore = create<State>((set, get) => ({
@@ -59,7 +67,7 @@ export const useStore = create<State>((set, get) => ({
   phase: 'modellazione',
   activeLevelId: initial.levels[0]?.id ?? '',
   selection: { scope: 'modello', ids: [] },
-  theme: (localStorage.getItem('pennino.theme') as 'scuro' | 'chiaro') || 'scuro',
+  theme: readTheme(),
   savedAt: null,
 
   edit: (fn) => {
@@ -107,7 +115,11 @@ export const useStore = create<State>((set, get) => ({
   clearSelection: () => set({ selection: { scope: get().selection.scope, ids: [] } }),
   toggleTheme: () => {
     const theme = get().theme === 'scuro' ? 'chiaro' : 'scuro';
-    localStorage.setItem('pennino.theme', theme);
+    try {
+      localStorage.setItem('pennino.theme', theme);
+    } catch {
+      /* preferenza non salvabile */
+    }
     set({ theme });
   },
 }));
