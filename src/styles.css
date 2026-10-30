@@ -1774,3 +1774,25 @@ a.link {
   font-size: 14px;
   outline: none;
 }
+
+/* Finestre in pianta: parapetto visto dall'alto, davanzale, telaio */
+.canvas2d .pv-parapet {
+  fill: color-mix(in srgb, var(--ink) 22%, transparent);
+  stroke: var(--ink-2);
+}
+.canvas2d .pv-sill {
+  fill: var(--canvas);
+  stroke: var(--ink);
+}
+.canvas2d .pv-frame {
+  fill: var(--canvas);
+  stroke: var(--ink);
+}
+.canvas2d .pv-glass {
+  stroke: var(--primary);
+}
+.door-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}

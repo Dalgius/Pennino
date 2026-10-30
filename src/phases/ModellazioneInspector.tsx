@@ -95,9 +95,14 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <NumberField label="Distanza dall’inizio muro" unit="m" value={e.offset} min={(t?.width ?? 0) / 2} max={L - (t?.width ?? 0) / 2} onChange={(v) => upd((x) => x.kind === 'opening' && (x.offset = v))} />
             </div>
             {t?.category === 'porta' && (
-              <label className="check">
-                <input type="checkbox" checked={e.flip} onChange={(ev) => upd((x) => x.kind === 'opening' && (x.flip = ev.target.checked))} /> Apertura verso l’altro lato
-              </label>
+              <div className="door-tools">
+                <button className="btn" onClick={() => upd((x) => x.kind === 'opening' && (x.flip = !x.flip))} title="L’anta apre verso l’altro lato del muro">
+                  ⇅ Inverti verso
+                </button>
+                <button className="btn" onClick={() => upd((x) => x.kind === 'opening' && (x.mirror = !x.mirror))} title="Sposta la cerniera sull’altro stipite">
+                  ⇆ Specchia cerniera
+                </button>
+              </div>
             )}
             <div className="kv-grid">
               <div><span>Luce netta</span><b className="mono">{fmt(t?.width ?? 0)} × {fmt(t?.height ?? 0)} m</b></div>

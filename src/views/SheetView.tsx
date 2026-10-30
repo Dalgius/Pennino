@@ -419,6 +419,10 @@ export const SHEET_CSS = `
 .sheet-svg .pv-stair polyline { fill: none; }
 .sheet-svg .pv-arrowhead { fill: #222; }
 .sheet-svg .pv-window { stroke: #111; fill: none; }
+.sheet-svg .pv-parapet { fill: #e9e9e9; stroke: #555; }
+.sheet-svg .pv-sill { fill: #fff; stroke: #111; }
+.sheet-svg .pv-frame { fill: #fff; stroke: #111; }
+.sheet-svg .pv-glass { stroke: #111; }
 .sheet-svg .pv-door { stroke: #111; fill: none; }
 .sheet-svg .pv-dim { stroke: #333; }
 .sheet-svg .pv-dimtext { fill: #111; font-family: 'JetBrains Mono', Menlo, monospace; }

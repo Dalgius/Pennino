@@ -85,6 +85,7 @@ export function Modellazione() {
   const [grid, setGrid] = useState(0.05);
   const [ghost, setGhost] = useState(true);
   const [flipNext, setFlipNext] = useState(false);
+  const [mirrorNext, setMirrorNext] = useState(false);
   const [openingPreview, setOpeningPreview] = useState<{ wallId: string; offset: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
@@ -224,7 +225,7 @@ export function Modellazione() {
         if (e.type === 'down' && e.button === 0) {
           const id = uid('o');
           edit((d) => {
-            d.elements.push({ id, kind: 'opening', wallId: nw.id, typeId: t.id, offset, flip: flipNext !== e.alt });
+            d.elements.push({ id, kind: 'opening', wallId: nw.id, typeId: t.id, offset, flip: flipNext !== e.alt, mirror: mirrorNext });
           });
         }
       } else setOpeningPreview(null);
@@ -541,6 +542,11 @@ export function Modellazione() {
           {(tool === 'door') && (
             <label className="check">
               <input type="checkbox" checked={flipNext} onChange={(e) => setFlipNext(e.target.checked)} /> Apertura verso l’altro lato
+            </label>
+          )}
+          {tool === 'door' && (
+            <label className="check">
+              <input type="checkbox" checked={mirrorNext} onChange={(e) => setMirrorNext(e.target.checked)} /> Cerniera sull’altro stipite
             </label>
           )}
 

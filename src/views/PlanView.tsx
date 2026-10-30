@@ -213,6 +213,25 @@ function WallPlan({ project: p, wall: w, mm, center }: { project: Project; wall:
         const p0 = add(w.a, mul(d, start));
         const p1 = add(w.a, mul(d, end));
         const half = mul(n, (g.extSign * th) / 2); // verso il lato esterno
+        if (type.category === 'finestra' && type.sill > 0) {
+          // Finestra con davanzale: piano di taglio sopra il parapetto (circa 1 m)
+          const struct = t ? layerBands(g, t.layers).find((_, j) => t.layers[j].role === 'struttura') : undefined;
+          const frameDepth = 0.07;
+          // telaio a filo della faccia esterna della muratura portante
+          const fc = (struct ? struct.o0 : 0) - g.extSign * (frameDepth / 2);
+          const outer = g.extSign * (g.half + 0.04); // il davanzale sporge 4 cm dal filo esterno
+          const sillIn = fc - g.extSign * (frameDepth / 2);
+          const P = (s0: number, o: number) => add(add(w.a, mul(d, s0)), mul(n, o));
+          const rect = (s0: number, s1: number, o0: number, o1: number) => [P(s0, o0), P(s1, o0), P(s1, o1), P(s0, o1)];
+          return (
+            <g key={o.id} className="pv-window">
+              <polygon points={pts(bandPolygon(g, g.half, -g.half, start, end))} className="pv-parapet" strokeWidth={0.13 * mm} />
+              <polygon points={pts(rect(start - 0.03, end + 0.03, sillIn, outer))} className="pv-sill" strokeWidth={0.18 * mm} />
+              <polygon points={pts(rect(start, end, fc - frameDepth / 2, fc + frameDepth / 2))} className="pv-frame" strokeWidth={0.18 * mm} />
+              <polyline points={pts([P(start, fc), P(end, fc)])} className="pv-glass" strokeWidth={0.25 * mm} />
+            </g>
+          );
+        }
         if (type.category === 'finestra') {
           const g1 = add(p0, mul(n, th * 0.08));
           const g2 = add(p1, mul(n, th * 0.08));
@@ -228,17 +247,23 @@ function WallPlan({ project: p, wall: w, mm, center }: { project: Project; wall:
               <polyline points={pts([o2, i2])} />
               <polyline points={pts([g1, g2])} />
               <polyline points={pts([h1, h2])} />
-              {type.sill > 0 && <polyline points={pts([o1, o2])} strokeWidth={0.1 * mm} />}
             </g>
           );
         }
-        // Porta: anta e arco di apertura
+        // Porta: anta e arco di apertura. flip = verso (lato in cui apre), mirror = cerniera sull'altro stipite
         const side = o.flip ? -1 : 1;
-        const hinge = sub(p0, mul(n, (side * th) / 2));
         const width = end - start;
+        const hingeJamb = o.mirror ? p1 : p0;
+        const freeJamb = o.mirror ? p0 : p1;
+        const hinge = sub(hingeJamb, mul(n, (side * th) / 2));
         const leafEnd = sub(hinge, mul(n, side * width));
-        const farJamb = sub(p1, mul(n, (side * th) / 2));
-        const sweep = side > 0 ? 0 : 1;
+        const farJamb = sub(freeJamb, mul(n, (side * th) / 2));
+        // verso dell'arco nel sistema SVG (y verso il basso)
+        const ax = leafEnd.x - hinge.x;
+        const ay = -(leafEnd.y - hinge.y);
+        const bx = farJamb.x - hinge.x;
+        const by = -(farJamb.y - hinge.y);
+        const sweep = ax * by - ay * bx > 0 ? 1 : 0;
         return (
           <g key={o.id} className="pv-door" strokeWidth={0.18 * mm}>
             <polyline points={pts([hinge, leafEnd])} strokeWidth={0.3 * mm} />

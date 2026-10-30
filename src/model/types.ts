@@ -163,8 +163,10 @@ export interface Opening {
   typeId: ID;
   /** Distanza del centro dell'apertura dall'inizio del muro (a) */
   offset: number;
-  /** Verso di apertura (porte) */
+  /** Verso di apertura (porte): anta sull'altro lato del muro */
   flip: boolean;
+  /** Porta specchiata: cerniera sull'altro stipite */
+  mirror?: boolean;
 }
 
 export interface Slab {
