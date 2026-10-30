@@ -21,12 +21,13 @@ import {
 } from '../model/geometry';
 import { deleteElements, getHandles, hitTestModel, nearestWall, setHandle, snapPoint, snapPoints, translate, type Snap } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
-import { PlanView, pts } from '../views/PlanView';
+import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
 import { Model3D } from '../views/Model3D';
 import { Icon } from '../ui/icons';
 import { KeyHint, Segmented } from '../ui/controls';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
+import { applyDimension } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof';
@@ -86,6 +87,17 @@ export function Modellazione() {
   const [flipNext, setFlipNext] = useState(false);
   const [openingPreview, setOpeningPreview] = useState<{ wallId: string; offset: number } | null>(null);
   const drag = useRef<Drag | null>(null);
+  const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
+  const [dimText, setDimText] = useState('');
+  const openDim = (t: DimTarget) => {
+    setDimEdit(t);
+    setDimText(t.value.toFixed(2));
+  };
+  const commitDim = () => {
+    const v = parseFloat(dimText.replace(',', '.'));
+    if (dimEdit && v > 0) edit((d) => applyDimension(d, dimEdit.chain, dimEdit.k, v));
+    setDimEdit(null);
+  };
 
   const levels = sortedLevels(project);
   const level = byId(project.levels, levelId) ?? levels[0];
@@ -420,6 +432,8 @@ export function Modellazione() {
               ghostLevelId={ghost ? below?.id : undefined}
               showDimensions={z > 18}
               textScale={SCREEN_TEXT}
+              onDimEdit={tool === 'select' ? openDim : undefined}
+              activeDim={dimEdit ? `${dimEdit.chain.id}#${dimEdit.k}` : undefined}
             />
             <DraftOverlay
               tool={tool}
@@ -431,6 +445,27 @@ export function Modellazione() {
               previewLen={previewLen}
               thickness={tool === 'wall' ? wallThickness(byId(project.catalog.wall, activeType.wall)) : 0}
             />
+            {dimEdit && (
+              <g transform={`translate(${dimEdit.at.x} ${-dimEdit.at.y}) scale(${1 / z})`}>
+                <foreignObject x={-62} y={-17} width={124} height={34}>
+                  <div data-hud className="dim-input">
+                    <input
+                      autoFocus
+                      className="mono"
+                      value={dimText}
+                      onChange={(e) => setDimText(e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitDim();
+                        if (e.key === 'Escape') setDimEdit(null);
+                      }}
+                      onBlur={() => setDimEdit(null)}
+                    />
+                    <span>m</span>
+                  </div>
+                </foreignObject>
+              </g>
+            )}
             {openingPreview && (tool === 'door' || tool === 'window') && (
               <OpeningPreview project={project} wallId={openingPreview.wallId} offset={openingPreview.offset} typeId={activeType.opening} mm={mm} />
             )}

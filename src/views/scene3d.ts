@@ -2,6 +2,7 @@
 // Mappatura assi: modello (x, y, z) → three.js (x, z, −y).
 
 import * as THREE from 'three';
+import { bandPolygon, endAt, startAt, wallGeom } from '../model/walls';
 import type { Project, Vec2, Wall } from '../model/types';
 import {
   bbox,
@@ -11,10 +12,8 @@ import {
   openingSpans,
   roofRidgeRise,
   sunPosition,
-  wallEndExtensions,
   wallHeight,
   wallLength,
-  wallThickness,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -157,22 +156,24 @@ function buildWall(
   sel: Set<string>,
 ) {
   const t = byId(p.catalog.wall, w.typeId);
-  const th = wallThickness(t);
   const H = wallHeight(p, w);
   const L = wallLength(w);
   if (L < 1e-3) return;
-  const ext = wallEndExtensions(p, w);
+  const g = wallGeom(p, w);
   const d = { x: (w.b.x - w.a.x) / L, y: (w.b.y - w.a.y) / L };
   const at = (s: number) => ({ x: w.a.x + d.x * s, y: w.a.y + d.y * s });
   const isConcrete = t?.layers.length === 1 && t.layers[0].role === 'struttura';
   const wallMat = pick(w.id, isConcrete ? M('column', COLORS.column) : M('wall', COLORS.wall));
-  const add = (s0: number, s1: number, h0: number, h1: number) => {
-    if (s1 - s0 < 1e-3 || h1 - h0 < 1e-3) return;
-    root.add(tag(segmentBox(at(s0), at(s1), th, z0 + h0, z0 + h1, wallMat), w.id));
+  // tratti con le estremità tagliate secondo le giunzioni (angolo, T)
+  const add = (s0: number | 'inizio', s1: number | 'fine', h0: number, h1: number) => {
+    if (h1 - h0 < 1e-3) return;
+    if (typeof s0 === 'number' && typeof s1 === 'number' && s1 - s0 < 1e-3) return;
+    const poly = bandPolygon(g, g.half, -g.half, s0, s1);
+    root.add(tag(extrudePolygon(poly, z0 + h1, h1 - h0, wallMat), w.id));
   };
-  let cur = -ext.a;
+  let cur: number | 'inizio' = 'inizio';
   for (const s of openingSpans(p, w)) {
-    add(cur, s.start, 0, H);
+    if (cur !== 'inizio' || s.start > Math.min(startAt(g, g.half), startAt(g, -g.half)) + 1e-3) add(cur, s.start, 0, H);
     const sill = Math.min(s.type.sill, H);
     const head = Math.min(H, s.type.sill + s.type.height);
     add(s.start, s.end, 0, sill);
@@ -187,9 +188,9 @@ function buildWall(
     pane.castShadow = false;
     pane.userData.id = s.opening.id;
     root.add(pane);
-    cur = Math.max(cur, s.end);
+    cur = s.end;
   }
-  add(cur, L + ext.b, 0, H);
+  if (cur === 'inizio' || Math.max(endAt(g, g.half), endAt(g, -g.half)) > cur + 1e-3) add(cur, 'fine', 0, H);
 }
 
 function gableRoof(points: Vec2[], pitch: number, o: number, base: number, th: number, material: THREE.Material) {

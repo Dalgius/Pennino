@@ -3,6 +3,8 @@
 // Coordinate in metri; l'asse Y del modello è ribaltato per l'SVG.
 
 import type { Project, Vec2, Wall } from '../model/types';
+import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
+import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces } from '../model/walls';
 import {
   add,
   bbox,
@@ -10,14 +12,12 @@ import {
   centroid,
   columnQuad,
   dist,
-  dot,
   levelAbove,
   mul,
   norm,
   openingSpans,
   perp,
   sub,
-  wallEndExtensions,
   wallLength,
   wallSegmentQuad,
   wallThickness,
@@ -37,9 +37,12 @@ interface Props {
   ghostLevelId?: string;
   /** Ingrandimento dei testi a schermo (1 = dimensione di stampa) */
   textScale?: number;
+  /** Quote modificabili: clic su una cifra */
+  onDimEdit?: (t: DimTarget) => void;
+  activeDim?: string;
 }
 
-export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1 }: Props) {
+export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim }: Props) {
   const ts = textScale;
   const els = p.elements;
   const onLevel = <T extends { levelId: string }>(e: T) => e.levelId === levelId;
@@ -52,6 +55,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   const sel = new Set(selectedIds);
   const lvl = byId(p.levels, levelId);
   const nextLvl = levelAbove(p, levelId);
+  const center = levelCenter(p, levelId);
 
   const thin = 0.13 * mm;
   const med = 0.25 * mm;
@@ -122,7 +126,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       })}
 
       {walls.map((w) => (
-        <WallPlan key={w.id} project={p} wall={w} mm={mm} />
+        <WallPlan key={w.id} project={p} wall={w} mm={mm} center={center} />
       ))}
 
       {columns.map((c) => {
@@ -145,7 +149,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
         );
       })}
 
-      {showDimensions && <WallDimensions project={p} walls={walls} mm={mm} ts={ts} />}
+      {showDimensions && <DimChains project={p} levelId={levelId} mm={mm} ts={ts} onEdit={onDimEdit} activeKey={activeDim} />}
 
       {showLabels &&
         walls.map((w) => {
@@ -180,40 +184,35 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   );
 }
 
-function WallPlan({ project: p, wall: w, mm }: { project: Project; wall: Wall; mm: number }) {
+function WallPlan({ project: p, wall: w, mm, center }: { project: Project; wall: Wall; mm: number; center: Vec2 }) {
   const t = byId(p.catalog.wall, w.typeId);
   const th = wallThickness(t);
-  const L = wallLength(w);
-  const ext = wallEndExtensions(p, w);
+  const g = wallGeom(p, w, center);
   const spans = openingSpans(p, w);
-  const pieces: [number, number][] = [];
-  let cur = -ext.a;
-  for (const s of spans) {
-    if (s.start > cur) pieces.push([cur, s.start]);
-    cur = Math.max(cur, s.end);
-  }
-  if (L + ext.b > cur) pieces.push([cur, L + ext.b]);
-  const d = norm(sub(w.b, w.a));
-  const n = perp(d);
+  const pieces = wallPieces(g, spans);
+  const d = g.d;
+  const n = g.n;
   const isLayered = mm < 0.08 && t && t.layers.length > 1; // a scala ≥ 1:50 si vedono gli strati
+  const bands = t ? layerBands(g, t.layers) : [];
 
   return (
     <g>
-      {pieces.map(([s0, s1], i) =>
+      {pieces.map(({ s0, s1 }, i) =>
         isLayered ? (
           <g key={i}>
-            {layerQuads(w, t!.layers, s0, s1).map((q, j) => (
-              <polygon key={j} points={pts(q.quad)} fill={q.color} className="pv-layer" strokeWidth={0.1 * mm} />
+            {bands.map((band, j) => (
+              <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={t!.layers[j].color} className="pv-layer" strokeWidth={0.1 * mm} />
             ))}
+            <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall-outline" strokeWidth={0.35 * mm} />
           </g>
         ) : (
-          <polygon key={i} points={pts(wallSegmentQuad(w, th, s0, s1))} className="pv-wall" />
+          <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />
         ),
       )}
       {spans.map(({ opening: o, type, start, end }) => {
         const p0 = add(w.a, mul(d, start));
         const p1 = add(w.a, mul(d, end));
-        const half = mul(n, th / 2);
+        const half = mul(n, (g.extSign * th) / 2); // verso il lato esterno
         if (type.category === 'finestra') {
           const g1 = add(p0, mul(n, th * 0.08));
           const g2 = add(p1, mul(n, th * 0.08));
@@ -254,105 +253,117 @@ function WallPlan({ project: p, wall: w, mm }: { project: Project; wall: Wall; m
   );
 }
 
-function layerQuads(w: Wall, layers: { thickness: number; color: string }[], s0: number, s1: number) {
-  const total = layers.reduce((s, l) => s + l.thickness, 0);
-  const d = norm(sub(w.b, w.a));
-  const n = perp(d);
-  const a0 = add(w.a, mul(d, s0));
-  const a1 = add(w.a, mul(d, s1));
-  let off = total / 2;
-  return layers.map((l) => {
-    const o0 = off;
-    const o1 = off - l.thickness;
-    off = o1;
-    return {
-      color: l.color,
-      quad: [add(a0, mul(n, o0)), add(a1, mul(n, o0)), add(a1, mul(n, o1)), add(a0, mul(n, o1))],
-    };
-  });
-}
-
 function GhostWalls({ project: p, levelId, mm }: { project: Project; levelId: string; mm: number }) {
   return (
     <g className="pv-ghost" strokeWidth={0.18 * mm}>
       {p.elements.map((e) => {
         if (e.kind !== 'wall' || e.levelId !== levelId) return null;
-        const th = wallThickness(byId(p.catalog.wall, e.typeId));
-        return <polygon key={e.id} points={pts(wallSegmentQuad(e, th, 0, wallLength(e)))} />;
+        return <polygon key={e.id} points={pts(wallOutline(wallGeom(p, e)))} />;
       })}
     </g>
   );
 }
 
-/** Quote dei muri perimetrali, posizionate sul lato esterno */
-function WallDimensions({ project: p, walls, mm, ts }: { project: Project; walls: Wall[]; mm: number; ts: number }) {
-  if (!walls.length) return null;
-  const c = centroid(walls.flatMap((w) => [w.a, w.b]));
-  const exterior = walls.filter((w) => {
-    const t = byId(p.catalog.wall, w.typeId);
-    return t?.layers.some((l) => l.role === 'isolante') || wallThickness(t) >= 0.25;
-  });
+export interface DimTarget {
+  chain: DimChain;
+  k: number;
+  value: number;
+  at: Vec2;
+}
+
+/**
+ * Catene di quote. Fila 1 (parziali) a 6 mm dalla faccia, fila 2 (totale) a 13 mm.
+ * Le cifre dei segmenti stretti vengono sfalsate per non sovrapporsi.
+ */
+function DimChains({
+  project: p,
+  levelId,
+  mm,
+  ts,
+  onEdit,
+  activeKey,
+}: {
+  project: Project;
+  levelId: string;
+  mm: number;
+  ts: number;
+  onEdit?: (t: DimTarget) => void;
+  activeKey?: string;
+}) {
+  const chains = computeDimensions(p, levelId);
+  const font = 2 * mm * ts;
+  const charW = font * 0.62;
   return (
     <g className="pv-dim" strokeWidth={0.13 * mm}>
-      {exterior.map((w) => {
-        const th = wallThickness(byId(p.catalog.wall, w.typeId));
-        const d = norm(sub(w.b, w.a));
-        let n = perp(d);
-        const mid = centroid([w.a, w.b]);
-        if (dot(n, sub(mid, c)) < 0) n = mul(n, -1);
-        const off = th / 2 + 8 * mm;
-        const a = add(w.a, mul(n, off));
-        const b = add(w.b, mul(n, off));
-        const tick = 1.2 * mm;
-        const tk = (q: Vec2) => {
-          const t1 = add(q, mul(add(d, n), tick * 0.7));
-          const t2 = sub(q, mul(add(d, n), tick * 0.7));
-          return <line x1={t1.x} y1={-t1.y} x2={t2.x} y2={-t2.y} strokeWidth={0.35 * mm} />;
-        };
-        const txt = add(centroid([a, b]), mul(n, 1.2 * mm));
-        let ang = (Math.atan2(-d.y, d.x) * 180) / Math.PI;
-        if (ang > 90 || ang < -90) ang += 180;
-        // Catena: estremi del muro e delle aperture
-        const marks = [0, ...openingSpans(p, w).flatMap((s) => [s.start, s.end]), wallLength(w)];
+      {chains.map((c) => {
+        const off = (c.row === 1 ? 6 : 13) * mm * ts;
+        const P = (s: number, extra = 0) => add(add(c.origin, mul(c.dir, s)), mul(c.out, off + extra));
+        const s0 = c.marks[0].s;
+        const s1 = c.marks[c.marks.length - 1].s;
+        const a = P(s0);
+        const b = P(s1);
+        let ang = (Math.atan2(-c.dir.y, c.dir.x) * 180) / Math.PI;
+        // testo leggibile da sotto o da destra
+        const flipText = ang > 90 || ang <= -90;
+        if (flipText) ang += 180;
+        const tick = 1.1 * mm * ts;
+        let lastEnd = -Infinity;
+        let stagger = 0;
         return (
-          <g key={w.id}>
+          <g key={c.id}>
             <line x1={a.x} y1={-a.y} x2={b.x} y2={-b.y} />
-            <line x1={w.a.x + n.x * th * 0.5} y1={-(w.a.y + n.y * th * 0.5)} x2={a.x + n.x * tick} y2={-(a.y + n.y * tick)} />
-            <line x1={w.b.x + n.x * th * 0.5} y1={-(w.b.y + n.y * th * 0.5)} x2={b.x + n.x * tick} y2={-(b.y + n.y * tick)} />
-            {marks.map((m, i) => (
-              <g key={i}>{tk(add(a, mul(d, m)))}</g>
-            ))}
-            <text
-              x={txt.x}
-              y={-txt.y}
-              fontSize={2.2 * mm * ts}
-              textAnchor="middle"
-              className="pv-dimtext"
-              transform={`rotate(${ang} ${txt.x} ${-txt.y})`}
-            >
-              {wallLength(w).toFixed(2)}
-            </text>
-            {/* Quote parziali sotto la quota totale */}
-            {marks.length > 2 &&
-              marks.slice(0, -1).map((m, i) => {
-                const m2 = marks[i + 1];
-                const seg = m2 - m;
-                if (seg < 0.05) return null;
-                const q = add(add(a, mul(d, (m + m2) / 2)), mul(n, -2.6 * mm));
-                return (
-                  <text
-                    key={`p${i}`}
-                    x={q.x}
-                    y={-q.y}
-                    fontSize={1.7 * mm * ts}
-                    textAnchor="middle"
-                    className="pv-dimtext pv-dimpartial"
-                    transform={`rotate(${ang} ${q.x} ${-q.y})`}
-                  >
-                    {seg.toFixed(2)}
-                  </text>
-                );
-              })}
+            {c.marks.map((m, i) => {
+              const f = add(c.origin, mul(c.dir, m.s));
+              const q = P(m.s);
+              const t1 = add(q, mul(add(c.dir, c.out), tick * 0.7));
+              const t2 = sub(q, mul(add(c.dir, c.out), tick * 0.7));
+              const e2 = add(q, mul(c.out, tick));
+              const e1 = add(f, mul(c.out, 1.2 * mm));
+              return (
+                <g key={i}>
+                  {c.row === 1 && <line x1={e1.x} y1={-e1.y} x2={e2.x} y2={-e2.y} className="pv-dim-ext" />}
+                  <line x1={t1.x} y1={-t1.y} x2={t2.x} y2={-t2.y} strokeWidth={0.35 * mm} />
+                </g>
+              );
+            })}
+            {c.marks.slice(0, -1).map((m, k) => {
+              const len = c.marks[k + 1].s - m.s;
+              if (len < 0.005) return null;
+              const label = len.toFixed(2);
+              const mid = (m.s + c.marks[k + 1].s) / 2;
+              const w = label.length * charW;
+              const segPaper = len;
+              // sfalsa la cifra se si sovrappone alla precedente
+              const start = mid - w / 2;
+              stagger = start < lastEnd + charW * 0.5 && segPaper < w * 1.1 ? (stagger ? 0 : 1) : 0;
+              lastEnd = mid + w / 2;
+              const q = P(mid, font * 0.35 + stagger * font * 1.15);
+              const editable = !!onEdit && !!segmentEdit(c, k);
+              const key = `${c.id}#${k}`;
+              return (
+                <text
+                  key={`t${k}`}
+                  x={q.x}
+                  y={-q.y}
+                  fontSize={font}
+                  textAnchor="middle"
+                  className={`pv-dimtext ${c.row === 1 && c.marks.length > 2 ? 'pv-dimpartial' : ''} ${editable ? 'pv-dim-editable' : ''} ${activeKey === key ? 'pv-dim-active' : ''}`}
+                  transform={`rotate(${ang} ${q.x} ${-q.y})`}
+                  onPointerDown={
+                    editable
+                      ? (e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onEdit!({ chain: c, k, value: len, at: q });
+                        }
+                      : undefined
+                  }
+                >
+                  {editable && <title>Clic per scrivere la misura: {segmentEdit(c, k)}</title>}
+                  {label}
+                </text>
+              );
+            })}
           </g>
         );
       })}
@@ -367,10 +378,9 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
   if ('levelId' in e && e.levelId !== levelId) return null;
   switch (e.kind) {
     case 'wall': {
-      const th = wallThickness(byId(p.catalog.wall, e.typeId));
       return (
         <g className="pv-sel" strokeWidth={sw}>
-          <polygon points={pts(wallSegmentQuad(e, th, 0, wallLength(e)))} />
+          <polygon points={pts(wallOutline(wallGeom(p, e)))} />
           <circle cx={e.a.x} cy={-e.a.y} r={1.2 * mm} className="pv-handle" />
           <circle cx={e.b.x} cy={-e.b.y} r={1.2 * mm} className="pv-handle" />
         </g>

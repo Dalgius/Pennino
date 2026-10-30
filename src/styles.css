@@ -1735,3 +1735,42 @@ a.link {
 .field input[type='range'] {
   accent-color: var(--primary);
 }
+
+/* Quote associative */
+.canvas2d .pv-dim-ext {
+  stroke: var(--ochre);
+  opacity: 0.55;
+}
+.canvas2d .pv-wall-outline {
+  fill: none;
+  stroke: var(--ink);
+}
+.pv-dim-editable {
+  cursor: pointer;
+}
+.canvas2d .pv-dim-editable:hover {
+  fill: var(--primary);
+}
+.canvas2d .pv-dim-active {
+  fill: var(--primary);
+}
+.dim-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--primary);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dim-input input {
+  width: 70px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}

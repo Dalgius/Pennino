@@ -270,7 +270,13 @@ function WallInspector({
         <NumberField label="Fine Y" unit="m" value={w.b.y} onChange={(v) => upd((x) => (x.b = { ...x.b, y: v }))} />
       </div>
 
-      <div className="subhead">Stratigrafia · {fmt(th * 100, 1)} cm</div>
+      <div className="subhead">
+        Stratigrafia · {fmt(th * 100, 1)} cm
+        <button className="link" onClick={() => upd((x) => (x.flip = !x.flip))} title="Scambia lato esterno e lato interno">
+          Inverti lati ⇄
+        </button>
+      </div>
+      <p className="note">Dall’alto in basso: dal lato esterno al lato interno.</p>
       <div className="strata">
         {t?.layers.map((l, i) => (
           <div key={i} className="strata-row">

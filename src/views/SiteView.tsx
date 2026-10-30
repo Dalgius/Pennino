@@ -16,11 +16,9 @@ import {
   polygonArea,
   sortedLevels,
   sub,
-  wallLength,
-  wallSegmentQuad,
-  wallThickness,
 } from '../model/geometry';
 import { pts } from './PlanView';
+import { wallGeom, wallOutline } from '../model/walls';
 
 export const VEHICLE_SIZE: Record<VehicleKind, [number, number]> = {
   autobetoniera: [9, 2.5],
@@ -170,8 +168,7 @@ function RoofPlan({ project: p, mm, ts, showLabels }: { project: Project; mm: nu
       {masses.map((e) => {
         if (e.kind === 'slab') return <polygon key={e.id} points={pts(e.points)} className="sv-slab" strokeWidth={0.18 * mm} />;
         if (e.kind === 'wall') {
-          const th = wallThickness(byId(p.catalog.wall, e.typeId));
-          return <polygon key={e.id} points={pts(wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2))} className="sv-walltop" strokeWidth={0.18 * mm} />;
+          return <polygon key={e.id} points={pts(wallOutline(wallGeom(p, e)))} className="sv-walltop" strokeWidth={0.18 * mm} />;
         }
         if (e.kind === 'column') {
           const t = byId(p.catalog.column, e.typeId);

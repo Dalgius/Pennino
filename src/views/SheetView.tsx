@@ -410,6 +410,8 @@ export const SHEET_CSS = `
 .sheet-svg .pv-slab { fill: #f2f2f2; stroke: #888; }
 .sheet-svg .pv-wall { fill: #1a1a1a; }
 .sheet-svg .pv-layer { stroke: #111; }
+.sheet-svg .pv-wall-outline { fill: none; stroke: #111; }
+.sheet-svg .pv-dim-ext { stroke: #555; }
 .sheet-svg .pv-column { fill: #1a1a1a; }
 .sheet-svg .pv-beam { fill: none; stroke: #333; }
 .sheet-svg .pv-roof { fill: none; stroke: #555; }

@@ -152,6 +152,8 @@ export interface Wall {
   b: Vec2;
   /** Se assente, il muro segue l'altezza interpiano del livello */
   height?: number;
+  /** Inverte il lato esterno (di norma è quello rivolto fuori dall'edificio) */
+  flip?: boolean;
 }
 
 export interface Opening {
