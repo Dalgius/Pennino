@@ -3,6 +3,7 @@ import { produce } from 'immer';
 import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
 import { getImage, putImage } from './images';
+import { followWalls } from './constraints';
 
 const STORAGE_KEY = 'pennino.project.v1';
 const HISTORY_LIMIT = 120;
@@ -74,17 +75,25 @@ export const useStore = create<State>((set, get) => ({
   edit: (fn) => {
     const { project, past, revision } = get();
     // il valore restituito dalla funzione viene ignorato: conta solo ciò che modifica nella bozza
-    const next = produce(project, (d) => {
-      fn(d);
-    });
+    // dopo la modifica, solai e coperture appoggiati sui muri cambiati li seguono
+    const next = followWalls(
+      project,
+      produce(project, (d) => {
+        fn(d);
+      }),
+    );
     if (next === project) return;
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [], revision: revision + 1 });
   },
   editLive: (fn) => {
     const { project, revision } = get();
-    const next = produce(project, (d) => {
-      fn(d);
-    });
+    // dopo la modifica, solai e coperture appoggiati sui muri cambiati li seguono
+    const next = followWalls(
+      project,
+      produce(project, (d) => {
+        fn(d);
+      }),
+    );
     if (next !== project) set({ project: next, revision: revision + 1 });
   },
   checkpoint: () => {
