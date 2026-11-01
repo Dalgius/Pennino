@@ -10,6 +10,7 @@ import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
+  roofBase,
   bbox,
   byId,
   centroid,
@@ -54,7 +55,13 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   const columns = els.filter((e) => e.kind === 'column' && onLevel(e));
   const beams = els.filter((e) => e.kind === 'beam' && onLevel(e));
   const stairs = els.filter((e) => e.kind === 'stair' && onLevel(e));
-  const roofs = els.filter((e) => e.kind === 'roof' && onLevel(e));
+  const lvlRoof = byId(p.levels, levelId);
+  // sul livello delle coperture compaiono anche i tetti impostati alla sua quota ma assegnati al piano sotto
+  const roofs = els.filter(
+    (e) =>
+      e.kind === 'roof' &&
+      (onLevel(e) || (lvlRoof?.kind === 'copertura' && Math.abs(roofBase(p, e) - lvlRoof.elevation) < 0.01)),
+  );
   const sel = new Set(selectedIds);
   const lvl = byId(p.levels, levelId);
   const nextLvl = levelAbove(p, levelId);

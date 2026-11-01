@@ -492,6 +492,27 @@ function LevelsPanel() {
       <label className="check">
         <input type="checkbox" checked={chain} onChange={(e) => setChain(e.target.checked)} /> Le quote superiori seguono gli interpiani
       </label>
+      {!project.levels.some((l) => l.kind === 'copertura') && (
+        <button
+          className="btn btn-block"
+          onClick={() =>
+            edit((d) => {
+              const top = [...d.levels].sort((a, b) => b.elevation - a.elevation)[0];
+              const elevation = top ? +(top.elevation + top.height).toFixed(3) : 3;
+              const id = uid('lvl');
+              d.levels.push({ id, name: 'Copertura', elevation, height: 0, kind: 'copertura' });
+              // i tetti impostati a questa quota passano sul livello delle coperture
+              for (const e of d.elements) {
+                if (e.kind !== 'roof') continue;
+                const l = d.levels.find((x) => x.id === e.levelId);
+                if (l && Math.abs(l.elevation + l.height - elevation) < 0.01) e.levelId = id;
+              }
+            })
+          }
+        >
+          <Icon name="roof" size={14} /> Aggiungi livello delle coperture
+        </button>
+      )}
       <button
         className="btn btn-block"
         onClick={() =>
@@ -508,20 +529,6 @@ function LevelsPanel() {
       >
         <Icon name="plus" size={14} /> Aggiungi livello superiore
       </button>
-      {!project.levels.some((l) => l.kind === 'copertura') && (
-        <button
-          className="btn btn-block"
-          onClick={() =>
-            edit((d) => {
-              const top = [...d.levels].sort((a, b) => b.elevation - a.elevation)[0];
-              const elevation = top ? +(top.elevation + top.height).toFixed(3) : 3;
-              d.levels.push({ id: uid('lvl'), name: 'Copertura', elevation, height: 0, kind: 'copertura' });
-            })
-          }
-        >
-          <Icon name="roof" size={14} /> Aggiungi livello delle coperture
-        </button>
-      )}
       <button
         className="btn btn-block"
         onClick={() =>
