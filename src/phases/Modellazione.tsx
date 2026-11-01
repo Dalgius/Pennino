@@ -20,7 +20,7 @@ import {
   wallSegmentQuad,
   wallThickness,
 } from '../model/geometry';
-import { deleteElements, getHandles, hitTestModel, nearestWall, setHandle, snapPoint, snapPoints, translate, type Snap } from '../model/edit';
+import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapPoint, snapPoints, translate, type Snap } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -47,6 +47,11 @@ const TOOLS: ToolDef[] = [
   { id: 'stair', label: 'Scala', key: 'G', icon: 'stair', hint: 'Clic su partenza e arrivo della rampa: la scala sale al livello superiore.' },
   { id: 'roof', label: 'Copertura', key: 'C', icon: 'roof', catalog: 'roof', hint: 'Clic sui vertici della copertura, oppure usa «Copertura sull’edificio».' },
 ];
+
+/** Strumenti non disponibili sul livello delle coperture */
+const ROOF_LEVEL_OFF: Tool[] = ['door', 'window', 'stair'];
+/** Altezza dei parapetti disegnati sul livello delle coperture */
+const ROOF_PARAPET = 1.1;
 
 /** Prima lettera libera per una nuova sezione */
 function nextSectionName(p: Project) {
@@ -101,6 +106,8 @@ export function Modellazione() {
   const [mirrorNext, setMirrorNext] = useState(false);
   const [openingPreview, setOpeningPreview] = useState<{ wallId: string; offset: number } | null>(null);
   const drag = useRef<Drag | null>(null);
+  // selezione a riquadro: da sinistra a destra = finestra, da destra a sinistra = intersezione
+  const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2; add: boolean } | null>(null);
   const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
   const [dimText, setDimText] = useState('');
   const openDim = (t: DimTarget) => {
@@ -117,6 +124,11 @@ export function Modellazione() {
   const level = byId(project.levels, levelId) ?? levels[0];
   const lvlId = level?.id ?? '';
   const below = levels[levels.findIndex((l) => l.id === lvlId) - 1];
+  const isRoofLevel = level?.kind === 'copertura';
+  // passando al livello delle coperture, uno strumento non disponibile torna a Seleziona
+  useEffect(() => {
+    if (isRoofLevel && ROOF_LEVEL_OFF.includes(tool)) setTool('select');
+  }, [isRoofLevel, tool]);
   const selectedIds = selection.scope === 'modello' ? selection.ids : [];
   const toolDef = [...TOOLS, SECTION_TOOL].find((t) => t.id === tool)!;
 
@@ -169,7 +181,16 @@ export function Modellazione() {
       if (draft.length >= 1) {
         const a = draft[draft.length - 1];
         if (dist(a, q) > 0.01)
-          addElement({ id: uid('w'), kind: 'wall', levelId: lvlId, typeId: activeType.wall, a, b: q });
+          addElement({
+            id: uid('w'),
+            kind: 'wall',
+            levelId: lvlId,
+            typeId: activeType.wall,
+            a,
+            b: q,
+            // sul livello delle coperture il muro è un parapetto
+            ...(isRoofLevel ? { height: ROOF_PARAPET } : {}),
+          });
         if (dist(q, draft[0]) < 0.01 && draft.length > 1) return resetDraft();
       }
       setDraft(pts2);
@@ -314,7 +335,23 @@ export function Modellazione() {
         drag.current = { kind: el?.kind === 'opening' ? 'opening' : 'move', id: hit, start: snap.p, orig: project, moved: false };
         setEditingType(null);
       } else {
-        select('modello', []);
+        // clic nel vuoto: inizia un riquadro di selezione
+        setMarquee({ a: e.world, b: e.world, add: e.shift });
+        if (!e.shift) select('modello', []);
+      }
+      return;
+    }
+    if (e.type === 'move' && marquee) {
+      setMarquee({ ...marquee, b: e.world });
+      return;
+    }
+    if (e.type === 'up' && marquee) {
+      const m = marquee;
+      setMarquee(null);
+      if (dist(m.a, m.b) > tol) {
+        const r = { minX: Math.min(m.a.x, m.b.x), minY: Math.min(m.a.y, m.b.y), maxX: Math.max(m.a.x, m.b.x), maxY: Math.max(m.a.y, m.b.y) };
+        const found = elementsInRect(project, lvlId, r, m.b.x < m.a.x);
+        select('modello', m.add ? [...new Set([...selectedIds, ...found])] : found);
       }
       return;
     }
@@ -402,6 +439,13 @@ export function Modellazione() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        // seleziona tutto il livello
+        e.preventDefault();
+        changeTool('select');
+        select('modello', elementsInRect(project, lvlId, { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }, false));
+        return;
+      }
       if (e.ctrlKey || e.metaKey) return;
       const k = e.key;
       if (draft.length > 0 && /^[0-9.,]$/.test(k)) {
@@ -445,7 +489,7 @@ export function Modellazione() {
         return;
       }
       const t = [...TOOLS, SECTION_TOOL].find((x) => x.key.toLowerCase() === k.toLowerCase());
-      if (t) changeTool(t.id);
+      if (t && !(isRoofLevel && ROOF_LEVEL_OFF.includes(t.id))) changeTool(t.id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -515,6 +559,16 @@ export function Modellazione() {
               previewLen={previewLen}
               thickness={tool === 'wall' ? wallThickness(byId(project.catalog.wall, activeType.wall)) : 0}
             />
+            {marquee && (
+              <rect
+                x={Math.min(marquee.a.x, marquee.b.x)}
+                y={-Math.max(marquee.a.y, marquee.b.y)}
+                width={Math.abs(marquee.b.x - marquee.a.x)}
+                height={Math.abs(marquee.b.y - marquee.a.y)}
+                className={marquee.b.x < marquee.a.x ? 'marquee marquee-cross' : 'marquee'}
+                pointerEvents="none"
+              />
+            )}
             {/* anteprima della traccia di sezione: segue il mouse dopo il primo clic */}
             {tool === 'section' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.05 && (
               <g className="sm-preview" pointerEvents="none">
@@ -564,18 +618,23 @@ export function Modellazione() {
             <span className="phase-num">02</span> Modellazione
           </div>
           <div className="toolgrid">
-            {TOOLS.map((t) => (
-              <button
-                key={t.id}
-                className={`tool ${tool === t.id ? 'on' : ''}`}
-                onClick={() => changeTool(t.id)}
-                title={`${t.label} (${t.key})`}
-              >
-                <Icon name={t.icon} size={20} />
-                <span>{t.label}</span>
-                <kbd>{t.key}</kbd>
-              </button>
-            ))}
+            {TOOLS.map((t) => {
+              const off = isRoofLevel && ROOF_LEVEL_OFF.includes(t.id);
+              const label = isRoofLevel && t.id === 'wall' ? 'Parapetto' : t.label;
+              return (
+                <button
+                  key={t.id}
+                  className={`tool ${tool === t.id ? 'on' : ''}`}
+                  disabled={off}
+                  onClick={() => changeTool(t.id)}
+                  title={off ? 'Non disponibile sul livello delle coperture: non ci sono muri d’ambito né piani superiori' : `${label} (${t.key})`}
+                >
+                  <Icon name={t.icon} size={20} />
+                  <span>{label}</span>
+                  <kbd>{t.key}</kbd>
+                </button>
+              );
+            })}
           </div>
 
           {catKey && (

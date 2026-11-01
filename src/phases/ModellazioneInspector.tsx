@@ -44,7 +44,21 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
       <div className="inspector">
         <div className="insp-kicker">Selezione multipla</div>
         <h2 className="insp-title">{els.length} elementi</h2>
-        <p className="note">Trascina per spostarli insieme.</p>
+        <div className="kv-grid kv-1">
+          {Object.entries(
+            els.reduce<Record<string, number>>((acc, x) => {
+              const k = elementLabel(x!);
+              acc[k] = (acc[k] ?? 0) + 1;
+              return acc;
+            }, {}),
+          ).map(([k, n]) => (
+            <div key={k}>
+              <span>{k}</span>
+              <b className="mono">{n}</b>
+            </div>
+          ))}
+        </div>
+        <p className="note">Trascina per spostarli insieme · Maiusc + clic o riquadro per aggiungere · Canc per eliminare.</p>
         <button className="btn btn-danger btn-block" onClick={remove}>
           <Icon name="trash" size={14} /> Elimina selezione
         </button>

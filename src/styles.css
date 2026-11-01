@@ -1924,3 +1924,16 @@ input.brand-project:focus {
 .canvas2d .sm-preview {
   opacity: 0.85;
 }
+
+/* Selezione a riquadro */
+.canvas2d .marquee {
+  fill: var(--primary-soft);
+  stroke: var(--primary);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.canvas2d .marquee-cross {
+  fill: var(--ok-soft);
+  stroke: var(--ok);
+  stroke-dasharray: 6 4;
+}
