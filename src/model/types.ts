@@ -217,12 +217,24 @@ export interface Roof {
   overhang: number;
 }
 
+/** Traccia di sezione verticale: piano passante per a→b, vista verso sinistra di a→b (o destra se flip) */
+export interface SectionLine {
+  id: ID;
+  /** Lettera o sigla, es. A (la sezione si chiama A–A′) */
+  name: string;
+  a: Vec2;
+  b: Vec2;
+  /** Profondità di vista oltre il piano di sezione (m) */
+  depth: number;
+  flip: boolean;
+}
+
 export type BuildingElement = Wall | Opening | Slab | Column | Beam | Stair | Roof;
 export type ElementKind = BuildingElement['kind'];
 
 // ───────────────────────── 03 · Layout ─────────────────────────
 
-export type ViewportKind = 'pianta' | 'prospetto' | 'assonometria' | 'planimetria' | 'abaco' | 'legenda';
+export type ViewportKind = 'pianta' | 'prospetto' | 'sezione' | 'assonometria' | 'planimetria' | 'abaco' | 'legenda';
 
 export interface Viewport {
   id: ID;
@@ -234,6 +246,7 @@ export interface Viewport {
   scale: number;
   levelId?: ID;
   direction?: 'sud' | 'nord' | 'est' | 'ovest';
+  sectionId?: ID;
   schedule?: 'aperture' | 'muri';
   showDimensions?: boolean;
 }
@@ -302,6 +315,7 @@ export interface Project {
   levels: Level[];
   catalog: Catalog;
   elements: BuildingElement[];
+  sections?: SectionLine[];
   sheets: Sheet[];
   titleBlock: TitleBlock;
   prices: PriceItem[];

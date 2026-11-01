@@ -158,6 +158,7 @@ export function sampleProject(): Project {
       ],
     },
     elements: els,
+    sections: [{ id: 'sez_a', name: 'A', a: P(3, -5), b: P(3, 13), depth: 40, flip: true }],
     sheets: [
       {
         id: 'sh_01',
@@ -204,6 +205,15 @@ export function sampleProject(): Project {
         revision: '00',
         date: '2026-10-30',
         viewports: [{ id: uid('vp'), kind: 'abaco', title: 'Abaco aperture', x: 20, y: 24, scale: 1, schedule: 'aperture' }],
+      },
+      {
+        id: 'sh_05',
+        number: 'A.05',
+        title: 'Sezione A–A′',
+        format: 'A3',
+        revision: '00',
+        date: '2026-10-30',
+        viewports: [{ id: uid('vp'), kind: 'sezione', title: 'Sezione A–A′', x: 30, y: 30, scale: 100, sectionId: 'sez_a' }],
       },
     ],
     titleBlock: {
@@ -252,6 +262,44 @@ export function sampleProject(): Project {
       { id: uid('cn'), kind: 'area', name: 'Baraccamenti', use: 'baraccamenti', points: [P(-7, 11), P(-1, 11), P(-1, 16), P(-7, 16)] },
       { id: uid('cn'), kind: 'percorso', name: 'Viabilità interna', width: 4, points: [P(14, -9.5), P(14, -4), P(20, -4), P(20, 7.5)] },
       { id: uid('cn'), kind: 'mezzo', vehicle: 'autobetoniera', p: P(17, -6.5), rotation: 90 },
+    ],
+  };
+}
+
+/** Progetto vuoto: un livello, nessun elemento; tipologie, prezzi e cartiglio vengono dal progetto corrente */
+export function emptyProject(from: Project): Project {
+  const base = sampleProject();
+  const lvl = 'lvl_' + Math.random().toString(36).slice(2, 8);
+  return {
+    ...base,
+    name: 'Nuovo progetto',
+    site: {
+      ...base.site,
+      address: '',
+      municipality: '',
+      cadastre: '',
+      lot: [],
+      context: [],
+      underlays: [],
+    },
+    levels: [{ id: lvl, name: 'Piano terra', elevation: 0, height: 3 }],
+    catalog: JSON.parse(JSON.stringify(from.catalog)),
+    prices: JSON.parse(JSON.stringify(from.prices)),
+    priceListName: from.priceListName,
+    titleBlock: { ...from.titleBlock },
+    elements: [],
+    sections: [],
+    siteLogistics: [],
+    sheets: [
+      {
+        id: 'sh_' + Math.random().toString(36).slice(2, 8),
+        number: 'A.01',
+        title: 'Nuova tavola',
+        format: 'A3',
+        revision: '00',
+        date: new Date().toISOString().slice(0, 10),
+        viewports: [],
+      },
     ],
   };
 }

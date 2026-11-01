@@ -5,7 +5,7 @@ Applicazione BIM pensata per gli architetti: si lavora per **fasi** che seguono 
 | Fase | Ambiente di lavoro |
 | --- | --- |
 | **01 · Inquadramento** | Localizzazione, coordinate, catasto, nord geografico e soleggiamento, lotto e contesto (strade, edifici, alberi), livelli con quote e interpiani, verifiche urbanistiche (H max, Rc, distanze) |
-| **02 · Modellazione** | Muri stratificati, solai, pilastri, travi, porte, finestre, scale, coperture piane o a falde; tipologie modificabili; pianta, prospetti, 3D o pianta + 3D affiancate |
+| **02 · Modellazione** | Muri stratificati, solai, pilastri, travi, porte, finestre, scale, coperture piane o a falde, tracce di sezione; tipologie modificabili; pianta, prospetti, sezioni, 3D o pianta + 3D affiancate |
 | **03 · Layout** | Tavole A3/A2/A1, viste collegate al modello (piante con quote automatiche, prospetti, assonometria, planimetria, abachi, legenda), cartiglio, stampa/PDF ed esportazione SVG |
 | **04 · Computo** | Computo metrico estimativo per WBS calcolato dal modello, abachi di serramenti, murature e solai, elenco prezzi modificabile, esportazione CSV |
 | **05 · Cantiere** | Planimetria di cantiere sul lotto e sul contesto di 01: recinzioni, accessi, aree (deposito, baraccamenti…), gru con verifica del raggio, mezzi, viabilità; gli oneri entrano nel computo |
@@ -56,6 +56,7 @@ npm run dev
 | P / T | Pilastro / Trave | | Maiusc | disegno libero (disattiva l'ortogonale) |
 | O / F | Porta / Finestra | | F8 | ortogonale sì/no |
 | G | Scala | | Spazio + trascina, tasto centrale | sposta la vista |
+| X | Sezione | | Ctrl+O / Ctrl+S / Ctrl+Alt+N | apri / salva / nuovo progetto |
 | C | Copertura | | Ctrl+Z / Ctrl+Maiusc+Z | annulla / ripeti |
 
 Mentre si disegna un muro basta digitare la lunghezza (per esempio `4.20`) e premere Invio. Alt+1…5 cambia fase.

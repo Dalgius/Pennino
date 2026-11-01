@@ -9,6 +9,7 @@ import { getHandles } from '../model/edit';
 import { PlanView } from './PlanView';
 import { ElevationView, elevationExtents, elevationHeight } from './ElevationView';
 import { SiteView } from './SiteView';
+import { SectionView, sectionLength } from './SectionView';
 import { renderAxonometric, sceneBounds } from './scene3d';
 
 export const PAPER: Record<PaperFormat, { w: number; h: number }> = {
@@ -34,6 +35,12 @@ export function viewportFrame(p: Project, vp: Viewport) {
     const h = elevationHeight(p);
     const extra = 26 / k; // etichette dei livelli
     return { w: (ext.max - ext.min + 2) * k + 26, h: (h.top - h.bottom + 0.5) * k, ox: ext.min - 1, oy: h.top + 0.3, k, extra };
+  }
+  if (vp.kind === 'sezione') {
+    const sec = (p.sections ?? []).find((x) => x.id === vp.sectionId);
+    const L = sec ? sectionLength(sec) : 10;
+    const h = elevationHeight(p);
+    return { w: (L + 1) * k + 26, h: (h.top - h.bottom + 0.5) * k, ox: -0.5, oy: h.top + 0.3, k };
   }
   if (vp.kind === 'planimetria') {
     // inquadratura sul lotto e sull'edificio; il contesto oltre il margine viene ritagliato
@@ -151,6 +158,20 @@ function ViewportBox({
             <ElevationView project={p} direction={vp.direction ?? 'sud'} mm={mm} />
           </g>
         );
+      case 'sezione': {
+        const sec = (p.sections ?? []).find((x) => x.id === vp.sectionId);
+        if (!sec)
+          return (
+            <text x={4} y={8} fontSize={3} className="sh-text">
+              Sezione eliminata dal modello
+            </text>
+          );
+        return (
+          <g transform={`scale(${f.k}) translate(${-f.ox} ${f.oy})`}>
+            <SectionView project={p} section={sec} mm={mm} />
+          </g>
+        );
+      }
       case 'planimetria':
         return (
           <g transform={`scale(${f.k}) translate(${-f.ox} ${f.oy})`}>
@@ -165,7 +186,7 @@ function ViewportBox({
         return <Legend project={p} />;
     }
   };
-  const showScale = vp.kind === 'pianta' || vp.kind === 'prospetto' || vp.kind === 'planimetria' || vp.kind === 'assonometria';
+  const showScale = vp.kind === 'pianta' || vp.kind === 'prospetto' || vp.kind === 'sezione' || vp.kind === 'planimetria' || vp.kind === 'assonometria';
   return (
     <g transform={`translate(${vp.x} ${vp.y})`} className={`sh-vp ${selected ? 'sh-vp-sel' : ''}`} onPointerDown={(e) => onDown?.(vp, e)}>
       <rect x={-2} y={-2} width={f.w + 4} height={f.h + TITLE_H + 4} className="sh-vp-hit" />
@@ -441,6 +462,15 @@ export const SHEET_CSS = `
 .sheet-svg .ev-frame-fill { fill: #f2f2f2; stroke: #111; }
 .sheet-svg .ev-swing { fill: none; stroke: #444; }
 .sheet-svg .ev-sill { fill: #fff; stroke: #111; }
+.sheet-svg .sc-cut { fill: #111; stroke: #111; }
+.sheet-svg .sc-earth { fill: #ddd; }
+.sheet-svg .sc-fixture rect { fill: #fff; stroke: #111; }
+.sheet-svg .sc-glass { stroke: #111; }
+.sheet-svg .sc-sill { fill: #fff; stroke: #111; }
+.sheet-svg .sm-line, .sheet-svg .sm-thick { stroke: #111; fill: none; }
+.sheet-svg .sm-head { fill: #111; }
+.sheet-svg .sm-circle { fill: #fff; stroke: #111; }
+.sheet-svg .sm-text { fill: #111; font-weight: 600; }
 .sheet-svg .ev-ground { stroke: #111; }
 .sheet-svg .ev-level line { stroke: #111; }
 .sheet-svg .ev-level-mark { fill: #111; }

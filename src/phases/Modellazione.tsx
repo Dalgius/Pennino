@@ -12,6 +12,7 @@ import {
   fmtLevel,
   mul,
   norm,
+  projectOnSegment,
   sortedLevels,
   sub,
   uid,
@@ -25,12 +26,13 @@ import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
 import { Model3D } from '../views/Model3D';
 import { Icon } from '../ui/icons';
-import { KeyHint, Segmented } from '../ui/controls';
+import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
+import { SectionView, sectionLength } from '../views/SectionView';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
 import { applyDimension } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
-export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof';
+export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section';
 
 const TOOLS: { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string }[] = [
   { id: 'select', label: 'Seleziona', key: 'V', icon: 'select', hint: 'Clic per selezionare, trascina per spostare. Trascina le maniglie per modificare.' },
@@ -41,13 +43,14 @@ const TOOLS: { id: Tool; label: string; key: string; icon: string; catalog?: Cat
   { id: 'door', label: 'Porta', key: 'O', icon: 'door', catalog: 'opening', hint: 'Avvicinati a un muro e clicca per inserire la porta. Alt inverte il verso.' },
   { id: 'window', label: 'Finestra', key: 'F', icon: 'window', catalog: 'opening', hint: 'Avvicinati a un muro e clicca per inserire la finestra.' },
   { id: 'stair', label: 'Scala', key: 'G', icon: 'stair', hint: 'Clic su partenza e arrivo della rampa: la scala sale al livello superiore.' },
+  { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' },
   { id: 'roof', label: 'Copertura', key: 'C', icon: 'roof', catalog: 'roof', hint: 'Clic sui vertici della copertura, oppure usa «Copertura sull’edificio».' },
 ];
 
-type ViewMode = 'pianta' | 'prospetti' | '3d' | 'affiancate';
+type ViewMode = 'pianta' | 'prospetti' | 'sezioni' | '3d' | 'affiancate';
 
 interface Drag {
-  kind: 'move' | 'handle' | 'opening';
+  kind: 'move' | 'handle' | 'opening' | 'sezione' | 'sezione-estremo';
   id: string;
   handle?: number;
   start: Vec2;
@@ -171,6 +174,20 @@ export function Modellazione() {
         }
         resetDraft();
       } else setDraft([q]);
+    } else if (tool === 'section') {
+      if (draft.length === 1) {
+        if (dist(draft[0], q) > 0.5) {
+          const id = uid('sez');
+          const used = new Set((project.sections ?? []).map((x) => x.name));
+          const name = 'ABCDEFGHIJKLMNOPQRSTUVWZ'.split('').find((c) => !used.has(c)) ?? String(used.size + 1);
+          edit((d) => {
+            d.sections = [...(d.sections ?? []), { id, name, a: draft[0], b: q, depth: 40, flip: false }];
+          });
+          select('modello', [id]);
+          setTool('select');
+        }
+        resetDraft();
+      } else setDraft([q]);
     } else if (tool === 'column') {
       addElement({ id: uid('c'), kind: 'column', levelId: lvlId, typeId: activeType.column, p: q });
     }
@@ -254,7 +271,23 @@ export function Modellazione() {
           return;
         }
       }
+      // tracce di sezione: estremi e linea
+      for (const sec of project.sections ?? []) {
+        if (!selectedIds.includes(sec.id)) continue;
+        const hi = [sec.a, sec.b].findIndex((h) => dist(h, e.world) < tol);
+        if (hi >= 0) {
+          drag.current = { kind: 'sezione-estremo', id: sec.id, handle: hi, start: e.world, orig: project, moved: false };
+          return;
+        }
+      }
+      const secHit = (project.sections ?? []).find((sec) => projectOnSegment(e.world, sec.a, sec.b).d < tol);
       const hit = hitTestModel(project, e.world, lvlId, tol);
+      if (secHit && !hit) {
+        select('modello', [secHit.id]);
+        drag.current = { kind: 'sezione', id: secHit.id, start: snap.p, orig: project, moved: false };
+        setEditingType(null);
+        return;
+      }
       if (hit) {
         if (e.shift) {
           select('modello', selectedIds.includes(hit) ? selectedIds.filter((x) => x !== hit) : [...selectedIds, hit]);
@@ -290,6 +323,21 @@ export function Modellazione() {
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id);
           if (x && x.kind === 'opening') x.offset = offset;
+        });
+        return;
+      }
+      if (dr.kind === 'sezione' || dr.kind === 'sezione-estremo') {
+        const src = (o.sections ?? []).find((x) => x.id === dr.id);
+        if (!src) return;
+        const delta = sub(snap.p, dr.start);
+        editLive((d) => {
+          const x = (d.sections ?? []).find((q) => q.id === dr.id);
+          if (!x) return;
+          if (dr.kind === 'sezione') {
+            x.a = add(src.a, delta);
+            x.b = add(src.b, delta);
+          } else if (dr.handle === 0) x.a = snap.p;
+          else x.b = snap.p;
         });
         return;
       }
@@ -367,7 +415,10 @@ export function Modellazione() {
         return;
       }
       if ((k === 'Delete' || k === 'Backspace') && selectedIds.length) {
-        edit((d) => deleteElements(d, selectedIds));
+        edit((d) => {
+          deleteElements(d, selectedIds);
+          if (d.sections) d.sections = d.sections.filter((x) => !selectedIds.includes(x.id));
+        });
         select('modello', []);
         return;
       }
@@ -575,6 +626,7 @@ export function Modellazione() {
             options={[
               { value: 'pianta', label: 'Pianta' },
               { value: 'prospetti', label: 'Prospetti' },
+              { value: 'sezioni', label: 'Sezioni' },
               { value: '3d', label: 'Vista 3D' },
               { value: 'affiancate', label: 'Pianta + 3D' },
             ]}
@@ -590,6 +642,7 @@ export function Modellazione() {
         <div className={`stage-body ${view === 'affiancate' ? 'split' : ''}`}>
           {(view === 'pianta' || view === 'affiancate') && planCanvas}
           {view === 'prospetti' && <ElevationsBoard project={project} />}
+          {view === 'sezioni' && <SectionsBoard project={project} selectedIds={selectedIds} onDraw={() => { setView('pianta'); changeTool('section'); }} />}
           {(view === '3d' || view === 'affiancate') && (
             <Model3D
               project={project}
@@ -630,7 +683,11 @@ export function Modellazione() {
           {editingType ? (
             <TypeEditor catKey={editingType.key} id={editingType.id} onClose={() => setEditingType(null)} />
           ) : selectedIds.length ? (
-            <Inspector ids={selectedIds} onEditType={(key, id) => setEditingType({ key, id })} />
+            (project.sections ?? []).some((x) => x.id === selectedIds[0]) ? (
+              <SectionInspector id={selectedIds[0]} onOpen={() => setView('sezioni')} />
+            ) : (
+              <Inspector ids={selectedIds} onEditType={(key, id) => setEditingType({ key, id })} />
+            )
           ) : (
             <LevelSummary project={project} levelId={lvlId} />
           )}
@@ -868,5 +925,82 @@ function ElevationsBoard({ project }: { project: Project }) {
         </g>
       )}
     </Canvas2D>
+  );
+}
+
+/** Sezioni del progetto, generate dal modello */
+function SectionsBoard({ project, selectedIds, onDraw }: { project: Project; selectedIds: string[]; onDraw: () => void }) {
+  const all = project.sections ?? [];
+  const sel = all.find((x) => selectedIds.includes(x.id));
+  const list = sel ? [sel] : all;
+  if (!all.length)
+    return (
+      <div className="empty-stage">
+        <p>Nessuna sezione nel progetto.</p>
+        <button className="btn btn-primary" onClick={onDraw}>Traccia una sezione in pianta</button>
+      </div>
+    );
+  const h = elevationHeight(project);
+  const rowH = h.top - h.bottom + 6;
+  const maxL = Math.max(...list.map(sectionLength));
+  const bounds = { minX: -2, minY: h.top - rowH * list.length, maxX: maxL + 14, maxY: h.top + 3 };
+  return (
+    <Canvas2D key={list.map((x) => x.id).join()} bounds={bounds} grid={false}>
+      {(z) => (
+        <g>
+          {list.map((sec, i) => (
+            <g key={sec.id} transform={`translate(0 ${i * rowH})`}>
+              <SectionView project={project} section={sec} mm={3 / z} textScale={SCREEN_TEXT} />
+              <text x={0} y={-h.top - 1.2} fontSize={12 / z} className="board-title">
+                SEZIONE {sec.name}–{sec.name}′
+              </text>
+            </g>
+          ))}
+        </g>
+      )}
+    </Canvas2D>
+  );
+}
+
+function SectionInspector({ id, onOpen }: { id: string; onOpen: () => void }) {
+  const project = useStore((s) => s.project);
+  const edit = useStore((s) => s.edit);
+  const select = useStore((s) => s.select);
+  const sec = (project.sections ?? []).find((x) => x.id === id);
+  if (!sec) return null;
+  const upd = (fn: (x: NonNullable<Project['sections']>[number]) => void) =>
+    edit((d) => {
+      const x = (d.sections ?? []).find((q) => q.id === id);
+      if (x) fn(x);
+    });
+  return (
+    <div className="inspector">
+      <div className="insp-kicker">Sezione</div>
+      <h2 className="insp-title">
+        {sec.name}–{sec.name}′
+      </h2>
+      <TextField label="Sigla" value={sec.name} onChange={(v) => upd((x) => (x.name = v.trim() || x.name))} />
+      <NumberField label="Profondità di vista" unit="m" value={sec.depth} min={1} step={1} digits={1} onChange={(v) => upd((x) => (x.depth = v))} />
+      <div className="kv-grid">
+        <div><span>Lunghezza traccia</span><b className="mono">{fmt(sectionLength(sec))} m</b></div>
+        <div><span>Verso di vista</span><b>{sec.flip ? 'a destra della traccia' : 'a sinistra della traccia'}</b></div>
+      </div>
+      <div className="door-tools">
+        <button className="btn" onClick={() => upd((x) => (x.flip = !x.flip))}>⇅ Inverti verso</button>
+        <button className="btn btn-primary" onClick={onOpen}>Apri la sezione</button>
+      </div>
+      <p className="note">La sezione si aggiorna a ogni modifica del modello. In 03 Layout puoi inserirla in una tavola.</p>
+      <div className="insp-actions">
+        <button
+          className="btn btn-danger"
+          onClick={() => {
+            edit((d) => void (d.sections = (d.sections ?? []).filter((x) => x.id !== id)));
+            select('modello', []);
+          }}
+        >
+          <Icon name="trash" size={14} /> Elimina sezione
+        </button>
+      </div>
+    </div>
   );
 }

@@ -3,6 +3,7 @@
 // Coordinate in metri; l'asse Y del modello è ribaltato per l'SVG.
 
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
+import { SectionMark } from './SectionView';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
@@ -169,6 +170,11 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
             </text>
           );
         })}
+
+      {/* Tracce di sezione */}
+      {(p.sections ?? []).map((sec) => (
+        <SectionMark key={sec.id} section={sec} mm={mm} ts={ts} selected={sel.has(sec.id)} />
+      ))}
 
       {/* Evidenziazione selezione */}
       {els

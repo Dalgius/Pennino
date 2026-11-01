@@ -11,6 +11,7 @@ import { PAPER, SCALES, SheetView, viewportFrame } from '../views/SheetView';
 const KIND_LABEL: Record<ViewportKind, string> = {
   pianta: 'Pianta',
   prospetto: 'Prospetto',
+  sezione: 'Sezione',
   assonometria: 'Assonometria',
   planimetria: 'Planimetria',
   abaco: 'Abaco',
@@ -149,6 +150,7 @@ export function Layout() {
           </div>
 
           <div className="subhead">Inserisci vista dal modello</div>
+          {!(project.sections ?? []).length && <p className="note">Per inserire una sezione, tracciala prima in 02 · Modellazione con lo strumento Sezione (X).</p>}
           <div className="insert-grid">
             {levels.map((l) => (
               <button key={l.id} className="insert-btn" onClick={() => addViewport({ kind: 'pianta', title: `Pianta ${l.name.toLowerCase()}`, scale: 100, levelId: l.id, showDimensions: true })}>
@@ -158,6 +160,11 @@ export function Layout() {
             {(['sud', 'est', 'nord', 'ovest'] as const).map((d) => (
               <button key={d} className="insert-btn" onClick={() => addViewport({ kind: 'prospetto', title: `Prospetto ${d}`, scale: 100, direction: d })}>
                 <Icon name="building" size={16} /> Prospetto {d}
+              </button>
+            ))}
+            {(project.sections ?? []).map((sec) => (
+              <button key={sec.id} className="insert-btn" onClick={() => addViewport({ kind: 'sezione', title: `Sezione ${sec.name}–${sec.name}′`, scale: 100, sectionId: sec.id })}>
+                <Icon name="section" size={16} /> Sezione {sec.name}–{sec.name}′
               </button>
             ))}
             <button className="insert-btn" onClick={() => addViewport({ kind: 'assonometria', title: 'Assonometria', scale: 150 })}>
@@ -243,7 +250,7 @@ export function Layout() {
 
 function ViewportPanel({ project, sheet, vp, upd, onRemove }: { project: Project; sheet: Sheet; vp: Viewport; upd: (fn: (v: Viewport) => void) => void; onRemove: () => void }) {
   const f = viewportFrame(project, vp);
-  const scalable = vp.kind === 'pianta' || vp.kind === 'prospetto' || vp.kind === 'planimetria' || vp.kind === 'assonometria';
+  const scalable = vp.kind === 'pianta' || vp.kind === 'prospetto' || vp.kind === 'sezione' || vp.kind === 'planimetria' || vp.kind === 'assonometria';
   const paper = PAPER[sheet.format];
   const outside = vp.x + f.w > paper.w - 10 || vp.y + f.h > paper.h - 10 || vp.x < 20 || vp.y < 10;
   return (
@@ -273,6 +280,14 @@ function ViewportPanel({ project, sheet, vp, upd, onRemove }: { project: Project
       )}
       {vp.kind === 'prospetto' && (
         <SelectField label="Fronte" value={vp.direction ?? 'sud'} options={['sud', 'nord', 'est', 'ovest'].map((d) => ({ value: d as 'sud', label: `Prospetto ${d}` }))} onChange={(v) => upd((x) => (x.direction = v))} />
+      )}
+      {vp.kind === 'sezione' && (
+        <SelectField
+          label="Sezione"
+          value={vp.sectionId ?? ''}
+          options={(project.sections ?? []).map((x) => ({ value: x.id, label: `Sezione ${x.name}–${x.name}′` }))}
+          onChange={(v) => upd((x) => (x.sectionId = v))}
+        />
       )}
       {vp.kind === 'abaco' && (
         <SelectField label="Abaco" value={vp.schedule ?? 'aperture'} options={[{ value: 'aperture', label: 'Serramenti' }, { value: 'muri', label: 'Murature' }]} onChange={(v) => upd((x) => (x.schedule = v))} />

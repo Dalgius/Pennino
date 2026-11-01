@@ -1826,3 +1826,88 @@ a.link {
   fill: var(--surface-2);
   stroke: var(--ink);
 }
+
+/* Sezioni */
+.canvas2d .sc-cut {
+  fill: var(--ink);
+  stroke: var(--ink);
+}
+.canvas2d .sc-earth {
+  fill: var(--ochre-soft);
+}
+.canvas2d .sc-fixture rect {
+  fill: var(--canvas);
+  stroke: var(--ink);
+}
+.canvas2d .sc-fixture .sc-leaf {
+  fill: var(--ochre-soft);
+}
+.canvas2d .sc-glass {
+  stroke: var(--primary);
+}
+.canvas2d .sc-sill {
+  fill: var(--surface-2);
+  stroke: var(--ink);
+}
+.canvas2d .sm-line,
+.canvas2d .sm-thick {
+  stroke: var(--terra);
+  fill: none;
+}
+.canvas2d .sm-head {
+  fill: var(--terra);
+}
+.canvas2d .sm-circle {
+  fill: var(--canvas);
+  stroke: var(--terra);
+}
+.canvas2d .sm-text {
+  fill: var(--terra);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+.canvas2d .sm-selected .sm-line,
+.canvas2d .sm-selected .sm-thick {
+  stroke: var(--primary);
+}
+.empty-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-3);
+}
+
+/* Comandi file a sinistra */
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+input.brand-project {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0 2px;
+  margin-left: -3px;
+  width: 140px;
+  font-size: 11px;
+}
+input.brand-project:hover {
+  border-color: var(--line);
+}
+input.brand-project:focus {
+  border-color: var(--primary);
+  outline: none;
+  color: var(--text);
+}
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-right: 1px solid var(--line);
+}
+.brand {
+  min-width: 190px;
+}

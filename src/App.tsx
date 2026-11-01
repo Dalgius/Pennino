@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { exportProjectFile, importProjectFile, resetToSample, useStore } from './model/store';
+import { emptyProject } from './model/defaults';
 import type { Phase } from './model/types';
 import { fmtEuro } from './model/geometry';
 import { computeComputo } from './model/quantities';
@@ -31,6 +32,7 @@ export function App() {
   const savedAt = useStore((s) => s.savedAt);
   const replace = useStore((s) => s.replaceProject);
   const fileRef = useRef<HTMLInputElement>(null);
+  const newFileRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme === 'scuro' ? 'dark' : 'light';
@@ -47,6 +49,12 @@ export function App() {
       } else if (mod && e.key.toLowerCase() === 'y' && !inField) {
         e.preventDefault();
         redo();
+      } else if (mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        fileRef.current?.click();
+      } else if (mod && e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        newFileRef.current();
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         exportProjectFile(useStore.getState().project);
@@ -61,6 +69,15 @@ export function App() {
 
   const total = useMemo(() => computeComputo(project).reduce((s, l) => s + l.amount, 0), [project]);
   const count = project.elements.length;
+
+  const edit = useStore((s) => s.edit);
+  const newFile = () => {
+    if (!confirm('Creare un nuovo progetto vuoto? Il progetto attuale, se non l’hai salvato su file, andrà perso.')) return;
+    replace(emptyProject(useStore.getState().project));
+    setPhase('inquadramento');
+  };
+
+  newFileRef.current = newFile;
 
   const openFile = async (f: File) => {
     try {
@@ -77,10 +94,41 @@ export function App() {
           <svg width="22" height="22" viewBox="0 0 24 24" className="brand-mark" aria-hidden>
             <path d="M4 20 L14 4 L18 6 L8 22 Z M14 4 L16 1 L20 3 L18 6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
           </svg>
-          <div>
+          <div className="brand-text">
             <div className="brand-name">PENNINO</div>
-            <div className="brand-project" title={project.site.address}>{project.name}</div>
+            <input
+              key={project.name}
+              className="brand-project"
+              defaultValue={project.name}
+              title="Nome del progetto (clic per rinominare)"
+              aria-label="Nome del progetto"
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== project.name) edit((d) => void (d.name = v));
+                else e.target.value = project.name;
+              }}
+            />
           </div>
+        </div>
+        <div className="file-actions">
+          <button className="icon-btn" onClick={newFile} title="Nuovo progetto (Ctrl+Alt+N)"><Icon name="newfile" /></button>
+          <button className="icon-btn" onClick={() => fileRef.current?.click()} title="Apri progetto (Ctrl+O)"><Icon name="open" /></button>
+          <button className="icon-btn" onClick={() => exportProjectFile(project)} title="Salva progetto su file (Ctrl+S)"><Icon name="save" /></button>
+          <span className="sep" />
+          <button className="icon-btn" onClick={undo} disabled={!canUndo} title="Annulla (Ctrl+Z)"><Icon name="undo" /></button>
+          <button className="icon-btn" onClick={redo} disabled={!canRedo} title="Ripeti (Ctrl+Maiusc+Z)"><Icon name="redo" /></button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) openFile(f);
+              e.target.value = '';
+            }}
+          />
         </div>
         <nav className="phases">
           {PHASES.map((p, i) => (
@@ -94,25 +142,9 @@ export function App() {
           ))}
         </nav>
         <div className="top-actions">
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} title="Annulla (Ctrl+Z)"><Icon name="undo" /></button>
-          <button className="icon-btn" onClick={redo} disabled={!canRedo} title="Ripeti (Ctrl+Maiusc+Z)"><Icon name="redo" /></button>
-          <span className="sep" />
-          <button className="icon-btn" onClick={() => fileRef.current?.click()} title="Apri progetto (.pennino.json)"><Icon name="open" /></button>
-          <button className="icon-btn" onClick={() => exportProjectFile(project)} title="Salva progetto su file (Ctrl+S)"><Icon name="save" /></button>
           <button className="icon-btn" onClick={toggleTheme} title={theme === 'scuro' ? 'Tema chiaro' : 'Tema scuro'}>
             <Icon name={theme === 'scuro' ? 'sun' : 'moon'} />
           </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) openFile(f);
-              e.target.value = '';
-            }}
-          />
         </div>
       </header>
 

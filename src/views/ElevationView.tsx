@@ -21,29 +21,53 @@ import { wallGeom } from '../model/walls';
 
 export type Direction = 'sud' | 'nord' | 'est' | 'ovest';
 
-/** Asse orizzontale del prospetto (u) e direzione di profondità verso l'osservatore */
-function axes(dir: Direction): { u: Vec2; depth: Vec2 } {
+/**
+ * Sistema di riferimento di una vista ortogonale: u = asse orizzontale (verso destra di chi guarda),
+ * depth = direzione di vista (la distanza cresce allontanandosi dall'osservatore), origin = origine.
+ * near/far limitano gli elementi visibili (le sezioni mostrano solo ciò che sta oltre il piano).
+ */
+export interface ViewFrame {
+  u: Vec2;
+  depth: Vec2;
+  origin: Vec2;
+  near?: number;
+  far?: number;
+}
+
+export function frameOf(dir: Direction): ViewFrame {
+  const o = { x: 0, y: 0 };
   switch (dir) {
     case 'sud':
-      return { u: { x: 1, y: 0 }, depth: { x: 0, y: 1 } };
+      return { u: { x: 1, y: 0 }, depth: { x: 0, y: 1 }, origin: o };
     case 'nord':
-      return { u: { x: -1, y: 0 }, depth: { x: 0, y: -1 } };
+      return { u: { x: -1, y: 0 }, depth: { x: 0, y: -1 }, origin: o };
     case 'est':
-      return { u: { x: 0, y: 1 }, depth: { x: -1, y: 0 } };
+      return { u: { x: 0, y: 1 }, depth: { x: -1, y: 0 }, origin: o };
     case 'ovest':
-      return { u: { x: 0, y: -1 }, depth: { x: 1, y: 0 } };
+      return { u: { x: 0, y: -1 }, depth: { x: 1, y: 0 }, origin: o };
   }
 }
 
-export function elevationExtents(p: Project, dir: Direction) {
-  const { u } = axes(dir);
+/** Punti in pianta di un elemento (per estensioni e filtri di profondità) */
+function elementPoints(e: Project['elements'][number]): Vec2[] {
+  if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') return [e.a, e.b];
+  if (e.kind === 'slab' || e.kind === 'roof') return e.points;
+  if (e.kind === 'column') return [e.p];
+  return [];
+}
+
+export function elevationExtents(p: Project, dir: Direction | ViewFrame) {
+  const f = typeof dir === 'string' ? frameOf(dir) : dir;
   let min = Infinity;
   let max = -Infinity;
   for (const e of p.elements) {
-    const list: Vec2[] = e.kind === 'wall' || e.kind === 'beam' ? [e.a, e.b] : e.kind === 'slab' || e.kind === 'roof' ? e.points : [];
-    for (const q of list) {
-      min = Math.min(min, dot(q, u));
-      max = Math.max(max, dot(q, u));
+    for (const q of elementPoints(e)) {
+      const d = dot(sub(q, f.origin), f.depth);
+      if (f.near !== undefined && d < f.near - 1) continue;
+      if (f.far !== undefined && d > f.far) continue;
+      const v = dot(sub(q, f.origin), f.u);
+      min = Math.min(min, v);
+      max = Math.max(max, v);
     }
   }
   if (!isFinite(min)) return { min: 0, max: 10 };
@@ -52,21 +76,28 @@ export function elevationExtents(p: Project, dir: Direction) {
 
 interface Props {
   project: Project;
-  direction: Direction;
+  direction: Direction | ViewFrame;
   mm: number;
   textScale?: number;
+  /** Estensione orizzontale imposta (sezioni) */
+  extents?: { min: number; max: number };
 }
 
-export function ElevationView({ project: p, direction, mm, textScale = 1 }: Props) {
+export function ElevationView({ project: p, direction, mm, textScale = 1, extents }: Props) {
   const ts = textScale;
-  const { u, depth } = axes(direction);
-  const U = (q: Vec2) => dot(q, u);
-  const D = (q: Vec2) => dot(q, depth);
+  const frame = typeof direction === 'string' ? frameOf(direction) : direction;
+  const { u } = frame;
+  const U = (q: Vec2) => dot(sub(q, frame.origin), u);
+  const D = (q: Vec2) => dot(sub(q, frame.origin), frame.depth);
   const Z = (z: number) => -z;
   const items: { depth: number; node: React.ReactNode }[] = [];
-  const ext = elevationExtents(p, direction);
+  const ext = extents ?? elevationExtents(p, frame);
 
   for (const e of p.elements) {
+    // nelle sezioni si vede solo ciò che sta oltre il piano, entro la profondità di vista
+    const ds = e.kind === 'opening' ? [] : elementPoints(e).map(D);
+    if (ds.length && frame.near !== undefined && Math.max(...ds) < frame.near) continue;
+    if (ds.length && frame.far !== undefined && Math.min(...ds) > frame.far) continue;
     const lvl = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
     if (!lvl) continue;
     if (e.kind === 'wall') {
@@ -146,7 +177,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
       const us = e.points.map(U);
       const th = t?.thickness ?? 0.3;
       items.push({
-        depth: Math.max(...e.points.map(D)) + 0.01,
+        depth: Math.min(...e.points.map(D)) - 0.01,
         node: (
           <rect
             key={e.id}
@@ -173,7 +204,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
       const a = U(e.a);
       const b = U(e.b);
       items.push({
-        depth: Math.max(D(e.a), D(e.b)),
+        depth: Math.min(D(e.a), D(e.b)),
         node: <rect key={e.id} x={Math.min(a, b)} y={Z(top)} width={Math.abs(b - a) || t?.width || 0.3} height={h} className="ev-wall" strokeWidth={0.25 * mm} />,
       });
     } else if (e.kind === 'roof') {
@@ -189,10 +220,10 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
       const us = corners.map(U);
       const u0 = Math.min(...us);
       const u1 = Math.max(...us);
-      const dpt = Math.max(...corners.map(D));
+      const dpt = Math.min(...corners.map(D));
       if (e.shape === 'piana') {
         items.push({
-          depth: dpt + 0.02,
+          depth: dpt - 0.02,
           node: <rect key={e.id} x={u0} y={Z(base + th)} width={u1 - u0} height={th} className="ev-roof" strokeWidth={0.35 * mm} />,
         });
       } else {
@@ -208,7 +239,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
         const g0 = Math.min(...wall);
         const g1 = Math.max(...wall);
         items.push({
-          depth: dpt + 0.02,
+          depth: dpt - 0.02,
           node: (
             <g key={e.id}>
               {!ridgeParallelToView && (
@@ -226,7 +257,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1 }: Prop
   }
 
   // Disegno dal più lontano al più vicino
-  items.sort((a, b) => a.depth - b.depth);
+  items.sort((a, b) => b.depth - a.depth);
   const levels = sortedLevels(p);
   const gl = p.site.groundLevel;
 
