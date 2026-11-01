@@ -980,9 +980,11 @@ button.chip:hover {
 }
 .canvas2d .pv-ghost polygon {
   fill: none;
-  stroke: var(--ink-soft);
+  stroke: var(--ink-2);
+  stroke-opacity: 0.55;
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
+  stroke-width: 1px;
 }
 .pv-sel polygon,
 .pv-sel polyline {
@@ -1918,4 +1920,7 @@ input.brand-project:focus {
   padding: 6px 8px;
   font-size: 12.5px;
   color: var(--ochre);
+}
+.canvas2d .sm-preview {
+  opacity: 0.85;
 }

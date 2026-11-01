@@ -4,6 +4,7 @@
 
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
+import { RoofSymbols } from './SiteView';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
@@ -64,7 +65,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
 
   return (
     <g className="plan">
-      {ghostLevelId && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
+      {ghostLevelId && lvl?.kind !== 'copertura' && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
 
       {slabs.map(
         (s) =>
@@ -73,7 +74,15 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
           ),
       )}
 
-      {roofs.map((r) => {
+      {lvl?.kind === 'copertura' ? (
+        // livello delle coperture: piano delle coperture completo
+        <>
+          <RoofSymbols project={p} roofs={roofs} mm={mm} ts={ts} showLabels />
+          {/* muri del piano sottostante come linee nascoste */}
+          {ghostLevelId && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
+        </>
+      ) : (
+        roofs.map((r) => {
         if (r.kind !== 'roof') return null;
         const b = bbox(r.points);
         const o = r.overhang;
@@ -98,7 +107,8 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
               ))}
           </g>
         );
-      })}
+        })
+      )}
 
       {stairs.map((s) => {
         if (s.kind !== 'stair') return null;

@@ -3,6 +3,7 @@
 import type { BuildingElement, ContextItem, Project, SiteItem, Vec2 } from './types';
 import {
   add,
+  bbox,
   byId,
   columnQuad,
   dist,
@@ -85,6 +86,14 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
   }
   for (const e of [...p.elements].reverse()) {
     if (e.kind === 'slab' && e.levelId === levelId && pointInPolygon(w, e.points)) return e.id;
+  }
+  // coperture: clic all'interno della falda (con lo sporto)
+  for (const e of p.elements) {
+    if (e.kind !== 'roof' || e.levelId !== levelId) continue;
+    const b = bbox(e.points);
+    const o = e.overhang;
+    const inside = e.shape === 'falde' ? w.x >= b.minX - o && w.x <= b.maxX + o && w.y >= b.minY - o && w.y <= b.maxY + o : pointInPolygon(w, e.points);
+    if (inside) return e.id;
   }
   return null;
 }

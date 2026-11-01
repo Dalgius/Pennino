@@ -150,19 +150,6 @@ function RoofPlan({ project: p, mm, ts, showLabels }: { project: Project; mm: nu
     .filter((e) => e.kind === 'slab' || e.kind === 'wall' || e.kind === 'column')
     .sort((a, b) => order((a as { levelId: string }).levelId) - order((b as { levelId: string }).levelId));
   const roofs = p.elements.filter((e) => e.kind === 'roof');
-  const arrow = (from: Vec2, to: Vec2, key: string) => {
-    const d = norm(sub(to, from));
-    const n = perp(d);
-    const head = 1.6 * mm * ts;
-    const a = add(to, add(mul(d, -head), mul(n, head * 0.45)));
-    const b = add(to, add(mul(d, -head), mul(n, -head * 0.45)));
-    return (
-      <g key={key} className="sv-slope">
-        <line x1={from.x} y1={-from.y} x2={to.x} y2={-to.y} strokeWidth={0.25 * mm} />
-        <polygon points={pts([to, a, b])} />
-      </g>
-    );
-  };
   return (
     <g className="sv-building">
       {masses.map((e) => {
@@ -178,6 +165,40 @@ function RoofPlan({ project: p, mm, ts, showLabels }: { project: Project; mm: nu
         }
         return null;
       })}
+      <RoofSymbols project={p} roofs={roofs} mm={mm} ts={ts} showLabels={showLabels} />
+    </g>
+  );
+}
+
+/** Coperture viste dall'alto: falde con sporto, colmo, frecce di pendenza, quote di colmo e gronda */
+export function RoofSymbols({
+  project: p,
+  roofs,
+  mm,
+  ts,
+  showLabels,
+}: {
+  project: Project;
+  roofs: Project['elements'];
+  mm: number;
+  ts: number;
+  showLabels: boolean;
+}) {
+  const arrow = (from: Vec2, to: Vec2, key: string) => {
+    const d = norm(sub(to, from));
+    const n = perp(d);
+    const head = 1.6 * mm * ts;
+    const a = add(to, add(mul(d, -head), mul(n, head * 0.45)));
+    const b = add(to, add(mul(d, -head), mul(n, -head * 0.45)));
+    return (
+      <g key={key} className="sv-slope">
+        <line x1={from.x} y1={-from.y} x2={to.x} y2={-to.y} strokeWidth={0.25 * mm} />
+        <polygon points={pts([to, a, b])} />
+      </g>
+    );
+  };
+  return (
+    <g className="sv-building roof-symbols">
       {roofs.map((r) => {
         if (r.kind !== 'roof') return null;
         const lvl = byId(p.levels, r.levelId);

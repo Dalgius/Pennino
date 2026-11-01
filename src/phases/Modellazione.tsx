@@ -27,7 +27,7 @@ import { ElevationView, elevationExtents, elevationHeight, type Direction } from
 import { Model3D } from '../views/Model3D';
 import { Icon } from '../ui/icons';
 import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
-import { SectionView, sectionLength } from '../views/SectionView';
+import { SectionMark, SectionView, sectionLength } from '../views/SectionView';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
 import { applyDimension } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
@@ -47,6 +47,12 @@ const TOOLS: ToolDef[] = [
   { id: 'stair', label: 'Scala', key: 'G', icon: 'stair', hint: 'Clic su partenza e arrivo della rampa: la scala sale al livello superiore.' },
   { id: 'roof', label: 'Copertura', key: 'C', icon: 'roof', catalog: 'roof', hint: 'Clic sui vertici della copertura, oppure usa «Copertura sull’edificio».' },
 ];
+
+/** Prima lettera libera per una nuova sezione */
+function nextSectionName(p: Project) {
+  const used = new Set((p.sections ?? []).map((x) => x.name));
+  return 'ABCDEFGHIJKLMNOPQRSTUVWZ'.split('').find((c) => !used.has(c)) ?? String(used.size + 1);
+}
 
 /** Le sezioni sono viste del progetto, non elementi costruttivi: stanno in un gruppo a parte */
 const SECTION_TOOL: ToolDef = { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' };
@@ -182,8 +188,7 @@ export function Modellazione() {
       if (draft.length === 1) {
         if (dist(draft[0], q) > 0.5) {
           const id = uid('sez');
-          const used = new Set((project.sections ?? []).map((x) => x.name));
-          const name = 'ABCDEFGHIJKLMNOPQRSTUVWZ'.split('').find((c) => !used.has(c)) ?? String(used.size + 1);
+          const name = nextSectionName(project);
           edit((d) => {
             d.sections = [...(d.sections ?? []), { id, name, a: draft[0], b: q, depth: 40, flip: false }];
           });
@@ -510,6 +515,17 @@ export function Modellazione() {
               previewLen={previewLen}
               thickness={tool === 'wall' ? wallThickness(byId(project.catalog.wall, activeType.wall)) : 0}
             />
+            {/* anteprima della traccia di sezione: segue il mouse dopo il primo clic */}
+            {tool === 'section' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.05 && (
+              <g className="sm-preview" pointerEvents="none">
+                <SectionMark
+                  section={{ id: 'anteprima', name: nextSectionName(project), a: draft[0], b: cursor.p, depth: 40, flip: false }}
+                  mm={mm}
+                  ts={SCREEN_TEXT}
+                  selected
+                />
+              </g>
+            )}
             {dimEdit && (
               <g transform={`translate(${dimEdit.at.x} ${-dimEdit.at.y}) scale(${1 / z})`}>
                 <foreignObject x={-62} y={-17} width={124} height={34}>
@@ -702,7 +718,11 @@ export function Modellazione() {
         </div>
         <div className="prompt">
           <span className="prompt-label">{toolDef.label}</span>
-          <span className="prompt-text">{toolDef.hint}</span>
+          <span className="prompt-text">
+            {tool === 'section' && draft.length === 1
+              ? 'Ora clicca il punto finale: la traccia segue il mouse e le frecce mostrano il verso di vista. Esc per annullare.'
+              : toolDef.hint}
+          </span>
           {typed && (
             <span className="prompt-typed mono">
               L = {typed} m <kbd>Invio</kbd>
