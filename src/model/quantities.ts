@@ -228,6 +228,7 @@ export function projectMetrics(p: Project) {
   let volume = 0;
   let footprint = 0;
   for (const lvl of sortedLevels(p)) {
+    if (lvl.kind === 'copertura') continue;
     const pts: { x: number; y: number }[] = [];
     for (const e of p.elements)
       if (e.kind === 'wall' && e.levelId === lvl.id) {

@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, levelAbove, mul, norm, openingSpans, perp, roofRidgeRise, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, levelAbove, mul, norm, openingSpans, perp, roofRidgeRise, roofUndersideAt, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { wallGeom, wallOutline } from '../model/walls';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -70,12 +70,25 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         X = add(e.a, mul(g.d, sAt));
         hit = openingSpans(p, e).find((sp) => sAt >= sp.start && sAt <= sp.end);
       }
+      // sotto le falde il muro sale fino all'intradosso della copertura (timpano)
+      const topAt = (uu: number) => roofUndersideAt(p, add(f.origin, mul(f.u, uu)), z0 + H) ?? z0 + H;
       ivs.forEach(([u0, u1], i) => {
-        if (!hit) return rect(`${e.id}${i}`, u0, u1, z0, z0 + H);
+        if (!hit) {
+          const t0 = topAt(u0);
+          const t1 = topAt(u1);
+          if (Math.abs(t0 - z0 - H) < 1e-3 && Math.abs(t1 - z0 - H) < 1e-3) return rect(`${e.id}${i}`, u0, u1, z0, z0 + H);
+          cuts.push(
+            <polygon key={`${e.id}${i}`} points={`${u0},${Z(z0)} ${u1},${Z(z0)} ${u1},${Z(t1)} ${u0},${Z(t0)}`} className="sc-cut" strokeWidth={sw} />,
+          );
+          return;
+        }
         const h0 = z0 + hit.type.sill;
         const h1 = Math.min(z0 + H, h0 + hit.type.height);
         if (h0 > z0 + 1e-3) rect(`${e.id}${i}b`, u0, u1, z0, h0);
-        rect(`${e.id}${i}t`, u0, u1, h1, z0 + H);
+        // sopra l'architrave il muro arriva fino alla copertura
+        cuts.push(
+          <polygon key={`${e.id}${i}t`} points={`${u0},${Z(h1)} ${u1},${Z(h1)} ${u1},${Z(topAt(u1))} ${u0},${Z(topAt(u0))}`} className="sc-cut" strokeWidth={sw} />,
+        );
       });
       if (hit && X) {
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale

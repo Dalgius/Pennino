@@ -445,14 +445,26 @@ function LevelsPanel() {
         {levels.map((l) => {
           const n = project.elements.filter((e) => 'levelId' in e && e.levelId === l.id).length;
           return (
-            <div key={l.id} className="level-card">
+            <div key={l.id} className={`level-card ${l.kind === 'copertura' ? 'level-card-roof' : ''}`}>
               <div className="level-card-head">
                 <TextField label="Nome" value={l.name} onChange={(v) => edit((d) => void (d.levels.find((x) => x.id === l.id)!.name = v))} />
                 <span className="level-elev mono">{fmtLevel(l.elevation)}</span>
               </div>
               <div className="fields fields-2">
-                <NumberField label="Quota piano finito" unit="m" value={l.elevation} onChange={(v) => setElevation(l.id, v)} />
-                <NumberField label="Interpiano" unit="m" value={l.height} min={1} onChange={(v) => setHeight(l.id, v)} />
+                {l.kind === 'copertura' ? (
+                  <>
+                    <NumberField label="Quota d’imposta" unit="m" value={l.elevation} onChange={(v) => setElevation(l.id, v)} />
+                    <div className="field">
+                      <span className="field-label">Livello</span>
+                      <span className="level-kind">Coperture</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <NumberField label="Quota piano finito" unit="m" value={l.elevation} onChange={(v) => setElevation(l.id, v)} />
+                    <NumberField label="Interpiano" unit="m" value={l.height} min={1} onChange={(v) => setHeight(l.id, v)} />
+                  </>
+                )}
               </div>
               <div className="level-card-foot">
                 <span className="muted">{n} elementi · s.l.m. {fmt(project.site.altitude + l.elevation, 2)} m</span>
@@ -484,14 +496,32 @@ function LevelsPanel() {
         className="btn btn-block"
         onClick={() =>
           edit((d) => {
-            const top = [...d.levels].sort((a, b) => b.elevation - a.elevation)[0];
+            // il nuovo piano va sotto il livello delle coperture, che sale di un interpiano
+            const sorted = [...d.levels].sort((a, b) => b.elevation - a.elevation);
+            const roof = sorted.find((x) => x.kind === 'copertura');
+            const top = sorted.find((x) => x.kind !== 'copertura');
             const elevation = top ? +(top.elevation + top.height).toFixed(3) : 0;
             d.levels.push({ id: uid('lvl'), name: `Livello ${d.levels.length}`, elevation, height: 3 });
+            if (roof && roof.elevation <= elevation + 1e-6) roof.elevation = +(elevation + 3).toFixed(3);
           })
         }
       >
         <Icon name="plus" size={14} /> Aggiungi livello superiore
       </button>
+      {!project.levels.some((l) => l.kind === 'copertura') && (
+        <button
+          className="btn btn-block"
+          onClick={() =>
+            edit((d) => {
+              const top = [...d.levels].sort((a, b) => b.elevation - a.elevation)[0];
+              const elevation = top ? +(top.elevation + top.height).toFixed(3) : 3;
+              d.levels.push({ id: uid('lvl'), name: 'Copertura', elevation, height: 0, kind: 'copertura' });
+            })
+          }
+        >
+          <Icon name="roof" size={14} /> Aggiungi livello delle coperture
+        </button>
+      )}
       <button
         className="btn btn-block"
         onClick={() =>

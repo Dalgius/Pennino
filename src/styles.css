@@ -1911,3 +1911,11 @@ input.brand-project:focus {
 .brand {
   min-width: 190px;
 }
+.level-card-roof {
+  border-left: 2px solid var(--ochre);
+}
+.level-kind {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--ochre);
+}

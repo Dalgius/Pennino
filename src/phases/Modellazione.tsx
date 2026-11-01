@@ -34,7 +34,9 @@ import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section';
 
-const TOOLS: { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string }[] = [
+type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
+
+const TOOLS: ToolDef[] = [
   { id: 'select', label: 'Seleziona', key: 'V', icon: 'select', hint: 'Clic per selezionare, trascina per spostare. Trascina le maniglie per modificare.' },
   { id: 'wall', label: 'Muro', key: 'M', icon: 'wall', catalog: 'wall', hint: 'Clic sui vertici del muro. Digita una lunghezza e premi Invio. Doppio clic o Esc per terminare.' },
   { id: 'slab', label: 'Solaio', key: 'S', icon: 'slab', catalog: 'slab', hint: 'Clic sui vertici del perimetro; clic sul primo punto o Invio per chiudere.' },
@@ -43,9 +45,11 @@ const TOOLS: { id: Tool; label: string; key: string; icon: string; catalog?: Cat
   { id: 'door', label: 'Porta', key: 'O', icon: 'door', catalog: 'opening', hint: 'Avvicinati a un muro e clicca per inserire la porta. Alt inverte il verso.' },
   { id: 'window', label: 'Finestra', key: 'F', icon: 'window', catalog: 'opening', hint: 'Avvicinati a un muro e clicca per inserire la finestra.' },
   { id: 'stair', label: 'Scala', key: 'G', icon: 'stair', hint: 'Clic su partenza e arrivo della rampa: la scala sale al livello superiore.' },
-  { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' },
   { id: 'roof', label: 'Copertura', key: 'C', icon: 'roof', catalog: 'roof', hint: 'Clic sui vertici della copertura, oppure usa «Copertura sull’edificio».' },
 ];
+
+/** Le sezioni sono viste del progetto, non elementi costruttivi: stanno in un gruppo a parte */
+const SECTION_TOOL: ToolDef = { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' };
 
 type ViewMode = 'pianta' | 'prospetti' | 'sezioni' | '3d' | 'affiancate';
 
@@ -108,7 +112,7 @@ export function Modellazione() {
   const lvlId = level?.id ?? '';
   const below = levels[levels.findIndex((l) => l.id === lvlId) - 1];
   const selectedIds = selection.scope === 'modello' ? selection.ids : [];
-  const toolDef = TOOLS.find((t) => t.id === tool)!;
+  const toolDef = [...TOOLS, SECTION_TOOL].find((t) => t.id === tool)!;
 
   // Tipologie di aperture coerenti con lo strumento
   const openingCategory = tool === 'door' ? 'porta' : 'finestra';
@@ -203,14 +207,23 @@ export function Modellazione() {
 
   /** Perimetro dei muri del livello corrente → nuovo solaio o copertura */
   const fromWalls = (kind: 'slab' | 'roof') => {
-    const q: Vec2[] = [];
-    for (const e of project.elements) if (e.kind === 'wall' && e.levelId === lvlId) q.push(e.a, e.b);
+    // muri del livello; sul livello delle coperture si usano quelli del piano sottostante
+    const wallsOf = (id: string) => project.elements.flatMap((e) => (e.kind === 'wall' && e.levelId === id ? [e.a, e.b] : []));
+    let q = wallsOf(lvlId);
+    let wallLevel = level;
+    if (q.length < 3 && below) {
+      q = wallsOf(below.id);
+      wallLevel = below;
+    }
     if (q.length < 3) return;
     const hull = convexHull(q);
+    // la copertura va sul livello delle coperture che sta all'imposta di quei muri, se esiste
+    const roofLevel =
+      levels.find((l) => l.kind === 'copertura' && wallLevel && Math.abs(l.elevation - (wallLevel.elevation + wallLevel.height)) < 0.01)?.id ?? lvlId;
     const id =
       kind === 'slab'
         ? addElement({ id: uid('s'), kind: 'slab', levelId: lvlId, typeId: activeType.slab, points: hull })
-        : addElement({ id: uid('r'), kind: 'roof', levelId: lvlId, typeId: activeType.roof, points: hull, shape: 'falde', pitch: 22, overhang: 0.5 });
+        : addElement({ id: uid('r'), kind: 'roof', levelId: roofLevel, typeId: activeType.roof, points: hull, shape: 'falde', pitch: 22, overhang: 0.5 });
     select('modello', [id]);
     changeTool('select');
   };
@@ -426,7 +439,7 @@ export function Modellazione() {
         setOrtho((o) => !o);
         return;
       }
-      const t = TOOLS.find((x) => x.key.toLowerCase() === k.toLowerCase());
+      const t = [...TOOLS, SECTION_TOOL].find((x) => x.key.toLowerCase() === k.toLowerCase());
       if (t) changeTool(t.id);
     };
     window.addEventListener('keydown', onKey);
@@ -615,6 +628,31 @@ export function Modellazione() {
             })}
           </div>
           <p className="note">Quote e altezze dei livelli si definiscono in 01 · Inquadramento.</p>
+
+          <div className="subhead">
+            Sezioni
+            <button className={`link ${tool === 'section' ? 'strong' : ''}`} onClick={() => { setView('pianta'); changeTool('section'); }} title="Traccia una sezione in pianta (X)">
+              + Traccia (X)
+            </button>
+          </div>
+          <div className="elist">
+            {(project.sections ?? []).map((sec) => (
+              <button
+                key={sec.id}
+                className={`elist-row ${selectedIds.includes(sec.id) ? 'on' : ''}`}
+                onClick={() => {
+                  changeTool('select');
+                  select('modello', [sec.id]);
+                }}
+                onDoubleClick={() => setView('sezioni')}
+                title="Clic per selezionare, doppio clic per aprire"
+              >
+                <span className="mono elist-code">{sec.name}–{sec.name}′</span>
+                <span>Profondità {fmt(sec.depth, 0)} m</span>
+              </button>
+            ))}
+          </div>
+          {!(project.sections ?? []).length && <p className="note">Nessuna sezione: tracciala in pianta con due clic.</p>}
         </div>
       </aside>
 

@@ -258,7 +258,20 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
 
   // Disegno dal più lontano al più vicino
   items.sort((a, b) => b.depth - a.depth);
-  const levels = sortedLevels(p);
+  const levels = [
+    ...sortedLevels(p).map((l) => ({ id: l.id, z: l.elevation, name: l.kind === 'copertura' ? `${l.name} · imposta` : l.name })),
+    // colmo della copertura più alta
+    ...(() => {
+      let ridge = -Infinity;
+      for (const e of p.elements) {
+        if (e.kind !== 'roof' || e.shape !== 'falde') continue;
+        const lv = byId(p.levels, e.levelId);
+        const th = byId(p.catalog.roof, e.typeId)?.thickness ?? 0.3;
+        if (lv) ridge = Math.max(ridge, lv.elevation + lv.height + th + roofRidgeRise(e.points, e.pitch));
+      }
+      return isFinite(ridge) ? [{ id: 'colmo', z: ridge, name: 'Colmo' }] : [];
+    })(),
+  ];
   const gl = p.site.groundLevel;
 
   return (
@@ -267,16 +280,16 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       <line x1={ext.min - 2} y1={Z(gl)} x2={ext.max + 2} y2={Z(gl)} className="ev-ground" strokeWidth={0.7 * mm} />
       {levels.map((l) => (
         <g key={l.id} className="ev-level">
-          <line x1={ext.max + 0.5} y1={Z(l.elevation)} x2={ext.max + 0.5 + 14 * mm} y2={Z(l.elevation)} strokeWidth={0.13 * mm} />
+          <line x1={ext.max + 0.5} y1={Z(l.z)} x2={ext.max + 0.5 + 14 * mm} y2={Z(l.z)} strokeWidth={0.13 * mm} />
           <path
-            d={`M${ext.max + 1.5 * mm},${Z(l.elevation)} l${1.4 * mm},${-1.6 * mm} l${-2.8 * mm},0 z`}
+            d={`M${ext.max + 1.5 * mm},${Z(l.z)} l${1.4 * mm},${-1.6 * mm} l${-2.8 * mm},0 z`}
             transform={`translate(${0.5 + 1.5 * mm} 0)`}
             className="ev-level-mark"
           />
-          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) - 1 * mm} fontSize={2 * mm * ts} className="ev-text">
-            {fmtLevel(l.elevation)}
+          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.z) - 1 * mm} fontSize={2 * mm * ts} className="ev-text">
+            {fmtLevel(l.z)}
           </text>
-          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.elevation) + 2.6 * mm} fontSize={1.7 * mm * ts} className="ev-text ev-text-soft">
+          <text x={ext.max + 0.5 + 6 * mm} y={Z(l.z) + 2.6 * mm} fontSize={1.7 * mm * ts} className="ev-text ev-text-soft">
             {l.name}
           </text>
         </g>

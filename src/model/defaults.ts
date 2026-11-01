@@ -7,6 +7,7 @@ const P = (x: number, y: number): Vec2 => ({ x, y });
 export function sampleProject(): Project {
   const L0 = 'lvl_pt';
   const L1 = 'lvl_p1';
+  const L2 = 'lvl_cop';
   const els: BuildingElement[] = [];
 
   const wall = (levelId: string, typeId: string, a: Vec2, b: Vec2): Wall => {
@@ -69,7 +70,7 @@ export function sampleProject(): Project {
     {
       id: uid('r'),
       kind: 'roof',
-      levelId: L1,
+      levelId: L2,
       typeId: 'rt_legno',
       points: [P(0, 0), P(12, 0), P(12, 9), P(0, 9)],
       shape: 'falde',
@@ -105,6 +106,7 @@ export function sampleProject(): Project {
     levels: [
       { id: L0, name: 'Piano terra', elevation: 0, height: 3.2 },
       { id: L1, name: 'Piano primo', elevation: 3.2, height: 3.0 },
+      { id: L2, name: 'Copertura', elevation: 6.2, height: 0, kind: 'copertura' },
     ],
     catalog: {
       wall: [

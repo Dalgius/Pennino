@@ -16,8 +16,10 @@ export interface Level {
   name: string;
   /** Quota del piano finito rispetto allo ±0.00 di progetto */
   elevation: number;
-  /** Altezza interpiano (da piano finito a piano finito) */
+  /** Altezza interpiano (da piano finito a piano finito); 0 per il livello delle coperture */
   height: number;
+  /** 'copertura': livello d'imposta delle coperture, senza interpiano */
+  kind?: 'piano' | 'copertura';
 }
 
 export type ContextItem =

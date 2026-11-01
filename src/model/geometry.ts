@@ -217,11 +217,44 @@ export function buildingHeight(p: Project): number {
     if (e.kind === 'wall') top = Math.max(top, lvl.elevation + wallHeight(p, e));
     if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId)?.thickness ?? 0.3;
-      top = Math.max(top, lvl.elevation + t + (e.shape === 'falde' ? roofRidgeRise(e.points, e.pitch) : 0));
+      top = Math.max(top, lvl.elevation + lvl.height + t + (e.shape === 'falde' ? roofRidgeRise(e.points, e.pitch) : 0));
     }
     if (e.kind === 'slab') top = Math.max(top, lvl.elevation);
   }
   return top;
+}
+
+/** Quota d'imposta di una copertura: piano del livello su cui poggia */
+export function roofBase(p: Project, r: { levelId: string }) {
+  const lvl = byId(p.levels, r.levelId);
+  return (lvl?.elevation ?? 0) + (lvl?.height ?? 0);
+}
+
+/**
+ * Intradosso delle coperture sopra il punto X, per i muri che vi arrivano (timpani):
+ * solo coperture impostate alla quota `zTop` (cima del muro), entro 5 cm.
+ */
+export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | null {
+  let best: number | null = null;
+  for (const e of p.elements) {
+    if (e.kind !== 'roof' || e.points.length < 3) continue;
+    const base = roofBase(p, e);
+    if (Math.abs(base - zTop) > 0.05) continue;
+    const b = bbox(e.points);
+    // l'ingombro comprende lo sporto: i muri sotto la gronda vi rientrano per tutto lo spessore
+    const m = e.overhang + 1e-3;
+    if (X.x < b.minX - m || X.x > b.maxX + m || X.y < b.minY - m || X.y > b.maxY + m) continue;
+    let z = base;
+    if (e.shape === 'falde') {
+      const alongX = b.w >= b.h;
+      const half = (alongX ? b.h : b.w) / 2;
+      const rise = roofRidgeRise(e.points, e.pitch);
+      const across = alongX ? X.y - (b.minY + b.h / 2) : X.x - (b.minX + b.w / 2);
+      z = base + rise - (rise / (half || 1)) * Math.abs(across);
+    }
+    best = best === null ? z : Math.max(best, z);
+  }
+  return best;
 }
 
 export function roofRidgeRise(points: Vec2[], pitch: number) {
