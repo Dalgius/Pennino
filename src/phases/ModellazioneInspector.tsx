@@ -420,7 +420,16 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         const setLayer = (i: number, patch: Partial<WallLayer>) => upd((x: { layers: WallLayer[] }) => Object.assign(x.layers[i], patch));
         return (
           <>
-            <SelectField label="Voce di computo (muratura)" value={wt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            <SelectField label="Voce di computo complessiva (facoltativa)" value={wt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            <p className="note">
+              Usa la voce complessiva per un muro computato come un’unica lavorazione, oppure assegna una voce a ogni strato (m² = superficie netta, m³ = superficie × spessore dello strato).
+            </p>
+            {wt.priceCode && wt.layers.some((l) => l.priceCode && l.role !== 'finitura') && (
+              <div className="check-row warn">
+                <b>! Possibile doppio computo</b>
+                <span>La voce complessiva e quella di uno strato non di finitura potrebbero contare la stessa lavorazione due volte.</span>
+              </div>
+            )}
             <div className="subhead">Stratigrafia (dall’esterno all’interno) · {fmt(total * 100, 1)} cm</div>
             <div className="strata-bar">
               {wt.layers.map((l, i) => (
@@ -442,9 +451,7 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
                   <NumberField label="Spessore" unit="cm" digits={1} step={0.5} value={l.thickness * 100} min={0.1} onChange={(v) => setLayer(i, { thickness: v / 100 })} />
                   <SelectField label="Funzione" value={l.role} options={ROLES} onChange={(v) => setLayer(i, { role: v })} />
                 </div>
-                {l.role === 'finitura' && (
-                  <SelectField label="Voce di computo finitura" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
-                )}
+                <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
               </div>
             ))}
             <button

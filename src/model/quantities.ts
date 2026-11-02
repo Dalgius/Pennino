@@ -112,9 +112,14 @@ export function computeComputo(p: Project): ComputoLine[] {
         volume: net * th,
         f: { m: `L ${n2(L)}`, m2: fNet, m3: `(${fNet}) × ${n2(th)}` },
       });
+      // ogni strato con una propria voce: m² = superficie netta, m³ = superficie × spessore dello strato
       for (const layer of t?.layers ?? []) {
-        if (layer.role === 'finitura' && layer.priceCode)
-          push(layer.priceCode, { ...base, label: `${label} · ${layer.name}` }, { area: net, f: { m2: fNet } });
+        if (!layer.priceCode) continue;
+        push(
+          layer.priceCode,
+          { ...base, label: `${label} · ${layer.name}` },
+          { length: L, area: net, volume: net * layer.thickness, f: { m: `L ${n2(L)}`, m2: fNet, m3: `(${fNet}) × ${n2(layer.thickness)}` } },
+        );
       }
     } else if (e.kind === 'slab') {
       const t = byId(p.catalog.slab, e.typeId);
