@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useStore } from '../model/store';
 import type { Catalog, LayerRole, Project, Wall, WallLayer } from '../model/types';
 import {
@@ -320,6 +321,66 @@ function WallInspector({
 
 // ───────── Editor delle tipologie ─────────
 
+/**
+ * Eliminazione di una tipologia. Se è usata, gli elementi passano alla tipologia scelta
+ * (per porte e finestre si propongono quelle della stessa categoria).
+ */
+function DeleteType({ catKey, id, instances, onDone }: { catKey: CatalogKey; id: string; instances: number; onDone: () => void }) {
+  const project = useStore((s) => s.project);
+  const edit = useStore((s) => s.edit);
+  const list = project.catalog[catKey] as { id: string; name: string; category?: string }[];
+  const self = list.find((x) => x.id === id);
+  const others = list.filter((x) => x.id !== id && (catKey !== 'opening' || x.category === self?.category));
+  const [target, setTarget] = useState(others[0]?.id ?? '');
+  const [asking, setAsking] = useState(false);
+  const replacement = others.find((x) => x.id === target) ?? others[0];
+  const remove = () => {
+    edit((d) => {
+      if (instances > 0 && replacement) for (const e of d.elements) if ('typeId' in e && e.typeId === id) e.typeId = replacement.id;
+      const arr = d.catalog[catKey] as { id: string }[];
+      arr.splice(arr.findIndex((x) => x.id === id), 1);
+    });
+    onDone();
+  };
+  if (!others.length)
+    return (
+      <p className="note">
+        È l’unica tipologia {catKey === 'opening' ? 'di questa categoria' : 'disponibile'}: per eliminarla creane prima un’altra con «+ Nuova».
+      </p>
+    );
+  return (
+    <div className="delete-type">
+      <div className="subhead">Elimina tipologia</div>
+      {instances > 0 && (
+        <>
+          <p className="note">
+            È usata da {instances} {instances === 1 ? 'elemento' : 'elementi'}: prima di eliminarla scegli con quale tipologia sostituirla.
+          </p>
+          <SelectField label="Sostituisci con" value={replacement?.id ?? ''} options={others.map((x) => ({ value: x.id, label: x.name }))} onChange={setTarget} />
+        </>
+      )}
+      {asking ? (
+        <div className="check-row warn">
+          <b>
+            Eliminare «{self?.name}»{instances > 0 ? ` e sostituirla con «${replacement?.name}»` : ''}?
+          </b>
+          <div className="door-tools">
+            <button className="btn" onClick={() => setAsking(false)}>Annulla</button>
+            <button className="btn btn-danger" onClick={remove}>
+              <Icon name="trash" size={14} /> Elimina
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn btn-danger btn-block" onClick={() => setAsking(true)}>
+          <Icon name="trash" size={14} /> {instances > 0 ? 'Elimina e sostituisci' : 'Elimina tipologia'}
+        </button>
+      )}
+      <p className="note">Si può annullare con Ctrl+Z.</p>
+    </div>
+  );
+}
+
 const ROLES: { value: LayerRole; label: string }[] = [
   { value: 'finitura', label: 'Finitura' },
   { value: 'isolante', label: 'Isolante' },
@@ -471,22 +532,7 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         );
       })()}
 
-      <div className="insp-actions">
-        <button
-          className="btn btn-danger"
-          disabled={instances > 0 || list.length < 2}
-          title={instances > 0 ? 'La tipologia è usata nel modello' : ''}
-          onClick={() => {
-            edit((d) => {
-              const arr = d.catalog[catKey] as { id: string }[];
-              arr.splice(arr.findIndex((x) => x.id === id), 1);
-            });
-            onClose();
-          }}
-        >
-          <Icon name="trash" size={14} /> Elimina tipologia
-        </button>
-      </div>
+      <DeleteType catKey={catKey} id={id} instances={instances} onDone={onClose} />
     </div>
   );
 }

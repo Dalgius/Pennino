@@ -96,6 +96,22 @@ export function Modellazione() {
     roof: project.catalog.roof[0]?.id ?? '',
   });
   const [editingType, setEditingType] = useState<{ key: CatalogKey; id: string } | null>(null);
+  // se una tipologia attiva viene eliminata, lo strumento passa alla prima disponibile
+  useEffect(() => {
+    setActiveType((a) => {
+      let changed = false;
+      const next = { ...a };
+      for (const key of Object.keys(next) as CatalogKey[]) {
+        const list = project.catalog[key] as { id: string }[];
+        if (!list.some((t) => t.id === next[key])) {
+          next[key] = list[0]?.id ?? '';
+          changed = true;
+        }
+      }
+      return changed ? next : a;
+    });
+    if (editingType && !(project.catalog[editingType.key] as { id: string }[]).some((t) => t.id === editingType.id)) setEditingType(null);
+  }, [project.catalog, editingType]);
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Snap | null>(null);
   const [typed, setTyped] = useState('');

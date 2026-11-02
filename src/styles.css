@@ -1938,3 +1938,12 @@ input.brand-project:focus {
   stroke: var(--ok);
   stroke-dasharray: 6 4;
 }
+
+.delete-type {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
