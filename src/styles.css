@@ -4,16 +4,17 @@
 
 :root,
 :root[data-theme='dark'] {
-  --bg: #121318;
-  --canvas: #15171c;
-  --surface: #1b1d23;
-  --surface-2: #22252c;
-  --surface-3: #2b2e36;
-  --line: #2f333b;
-  --line-strong: #444955;
-  --text: #e8e9ee;
-  --text-2: #a3a9b6;
-  --text-3: #6f7684;
+  /* comandi e pannelli in grigio neutro, area di disegno quasi nera */
+  --bg: #1b1b1d;
+  --canvas: #0b0b0c;
+  --surface: #232325;
+  --surface-2: #2c2c2f;
+  --surface-3: #37373b;
+  --line: #3a3a3e;
+  --line-strong: #4d4d52;
+  --text: #ececec;
+  --text-2: #ababb0;
+  --text-3: #7a7a80;
   --primary: #38bdf8;
   --primary-ink: #06202c;
   --primary-soft: rgba(56, 189, 248, 0.14);
@@ -25,14 +26,14 @@
   --ok-soft: rgba(52, 211, 153, 0.12);
 
   /* inchiostri del disegno a schermo */
-  --ink: #e6e3dc;
-  --ink-2: #a9adb6;
-  --ink-soft: #5b616c;
-  --slab: rgba(200, 205, 215, 0.07);
-  --context: rgba(200, 200, 200, 0.09);
+  --ink: #ece7de;
+  --ink-2: #a8abb2;
+  --ink-soft: #55575d;
+  --slab: rgba(255, 255, 255, 0.045);
+  --context: rgba(255, 255, 255, 0.07);
   --grid-minor: rgba(255, 255, 255, 0.035);
   --grid-major: rgba(255, 255, 255, 0.075);
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
 }
 

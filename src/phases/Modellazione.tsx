@@ -99,8 +99,12 @@ export function Modellazione() {
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Snap | null>(null);
   const [typed, setTyped] = useState('');
-  const [ortho, setOrtho] = useState(true);
-  const [grid, setGrid] = useState(0.05);
+  const drafting = useStore((s) => s.drafting);
+  const setDrafting = useStore((s) => s.setDrafting);
+  const ortho = drafting.ortho;
+  const grid = drafting.snapStep;
+  const setOrtho = (v: boolean) => setDrafting({ ortho: v });
+  const setGrid = (v: number) => setDrafting({ snapStep: v });
   const [ghost, setGhost] = useState(true);
   const [flipNext, setFlipNext] = useState(false);
   const [mirrorNext, setMirrorNext] = useState(false);
@@ -485,7 +489,7 @@ export function Modellazione() {
         return;
       }
       if (k === 'F8') {
-        setOrtho((o) => !o);
+        setOrtho(!ortho);
         return;
       }
       const t = [...TOOLS, SECTION_TOOL].find((x) => x.key.toLowerCase() === k.toLowerCase());

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Vec2 } from '../model/types';
+import { useStore } from '../model/store';
 
 export interface CanvasPointer {
   type: 'down' | 'move' | 'up' | 'dblclick' | 'leave';
@@ -37,6 +38,8 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
   const pan = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const space = useRef(false);
   const fitted = useRef(false);
+  const showGrid = useStore((s) => s.drafting.grid);
+  const setDrafting = useStore((s) => s.setDrafting);
 
   const fit = useCallback(() => {
     const el = ref.current;
@@ -139,7 +142,7 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
 
   // Griglia adattiva: passo che resta tra 12 e 120 px
   const gridLines = () => {
-    if (!grid) return null;
+    if (!grid || !showGrid) return null;
     const steps = [0.1, 0.5, 1, 5, 10, 50, 100];
     const step = steps.find((s) => s * view.z >= 14) ?? 100;
     const major = step * 5;
@@ -195,7 +198,15 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
         <span className="chip mono" title="Scala di visualizzazione a schermo">
           ≈ 1:{ratio}
         </span>
-        {g && <span className="chip mono">griglia {g.step < 1 ? `${g.step * 100} cm` : `${g.step} m`}</span>}
+        {grid && (
+          <button
+            className={`chip ${showGrid ? 'chip-on' : ''}`}
+            onClick={() => setDrafting({ grid: !showGrid })}
+            title="Mostra o nascondi la griglia (G con Ctrl)"
+          >
+            Griglia{g ? <span className="mono">{g.step < 1 ? `${Math.round(g.step * 100)} cm` : `${g.step} m`}</span> : null}
+          </button>
+        )}
       </div>
       <div data-hud style={{ display: 'contents' }}>
         {hud}

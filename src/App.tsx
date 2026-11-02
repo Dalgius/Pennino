@@ -49,6 +49,10 @@ export function App() {
       } else if (mod && e.key.toLowerCase() === 'y' && !inField) {
         e.preventDefault();
         redo();
+      } else if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        const st = useStore.getState();
+        st.setDrafting({ grid: !st.drafting.grid });
       } else if (mod && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         fileRef.current?.click();

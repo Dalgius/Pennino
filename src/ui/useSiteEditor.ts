@@ -31,7 +31,9 @@ export function useSiteEditor(o: Options) {
   const checkpoint = useStore((s) => s.checkpoint);
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
-  const [ortho, setOrtho] = useState(false);
+  const ortho = useStore((s) => s.drafting.ortho);
+  const setDrafting = useStore((s) => s.setDrafting);
+  const setOrtho = (v: boolean) => setDrafting({ ortho: v });
   const drag = useRef<{ id: string; ids: string[]; handle: number | null; start: Vec2; orig: Project; moved: boolean } | null>(null);
   // selezione a riquadro: da sinistra a destra = finestra, da destra a sinistra = intersezione
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2; add: boolean } | null>(null);
@@ -175,7 +177,7 @@ export function useSiteEditor(o: Options) {
         o.onDelete(selectedIds);
         select(o.scope, []);
       }
-      if (e.key === 'F8') setOrtho((x) => !x);
+      if (e.key === 'F8') setOrtho(!useStore.getState().drafting.ortho);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         select(o.scope, o.list(useStore.getState().project).map((x) => x.id));

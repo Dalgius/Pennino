@@ -49,6 +49,27 @@ interface State {
   select: (scope: Selection['scope'], ids: string[]) => void;
   clearSelection: () => void;
   toggleTheme: () => void;
+  /** Impostazioni di disegno comuni a tutte le fasi, ricordate tra le sessioni */
+  drafting: DraftingSettings;
+  setDrafting: (patch: Partial<DraftingSettings>) => void;
+}
+
+export interface DraftingSettings {
+  /** Disegno ortogonale (F8); Maiusc lo inverte finché è premuto */
+  ortho: boolean;
+  /** Griglia visibile nelle viste di disegno */
+  grid: boolean;
+  /** Passo di aggancio (m) */
+  snapStep: number;
+}
+
+function readDrafting(): DraftingSettings {
+  const def: DraftingSettings = { ortho: true, grid: true, snapStep: 0.05 };
+  try {
+    return { ...def, ...JSON.parse(localStorage.getItem('pennino.drafting') || '{}') };
+  } catch {
+    return def;
+  }
 }
 
 function readTheme(): 'scuro' | 'chiaro' {
@@ -70,6 +91,7 @@ export const useStore = create<State>((set, get) => ({
   activeLevelId: initial.levels[0]?.id ?? '',
   selection: { scope: 'modello', ids: [] },
   theme: readTheme(),
+  drafting: readDrafting(),
   savedAt: null,
 
   edit: (fn) => {
@@ -128,6 +150,15 @@ export const useStore = create<State>((set, get) => ({
   setActiveLevel: (id) => set({ activeLevelId: id }),
   select: (scope, ids) => set({ selection: { scope, ids } }),
   clearSelection: () => set({ selection: { scope: get().selection.scope, ids: [] } }),
+  setDrafting: (patch) => {
+    const drafting = { ...get().drafting, ...patch };
+    try {
+      localStorage.setItem('pennino.drafting', JSON.stringify(drafting));
+    } catch {
+      /* impostazioni non salvabili */
+    }
+    set({ drafting });
+  },
   toggleTheme: () => {
     const theme = get().theme === 'scuro' ? 'chiaro' : 'scuro';
     try {

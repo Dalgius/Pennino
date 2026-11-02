@@ -57,6 +57,7 @@ npm run dev
 | O / F | Porta / Finestra | | F8 | ortogonale sì/no |
 | G | Scala | | Spazio + trascina, tasto centrale | sposta la vista |
 | X | Sezione | | Ctrl+O / Ctrl+S / Ctrl+Alt+N | apri / salva / nuovo progetto |
+| | | | Ctrl+G | mostra / nasconde la griglia |
 | C | Copertura | | Ctrl+Z / Ctrl+Maiusc+Z | annulla / ripeti |
 
 Mentre si disegna un muro basta digitare la lunghezza (per esempio `4.20`) e premere Invio. Alt+1…5 cambia fase.
