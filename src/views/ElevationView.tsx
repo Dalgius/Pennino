@@ -13,6 +13,7 @@ import {
   sub,
   wallHeight,
   wallLength,
+  wallTopProfile,
   wallSegmentQuad,
   wallThickness,
 } from '../model/geometry';
@@ -162,7 +163,19 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           );
         }
       }
-      const outer = `M${u0},${Z(z0)} L${u1},${Z(z0)} L${u1},${Z(z1)} L${u0},${Z(z1)} Z`;
+      // timpano: la sommità del muro segue l'intradosso delle falde
+      const L = wallLength(e);
+      const prof = wallTopProfile(p, e, z1, -th / 2, L + th / 2);
+      let outer = `M${u0},${Z(z0)} L${u1},${Z(z0)} L${u1},${Z(z1)} L${u0},${Z(z1)} Z`;
+      if (prof && facing) {
+        const at = (sv: number) => U({ x: e.a.x + ((e.b.x - e.a.x) * sv) / L, y: e.a.y + ((e.b.y - e.a.y) * sv) / L });
+        const first = at(prof[0].s);
+        const last = at(prof[prof.length - 1].s);
+        outer = `M${first},${Z(z0)} L${last},${Z(z0)} ` + [...prof].reverse().map((q) => `L${at(q.s)},${Z(q.z)}`).join(' ') + ' Z';
+      } else if (prof) {
+        const zmax = Math.max(...prof.map((q) => q.z));
+        outer = `M${u0},${Z(z0)} L${u1},${Z(z0)} L${u1},${Z(zmax)} L${u0},${Z(zmax)} Z`;
+      }
       items.push({
         depth: Math.min(...quad.map(D)),
         node: (
@@ -235,16 +248,10 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         const shape = ridgeParallelToView
           ? `M${u0},${Z(eave)} L${u1},${Z(eave)} L${u1},${Z(eave + th)} L${u1},${Z(base + rise + th)} L${u0},${Z(base + rise + th)} L${u0},${Z(eave + th)} Z`
           : `M${u0},${Z(eave)} L${u0},${Z(eave + th)} L${(u0 + u1) / 2},${Z(base + rise + th)} L${u1},${Z(eave + th)} L${u1},${Z(eave)} L${(u0 + u1) / 2},${Z(base + rise)} Z`;
-        const wall = [{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.maxY }].map(U);
-        const g0 = Math.min(...wall);
-        const g1 = Math.max(...wall);
         items.push({
           depth: dpt - 0.02,
           node: (
             <g key={e.id}>
-              {!ridgeParallelToView && (
-                <path d={`M${g0},${Z(base)} L${g1},${Z(base)} L${(g0 + g1) / 2},${Z(base + rise)} Z`} className="ev-wall" strokeWidth={0.25 * mm} />
-              )}
               <path d={shape} className="ev-roof" strokeWidth={0.35 * mm} />
               {ridgeParallelToView && (
                 <line x1={u0} y1={Z(eave + th)} x2={u1} y2={Z(eave + th)} className="ev-frame" strokeWidth={0.18 * mm} />

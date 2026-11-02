@@ -14,6 +14,7 @@ import {
   roofRidgeRise,
   sunPosition,
   wallHeight,
+  wallTopProfile,
   wallLength,
 } from '../model/geometry';
 
@@ -181,6 +182,27 @@ function buildWall(
     cur = s.end;
   }
   if (cur === 'inizio' || Math.max(endAt(g, g.half), endAt(g, -g.half)) > cur + 1e-3) add(cur, 'fine', 0, H);
+  // Timpano: sotto le falde il muro sale fino all'intradosso, con il suo spessore (a filo della facciata)
+  const s0 = Math.min(startAt(g, g.half), startAt(g, -g.half));
+  const s1 = Math.max(endAt(g, g.half), endAt(g, -g.half));
+  const prof = wallTopProfile(p, w, z0 + H, s0, s1);
+  if (prof) {
+    const sh = new THREE.Shape();
+    sh.moveTo(s1, z0 + H);
+    sh.lineTo(s0, z0 + H);
+    for (const q of prof) sh.lineTo(q.s, q.z);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 2 * g.half, bevelEnabled: false });
+    // assi locali: x lungo il muro, y verso l'alto, z attraverso lo spessore
+    const xA = new THREE.Vector3(g.d.x, 0, -g.d.y);
+    const yA = new THREE.Vector3(0, 1, 0);
+    const zA = new THREE.Vector3().crossVectors(xA, yA);
+    const m = new THREE.Matrix4().makeBasis(xA, yA, zA);
+    // zA punta verso −n: si parte dalla faccia +n
+    m.setPosition(w.a.x + g.n.x * g.half, 0, -(w.a.y + g.n.y * g.half));
+    geo.applyMatrix4(m);
+    root.add(tag(new THREE.Mesh(geo, wallMat), w.id));
+  }
 }
 
 const FRAME_COLOR = 0x50555c;
@@ -267,20 +289,8 @@ function gableRoof(points: Vec2[], pitch: number, o: number, base: number, th: n
   const length = (alongX ? b.w : b.h) + 2 * o;
   const geo = new THREE.ExtrudeGeometry(s, { depth: length, bevelEnabled: false });
   const m = new THREE.Mesh(geo, material);
-  // Timpani: volume triangolare sotto le falde, a filo dei muri
-  const g = new THREE.Shape();
-  g.moveTo(-half, base);
-  g.lineTo(half, base);
-  g.lineTo(0, base + rise);
-  g.closePath();
-  const gable = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(g, { depth: length - 2 * o, bevelEnabled: false }),
-    new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 0.85 }),
-  );
-  gable.position.z = o;
-  gable.castShadow = gable.receiveShadow = true;
   const group = new THREE.Group();
-  group.add(m, gable);
+  group.add(m);
   if (alongX) {
     group.rotation.y = Math.PI / 2;
     group.position.set(b.minX - o, 0, -(b.minY + b.h / 2));

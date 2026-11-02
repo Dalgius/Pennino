@@ -234,6 +234,33 @@ export function roofBase(p: Project, r: { levelId: string }) {
  * Intradosso delle coperture sopra il punto X, per i muri che vi arrivano (timpani):
  * solo coperture impostate alla quota `zTop` (cima del muro), entro 5 cm.
  */
+/**
+ * Profilo della sommità di un muro sotto le falde (timpano), tra s0 e s1 lungo l'asse:
+ * campioni {s, z} dove z è l'intradosso della copertura, o la cima del muro se non c'è tetto sopra.
+ * Restituisce null se il muro non sale da nessuna parte.
+ */
+export function wallTopProfile(p: Project, w: Wall, zTop: number, s0: number, s1: number) {
+  const L = wallLength(w) || 1;
+  const d = { x: (w.b.x - w.a.x) / L, y: (w.b.y - w.a.y) / L };
+  const n = 48;
+  const out: { s: number; z: number }[] = [];
+  let rises = false;
+  for (let i = 0; i <= n; i++) {
+    const s = s0 + ((s1 - s0) * i) / n;
+    const z = roofUndersideAt(p, { x: w.a.x + d.x * s, y: w.a.y + d.y * s }, zTop) ?? zTop;
+    if (z > zTop + 1e-3) rises = true;
+    out.push({ s, z: Math.max(zTop, z) });
+  }
+  if (!rises) return null;
+  // toglie i punti allineati
+  return out.filter((q, i) => {
+    if (i === 0 || i === out.length - 1) return true;
+    const a = out[i - 1];
+    const b = out[i + 1];
+    return Math.abs((q.z - a.z) * (b.s - a.s) - (b.z - a.z) * (q.s - a.s)) > 1e-6;
+  });
+}
+
 export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | null {
   let best: number | null = null;
   for (const e of p.elements) {
