@@ -82,11 +82,22 @@ export interface WallLayer {
   priceCode?: string;
 }
 
+/**
+ * Come si computa un muro:
+ * - pacchetto: una sola voce per tutto il muro;
+ * - strati: una voce per ciascuno strato;
+ * - misto: voce del pacchetto più gli strati con voce propria (es. finiture a parte).
+ */
+export type WallComputeMode = 'pacchetto' | 'strati' | 'misto';
+
 export interface WallType {
   id: ID;
   name: string;
   layers: WallLayer[];
+  /** Voce del pacchetto completo */
   priceCode: string;
+  /** Se assente vale «misto» (comportamento dei progetti precedenti) */
+  computeMode?: WallComputeMode;
 }
 
 export interface SlabType {
@@ -322,6 +333,8 @@ export interface Project {
   titleBlock: TitleBlock;
   prices: PriceItem[];
   priceListName: string;
+  /** Scelta globale per il computo dei muri: come da tipologia, oppure tutti a pacchetto / per strati */
+  wallComputeOverride?: 'tipologia' | 'pacchetto' | 'strati';
   siteLogistics: SiteItem[];
 }
 

@@ -106,14 +106,16 @@ export function computeComputo(p: Project): ComputoLine[] {
       );
       const net = L * H - holes;
       const fNet = `${n2(L)} × ${n2(H)}${holes > 0 ? ` − ${n2(holes)} aperture` : ''}`;
-      push(t?.priceCode, base, {
-        length: L,
-        area: net,
-        volume: net * th,
-        f: { m: `L ${n2(L)}`, m2: fNet, m3: `(${fNet}) × ${n2(th)}` },
-      });
-      // ogni strato con una propria voce: m² = superficie netta, m³ = superficie × spessore dello strato
-      for (const layer of t?.layers ?? []) {
+      const mode = wallMode(p, t);
+      if (mode !== 'strati')
+        push(t?.priceCode, base, {
+          length: L,
+          area: net,
+          volume: net * th,
+          f: { m: `L ${n2(L)}`, m2: fNet, m3: `(${fNet}) × ${n2(th)}` },
+        });
+      // strati con voce propria: m² = superficie netta, m³ = superficie × spessore dello strato
+      for (const layer of mode === 'pacchetto' ? [] : t?.layers ?? []) {
         if (!layer.priceCode) continue;
         push(
           layer.priceCode,
@@ -203,6 +205,36 @@ export function computeComputo(p: Project): ComputoLine[] {
     l.amount = l.qty * (l.item?.price ?? 0);
   }
   return out.sort((a, b) => WBS.indexOf(a.category) - WBS.indexOf(b.category) || a.code.localeCompare(b.code));
+}
+
+/** Modalità di computo effettiva di una tipologia di muro (tiene conto della scelta globale del computo) */
+export function wallMode(p: Project, t: { computeMode?: 'pacchetto' | 'strati' | 'misto' } | undefined) {
+  const o = p.wallComputeOverride;
+  if (o === 'pacchetto' || o === 'strati') return o;
+  return t?.computeMode ?? 'misto';
+}
+
+/** Costo al m² di una tipologia di muro: pacchetto e somma degli strati (per il confronto nell'editor) */
+export function wallTypeUnitCosts(p: Project, t: { priceCode: string; layers: { thickness: number; priceCode?: string }[] }) {
+  const perM2 = (code: string | undefined, thickness: number) => {
+    const it = code ? p.prices.find((x) => x.code === code) : undefined;
+    if (!it) return null;
+    if (it.unit === 'm²') return it.price;
+    if (it.unit === 'm³') return it.price * thickness;
+    return null;
+  };
+  const total = t.layers.reduce((s, l) => s + l.thickness, 0);
+  const pack = perM2(t.priceCode, total);
+  let layers = 0;
+  let priced = 0;
+  for (const l of t.layers) {
+    const v = perM2(l.priceCode, l.thickness);
+    if (v !== null) {
+      layers += v;
+      priced++;
+    }
+  }
+  return { pack, layers: priced ? layers : null, priced, count: t.layers.length };
 }
 
 export function roofSurface(points: { x: number; y: number }[], shape: 'piana' | 'falde', pitch: number, overhang: number) {

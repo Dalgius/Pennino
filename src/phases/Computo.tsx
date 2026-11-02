@@ -78,6 +78,18 @@ export function Computo() {
             ]}
           />
           <div className="stage-bar-right">
+            <label className="chip" title="Come computare i muri in tutto il progetto">
+              Muri
+              <select
+                className="chip-select"
+                value={project.wallComputeOverride ?? 'tipologia'}
+                onChange={(e) => edit((d) => void (d.wallComputeOverride = e.target.value as 'tipologia' | 'pacchetto' | 'strati'))}
+              >
+                <option value="tipologia">come da tipologia</option>
+                <option value="pacchetto">tutti a pacchetto</option>
+                <option value="strati">tutti per strati</option>
+              </select>
+            </label>
             <span className="chip chip-live">● Sincronizzato con il modello</span>
             <button className="tab tab-icon" onClick={() => exportCsv(project, lines)}>
               <Icon name="download" size={15} /> Esporta CSV

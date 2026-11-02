@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../model/store';
-import type { Catalog, LayerRole, Project, Wall, WallLayer } from '../model/types';
+import type { Catalog, LayerRole, Project, Wall, WallComputeMode, WallLayer } from '../model/types';
 import {
   add,
   byId,
@@ -8,6 +8,7 @@ import {
   elementCode,
   elementLabel,
   fmt,
+  fmtEuro,
   levelAbove,
   mul,
   norm,
@@ -21,9 +22,9 @@ import {
   wallThickness,
 } from '../model/geometry';
 import { deleteElements } from '../model/edit';
-import { roofSurface } from '../model/quantities';
+import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { leavesOf } from '../model/openings';
-import { NumberField, SelectField, TextField } from '../ui/controls';
+import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 
 export type CatalogKey = keyof Catalog;
@@ -418,16 +419,49 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         const wt = byId(project.catalog.wall, id)!;
         const total = wallThickness(wt);
         const setLayer = (i: number, patch: Partial<WallLayer>) => upd((x: { layers: WallLayer[] }) => Object.assign(x.layers[i], patch));
+        const mode: WallComputeMode = wt.computeMode ?? 'misto';
+        const override = project.wallComputeOverride ?? 'tipologia';
+        const costs = wallTypeUnitCosts(project, wt);
         return (
           <>
-            <SelectField label="Voce di computo complessiva (facoltativa)" value={wt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            <div className="subhead">Computo del muro</div>
+            <Segmented<WallComputeMode>
+              value={mode}
+              onChange={(v) => upd((x: { computeMode?: WallComputeMode }) => (x.computeMode = v))}
+              options={[
+                { value: 'pacchetto', label: 'Pacchetto', title: 'Una sola voce per tutto il muro' },
+                { value: 'strati', label: 'Strati', title: 'Somma delle voci dei singoli strati' },
+                { value: 'misto', label: 'Misto', title: 'Voce del pacchetto più gli strati con voce propria' },
+              ]}
+            />
             <p className="note">
-              Usa la voce complessiva per un muro computato come un’unica lavorazione, oppure assegna una voce a ogni strato (m² = superficie netta, m³ = superficie × spessore dello strato).
+              {mode === 'pacchetto' && 'Il muro si computa con la sola voce del pacchetto; le voci degli strati restano memorizzate ma non contano.'}
+              {mode === 'strati' && 'Il muro si computa come somma degli strati: m² = superficie netta, m³ = superficie × spessore dello strato.'}
+              {mode === 'misto' && 'Voce del pacchetto più gli strati che hanno una voce propria (per esempio le finiture computate a parte).'}
             </p>
-            {wt.priceCode && wt.layers.some((l) => l.priceCode && l.role !== 'finitura') && (
+            {override !== 'tipologia' && (
+              <div className="check-row warn">
+                <b>! Nel computo è attiva la scelta globale «tutti {override === 'pacchetto' ? 'a pacchetto' : 'per strati'}»</b>
+                <span>Si cambia in 04 · Computo.</span>
+              </div>
+            )}
+            <div className={mode === 'strati' ? 'is-off' : ''}>
+              <SelectField label="Voce del pacchetto" value={wt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            </div>
+            <div className="kv-grid">
+              <div>
+                <span>Pacchetto</span>
+                <b className="mono">{costs.pack !== null ? `${fmtEuro(costs.pack)} / m²` : '—'}</b>
+              </div>
+              <div>
+                <span>Somma strati ({costs.priced}/{costs.count} con voce)</span>
+                <b className="mono">{costs.layers !== null ? `${fmtEuro(costs.layers)} / m²` : '—'}</b>
+              </div>
+            </div>
+            {mode === 'misto' && wt.priceCode && wt.layers.some((l) => l.priceCode && l.role !== 'finitura') && (
               <div className="check-row warn">
                 <b>! Possibile doppio computo</b>
-                <span>La voce complessiva e quella di uno strato non di finitura potrebbero contare la stessa lavorazione due volte.</span>
+                <span>In modalità Misto la voce del pacchetto e quella di uno strato non di finitura potrebbero contare la stessa lavorazione due volte.</span>
               </div>
             )}
             <div className="subhead">Stratigrafia (dall’esterno all’interno) · {fmt(total * 100, 1)} cm</div>
@@ -451,7 +485,9 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
                   <NumberField label="Spessore" unit="cm" digits={1} step={0.5} value={l.thickness * 100} min={0.1} onChange={(v) => setLayer(i, { thickness: v / 100 })} />
                   <SelectField label="Funzione" value={l.role} options={ROLES} onChange={(v) => setLayer(i, { role: v })} />
                 </div>
-                <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
+                <div className={mode === 'pacchetto' ? 'is-off' : ''}>
+                  <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
+                </div>
               </div>
             ))}
             <button
