@@ -5,6 +5,7 @@ import { bbox, dist, fmt, fmtEuro, footprintPoints, polygonArea, polygonPerimete
 import { hitTestSite } from '../model/edit';
 import { computeComputo, siteItemLabel } from '../model/quantities';
 import { Canvas2D } from '../ui/Canvas2D';
+import { Marquee, MultiSelection } from '../ui/Marquee';
 import { NumberField, Panel, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { useSiteEditor, type DrawKind } from '../ui/useSiteEditor';
@@ -145,6 +146,7 @@ export function Cantiere() {
                   <UnderlayLayer underlays={project.site.underlays ?? []} />
                   <SiteView project={project} mm={mm} logistics selectedIds={editor.selectedIds} textScale={SCREEN_TEXT} />
                   <SelectionHandles items={project.siteLogistics} ids={editor.selectedIds} mm={mm} />
+                  <Marquee m={editor.marquee} />
                   <SiteDraft draft={editor.draft} cursor={def.draw ? editor.cursor : null} mm={mm} closed={def.draw === 'polygon'} />
                 </>
               );
@@ -158,7 +160,23 @@ export function Cantiere() {
       </main>
 
       <aside className="side side-right">
-        <div className="side-scroll">{sel ? <SiteItemInspector item={sel} /> : <SiteSummary project={project} />}</div>
+        <div className="side-scroll">{editor.selectedIds.length > 1 ? (
+            <MultiSelection
+              labels={editor.selectedIds.map((id) => {
+                const it = project.siteLogistics.find((x) => x.id === id);
+                return it ? ({ recinzione: 'Recinzione', accesso: 'Accesso', area: 'Area', gru: 'Gru', mezzo: 'Mezzo', percorso: 'Viabilità' } as Record<string, string>)[it.kind] : 'Oggetto';
+              })}
+              onClear={() => select('cantiere', [])}
+              onDelete={() => {
+                edit((d) => void (d.siteLogistics = d.siteLogistics.filter((x) => !editor.selectedIds.includes(x.id))));
+                select('cantiere', []);
+              }}
+            />
+          ) : sel ? (
+            <SiteItemInspector item={sel} />
+          ) : (
+            <SiteSummary project={project} />
+          )}</div>
       </aside>
     </div>
   );

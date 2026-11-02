@@ -290,3 +290,62 @@ function segmentsCross(a: Vec2, b: Vec2, c: Vec2, d: Vec2) {
   const d4 = cr(a, b, d);
   return d1 * d2 < 0 && d3 * d4 < 0;
 }
+
+/** Ingombro in pianta di un oggetto di contesto o di cantiere (per la selezione a riquadro) */
+function siteFootprint(it: SiteItem | ContextItem | { id: string; kind: 'lotto'; points: Vec2[] }): { pts: Vec2[]; closed: boolean } {
+  const box = (c: Vec2, r: number) => [
+    { x: c.x - r, y: c.y - r },
+    { x: c.x + r, y: c.y - r },
+    { x: c.x + r, y: c.y + r },
+    { x: c.x - r, y: c.y + r },
+  ];
+  switch (it.kind) {
+    case 'albero':
+      return { pts: box(it.p, it.radius), closed: true };
+    case 'gru':
+      return { pts: box(it.p, 1), closed: true };
+    case 'mezzo':
+      return { pts: box(it.p, VEHICLE_SIZE[it.vehicle][0] / 2), closed: true };
+    case 'accesso':
+      return { pts: box(it.p, it.width / 2), closed: true };
+    case 'strada':
+    case 'percorso':
+    case 'recinzione':
+      return { pts: it.points, closed: false };
+    default:
+      return { pts: it.points, closed: true };
+  }
+}
+
+/** Selezione a riquadro per contesto (01) e cantiere (05): stesse regole di 02 */
+export function siteItemsInRect(
+  items: (SiteItem | ContextItem | { id: string; kind: 'lotto'; points: Vec2[] })[],
+  r: { minX: number; minY: number; maxX: number; maxY: number },
+  crossing: boolean,
+): string[] {
+  const inside = (q: Vec2) => q.x >= r.minX && q.x <= r.maxX && q.y >= r.minY && q.y <= r.maxY;
+  const corners = [
+    { x: r.minX, y: r.minY },
+    { x: r.maxX, y: r.minY },
+    { x: r.maxX, y: r.maxY },
+    { x: r.minX, y: r.maxY },
+  ];
+  const out: string[] = [];
+  for (const it of items) {
+    const { pts, closed } = siteFootprint(it);
+    if (!pts.length) continue;
+    if (!crossing) {
+      if (pts.every(inside)) out.push(it.id);
+      continue;
+    }
+    const n = closed ? pts.length : pts.length - 1;
+    let hit = pts.some(inside);
+    for (let i = 0; !hit && i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      hit = corners.some((c, j) => segmentsCross(a, b, c, corners[(j + 1) % 4]));
+    }
+    if (hit) out.push(it.id);
+  }
+  return out;
+}

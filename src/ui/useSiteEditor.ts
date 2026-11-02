@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore, type Selection } from '../model/store';
 import type { ContextItem, Project, SiteItem, Vec2 } from '../model/types';
 import { dist } from '../model/geometry';
-import { getHandles, setHandle, snapPoint, translate } from '../model/edit';
+import { getHandles, setHandle, siteItemsInRect, snapPoint, translate } from '../model/edit';
 import type { CanvasPointer } from './Canvas2D';
 
 export type Editable = SiteItem | ContextItem | { id: string; kind: 'lotto'; points: Vec2[] };
@@ -32,7 +32,9 @@ export function useSiteEditor(o: Options) {
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [ortho, setOrtho] = useState(false);
-  const drag = useRef<{ id: string; handle: number | null; start: Vec2; orig: Project; moved: boolean } | null>(null);
+  const drag = useRef<{ id: string; ids: string[]; handle: number | null; start: Vec2; orig: Project; moved: boolean } | null>(null);
+  // selezione a riquadro: da sinistra a destra = finestra, da destra a sinistra = intersezione
+  const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2; add: boolean } | null>(null);
   const selectedIds = selection.scope === o.scope ? selection.ids : [];
 
   useEffect(() => setDraft([]), [o.tool]);
@@ -67,15 +69,36 @@ export function useSiteEditor(o: Options) {
         for (const id of selectedIds) {
           const it = o.list(project).find((x) => x.id === id);
           if (!it) continue;
-          const hi = getHandles(it as never).findIndex((h) => dist(h, e.world) < tol);
+          const hs = getHandles(it as never);
+          // gli oggetti a punto non hanno vertici da modificare: il clic sposta la selezione
+          if (hs.length < 2) continue;
+          const hi = hs.findIndex((h) => dist(h, e.world) < tol);
           if (hi >= 0) {
-            drag.current = { id, handle: hi, start: e.world, orig: project, moved: false };
+            drag.current = { id, ids: [id], handle: hi, start: e.world, orig: project, moved: false };
             return;
           }
         }
         const hit = o.hitTest(project, e.world, tol);
-        select(o.scope, hit ? [hit] : []);
-        if (hit) drag.current = { id: hit, handle: null, start: snap, orig: project, moved: false };
+        if (!hit) {
+          // clic nel vuoto: inizia un riquadro
+          setMarquee({ a: e.world, b: e.world, add: e.shift });
+          if (!e.shift) select(o.scope, []);
+          return;
+        }
+        let ids = selectedIds.includes(hit) ? selectedIds : [hit];
+        if (e.shift) ids = selectedIds.includes(hit) ? selectedIds.filter((x) => x !== hit) : [...selectedIds, hit];
+        select(o.scope, ids);
+        if (ids.includes(hit)) drag.current = { id: hit, ids, handle: null, start: snap, orig: project, moved: false };
+      } else if (e.type === 'move' && marquee) {
+        setMarquee({ ...marquee, b: e.world });
+      } else if (e.type === 'up' && marquee) {
+        const m = marquee;
+        setMarquee(null);
+        if (dist(m.a, m.b) > tol) {
+          const r = { minX: Math.min(m.a.x, m.b.x), minY: Math.min(m.a.y, m.b.y), maxX: Math.max(m.a.x, m.b.x), maxY: Math.max(m.a.y, m.b.y) };
+          const found = siteItemsInRect(o.list(project), r, m.b.x < m.a.x);
+          select(o.scope, m.add ? [...new Set([...selectedIds, ...found])] : found);
+        }
       } else if (e.type === 'move') {
         setCursor(snap);
         const dr = drag.current;
@@ -88,6 +111,20 @@ export function useSiteEditor(o: Options) {
         const src = o.list(dr.orig).find((x) => x.id === dr.id);
         if (!src) return;
         const srcHandles = getHandles(src as never).map((h) => ({ ...h }));
+        if (dr.handle === null) {
+          // spostamento di tutti gli oggetti selezionati
+          const delta = { x: snap.x - dr.start.x, y: snap.y - dr.start.y };
+          const origs = new Map(o.list(dr.orig).filter((x) => dr.ids.includes(x.id)).map((x) => [x.id, getHandles(x as never).map((h) => ({ ...h }))]));
+          editLive((d) => {
+            for (const it of o.list(d)) {
+              const hs = origs.get(it.id);
+              if (!hs) continue;
+              hs.forEach((h, i) => setHandle(it as never, i, h));
+              translate(it as never, delta);
+            }
+          });
+          return;
+        }
         editLive((d) => {
           const it = o.list(d).find((x) => x.id === dr.id);
           if (!it) return;
@@ -139,10 +176,14 @@ export function useSiteEditor(o: Options) {
         select(o.scope, []);
       }
       if (e.key === 'F8') setOrtho((x) => !x);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        select(o.scope, o.list(useStore.getState().project).map((x) => x.id));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  return { onPointer, draft, cursor, selectedIds, ortho, setOrtho };
+  return { onPointer, draft, cursor, selectedIds, ortho, setOrtho, marquee };
 }

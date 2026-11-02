@@ -8,7 +8,6 @@ import {
   fmt,
   fmtLevel,
   footprintPoints,
-  pointInPolygon,
   polygonArea,
   sortedLevels,
   sunPosition,
@@ -17,6 +16,7 @@ import {
 import { hitTestSite } from '../model/edit';
 import { projectMetrics } from '../model/quantities';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
+import { Marquee, MultiSelection } from '../ui/Marquee';
 import { putImage, readImageFile } from '../model/images';
 import { UnderlayLayer } from '../views/UnderlayLayer';
 import { NumberField, Panel, Segmented, TextField } from '../ui/controls';
@@ -95,6 +95,7 @@ export function SelectionHandles({ items, ids, mm }: { items: Editable[]; ids: s
 
 export function Inquadramento() {
   const project = useStore((s) => s.project);
+  const select = useStore((s) => s.select);
   const edit = useStore((s) => s.edit);
   const [tool, setTool] = useState<SiteTool>('select');
   const [view, setView] = useState<'planimetria' | 'sezione'>('planimetria');
@@ -106,7 +107,8 @@ export function Inquadramento() {
     tool,
     drawKind: toolDef.draw,
     list: contextList,
-    hitTest: (p, w, tol) => hitTestSite(p.site.context, w, tol) ?? (p.site.lot.length > 2 && (pointInPolygon(w, p.site.lot) || distToPolyline(w, p.site.lot, true) < tol) ? 'lot' : null),
+    // il lotto si prende sul bordo, così dentro il lotto si può iniziare un riquadro
+    hitTest: (p, w, tol) => hitTestSite(p.site.context, w, tol) ?? (p.site.lot.length > 2 && distToPolyline(w, p.site.lot, true) < tol * 1.5 ? 'lot' : null),
     extraSnaps: footprintPoints(project),
     onCreate: (points) => {
       edit((d) => {
@@ -328,6 +330,7 @@ export function Inquadramento() {
                     )}
                     <SiteView project={project} mm={mm} selectedIds={editor.selectedIds} textScale={SCREEN_TEXT} />
                     <SelectionHandles items={contextList(project)} ids={editor.selectedIds} mm={mm} />
+                    <Marquee m={editor.marquee} />
                     <SiteDraft draft={editor.draft} cursor={toolDef.draw ? editor.cursor : null} mm={mm} closed={toolDef.draw === 'polygon'} />
                   </>
                 );
@@ -353,7 +356,20 @@ export function Inquadramento() {
 
       <aside className="side side-right">
         <div className="side-scroll">
-          {selItem ? <ContextInspector item={selItem} /> : <SitePanels />}
+          {editor.selectedIds.length > 1 ? (
+            <MultiSelection
+              labels={editor.selectedIds.map((id) => (id === 'lot' ? 'Lotto' : ({ edificio: 'Edificio esistente', strada: 'Strada', albero: 'Albero' } as Record<string, string>)[site.context.find((c) => c.id === id)?.kind ?? ''] ?? 'Oggetto'))}
+              onClear={() => select('contesto', [])}
+              onDelete={() => {
+                edit((d) => void (d.site.context = d.site.context.filter((c) => !editor.selectedIds.includes(c.id))));
+                select('contesto', []);
+              }}
+            />
+          ) : selItem ? (
+            <ContextInspector item={selItem} />
+          ) : (
+            <SitePanels />
+          )}
         </div>
       </aside>
     </div>
