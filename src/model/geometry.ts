@@ -284,6 +284,50 @@ export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | nul
   return best;
 }
 
+/**
+ * Poligono scostato verso l'esterno di «d» con spigoli vivi (raccordo a spigolo tra lati adiacenti).
+ * Per un rettangolo l'area vale A + P·d + 4·d².
+ */
+export function offsetPolygon(points: Vec2[], d: number): Vec2[] {
+  const n = points.length;
+  if (n < 3 || Math.abs(d) < 1e-9) return points;
+  // orientamento: antiorario → normale esterna a destra del lato
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % n];
+    s += a.x * b.y - b.x * a.y;
+  }
+  const sign = s >= 0 ? 1 : -1;
+  const lines = points.map((a, i) => {
+    const b = points[(i + 1) % n];
+    const dir = norm(sub(b, a));
+    const out = { x: dir.y * sign, y: -dir.x * sign };
+    return { p: add(a, mul(out, d)), dir };
+  });
+  return points.map((_v, i) => {
+    const l0 = lines[(i - 1 + n) % n];
+    const l1 = lines[i];
+    const den = l0.dir.x * l1.dir.y - l0.dir.y * l1.dir.x;
+    if (Math.abs(den) < 1e-9) return l1.p; // lati allineati
+    const t = ((l1.p.x - l0.p.x) * l1.dir.y - (l1.p.y - l0.p.y) * l1.dir.x) / den;
+    return add(l0.p, mul(l0.dir, t));
+  });
+}
+
+/** Contorno in pianta di una copertura comprensivo dello sporto di gronda */
+export function roofOutline(r: { points: Vec2[]; shape: 'piana' | 'falde'; overhang: number }): Vec2[] {
+  if (r.shape === 'piana') return offsetPolygon(r.points, r.overhang);
+  const b = bbox(r.points);
+  const o = r.overhang;
+  return [
+    { x: b.minX - o, y: b.minY - o },
+    { x: b.maxX + o, y: b.minY - o },
+    { x: b.maxX + o, y: b.maxY + o },
+    { x: b.minX - o, y: b.maxY + o },
+  ];
+}
+
 export function roofRidgeRise(points: Vec2[], pitch: number) {
   const b = bbox(points);
   const half = Math.min(b.w, b.h) / 2;
@@ -363,3 +407,17 @@ export const fmtEuro = (n: number) =>
   n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 });
 
 export const uid = (prefix = 'e') => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+
+/** Ingombro del modello (per inquadrare viste 3D e assonometrie) */
+export function sceneBounds(p: Project) {
+  const pts: Vec2[] = [];
+  for (const e of p.elements) {
+    if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') pts.push(e.a, e.b);
+    else if (e.kind === 'slab' || e.kind === 'roof') pts.push(...e.points);
+    else if (e.kind === 'column') pts.push(e.p);
+  }
+  const b = pts.length ? bbox(pts) : { minX: -5, minY: -5, maxX: 5, maxY: 5, w: 10, h: 10 };
+  const top = Math.max(3, ...p.levels.map((l) => l.elevation + l.height)) + 2;
+  return { ...b, top, cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2 };
+}
+

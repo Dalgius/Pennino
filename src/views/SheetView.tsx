@@ -10,7 +10,7 @@ import { PlanView } from './PlanView';
 import { ElevationView, elevationExtents, elevationHeight } from './ElevationView';
 import { SiteView } from './SiteView';
 import { SectionView, sectionLength } from './SectionView';
-import { renderAxonometric, sceneBounds } from './scene3d';
+import { sceneBounds } from '../model/geometry';
 
 export const PAPER: Record<PaperFormat, { w: number; h: number }> = {
   A3: { w: 420, h: 297 },
@@ -80,10 +80,13 @@ function useAxonometric(p: Project, revision: number, wmm: number, hmm: number) 
     if (axoCache.has(key)) return setUrl(axoCache.get(key)!);
     const t = window.setTimeout(() => {
       const px = Math.min(2400, Math.max(600, wmm * 6));
-      const u = renderAxonometric(p, px, px * (hmm / wmm));
-      if (axoCache.size > 24) axoCache.clear();
-      axoCache.set(key, u);
-      setUrl(u);
+      // three.js si carica solo quando serve un'assonometria
+      import('./scene3d').then(({ renderAxonometric }) => {
+        const u = renderAxonometric(p, px, px * (hmm / wmm));
+        if (axoCache.size > 24) axoCache.clear();
+        axoCache.set(key, u);
+        setUrl(u);
+      });
     }, 250);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

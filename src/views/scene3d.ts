@@ -2,6 +2,7 @@
 // Mappatura assi: modello (x, y, z) → three.js (x, z, −y).
 
 import * as THREE from 'three';
+import { sceneBounds } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
 import { fixtureSpec, leafSpans } from '../model/openings';
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
@@ -11,6 +12,7 @@ import {
   dist,
   levelAbove,
   openingSpans,
+  roofOutline,
   roofRidgeRise,
   sunPosition,
   wallHeight,
@@ -73,6 +75,8 @@ function extrudePolygon(points: Vec2[], zTop: number, thickness: number, materia
   return m;
 }
 
+export { sceneBounds };
+
 export function buildScene(p: Project, opts: SceneOptions = {}) {
   const root = new THREE.Group();
   const sel = new Set(opts.selectedIds ?? []);
@@ -134,7 +138,7 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       const th = t?.thickness ?? 0.3;
       const base = z0 + lvl.height;
       if (e.shape === 'piana' || e.points.length < 3) {
-        root.add(tag(extrudePolygon(e.points, base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
+        root.add(tag(extrudePolygon(roofOutline(e), base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
       } else {
         const roof = gableRoof(e.points, e.pitch, e.overhang, base, th, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide })));
         roof.traverse((c) => tag(c, e.id));
@@ -364,18 +368,6 @@ export function disposeObject(o: THREE.Object3D) {
     if (Array.isArray(mt)) mt.forEach((x) => x.dispose());
     else mt?.dispose();
   });
-}
-
-export function sceneBounds(p: Project) {
-  const pts: Vec2[] = [];
-  for (const e of p.elements) {
-    if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') pts.push(e.a, e.b);
-    else if (e.kind === 'slab' || e.kind === 'roof') pts.push(...e.points);
-    else if (e.kind === 'column') pts.push(e.p);
-  }
-  const b = pts.length ? bbox(pts) : { minX: -5, minY: -5, maxX: 5, maxY: 5, w: 10, h: 10 };
-  const top = Math.max(3, ...p.levels.map((l) => l.elevation + l.height)) + 2;
-  return { ...b, top, cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2 };
 }
 
 /** Immagine assonometrica del modello per i fogli di stampa */

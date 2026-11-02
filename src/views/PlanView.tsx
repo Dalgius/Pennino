@@ -11,6 +11,7 @@ import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces
 import {
   add,
   roofBase,
+  roofOutline,
   bbox,
   byId,
   centroid,
@@ -93,15 +94,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
         if (r.kind !== 'roof') return null;
         const b = bbox(r.points);
         const o = r.overhang;
-        const outline =
-          r.shape === 'falde'
-            ? [
-                { x: b.minX - o, y: b.minY - o },
-                { x: b.maxX + o, y: b.minY - o },
-                { x: b.maxX + o, y: b.maxY + o },
-                { x: b.minX - o, y: b.maxY + o },
-              ]
-            : r.points;
+        const outline = roofOutline(r);
         const alongX = b.w >= b.h;
         return (
           <g key={r.id} className="pv-roof" strokeWidth={med} strokeDasharray={`${3 * mm} ${1.5 * mm}`}>

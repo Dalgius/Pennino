@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
 import type { BuildingElement, Project, Vec2 } from '../model/types';
 import {
@@ -24,7 +24,8 @@ import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, 
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
-import { Model3D } from '../views/Model3D';
+// la vista 3D (three.js) si carica alla prima apertura
+const Model3D = lazy(() => import('../views/Model3D').then((m) => ({ default: m.Model3D })));
 import { Icon } from '../ui/icons';
 import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
 import { SectionMark, SectionView, sectionLength } from '../views/SectionView';
@@ -777,6 +778,7 @@ export function Modellazione() {
           {view === 'prospetti' && <ElevationsBoard project={project} />}
           {view === 'sezioni' && <SectionsBoard project={project} selectedIds={selectedIds} onDraw={() => { setView('pianta'); changeTool('section'); }} />}
           {(view === '3d' || view === 'affiancate') && (
+            <Suspense fallback={<div className="empty-stage">Caricamento della vista 3D…</div>}>
             <Model3D
               project={project}
               revision={revision}
@@ -793,6 +795,7 @@ export function Modellazione() {
                 }
               }}
             />
+            </Suspense>
           )}
         </div>
         <div className="prompt">

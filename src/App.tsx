@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { exportProjectFile, importProjectFile, resetToSample, useStore } from './model/store';
 import { emptyProject } from './model/defaults';
+import { ProjectFormatError } from './model/validate';
 import type { Phase } from './model/types';
 import { fmtEuro } from './model/geometry';
 import { computeComputo } from './model/quantities';
@@ -85,11 +86,14 @@ export function App() {
 
   const openFile = async (f: File) => {
     try {
-      replace(await importProjectFile(await f.text()));
-    } catch {
-      alert('Il file non è un progetto Pennino valido.');
+      const { project: p, warnings } = await importProjectFile(await f.text());
+      replace(p);
+      if (warnings.length) alert(`Progetto aperto con alcune correzioni:\n\n• ${warnings.join('\n• ')}`);
+    } catch (err) {
+      alert(err instanceof ProjectFormatError ? `Impossibile aprire il file: ${err.message}` : 'Il file non è un progetto Pennino valido.');
     }
   };
+
 
   return (
     <div className="app">

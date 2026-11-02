@@ -2,20 +2,21 @@
 // Ogni volta che il modello cambia, quantità e importi vengono ricalcolati da qui.
 
 import type { PriceItem, Project, WbsCategory } from './types';
+import { wallGeom, wallOutline } from './walls';
 import {
   bbox,
   byId,
-  convexHull,
   dist,
   elementCode,
   fmt,
+  offsetPolygon,
   openingSpans,
+  pointInPolygon,
   polygonArea,
   polygonPerimeter,
   sortedLevels,
   wallHeight,
   wallLength,
-  wallSegmentQuad,
   wallThickness,
 } from './geometry';
 
@@ -250,7 +251,8 @@ export function wallTypeUnitCosts(p: Project, t: { priceCode: string; layers: { 
 }
 
 export function roofSurface(points: { x: number; y: number }[], shape: 'piana' | 'falde', pitch: number, overhang: number) {
-  if (shape === 'piana') return polygonArea(points) + polygonPerimeter(points) * overhang;
+  // sporto con gli spigoli: il contorno scostato, non A + P·sporto (che omette gli angoli)
+  if (shape === 'piana') return polygonArea(offsetPolygon(points, overhang));
   const b = bbox(points);
   const A = (b.w + 2 * overhang) * (b.h + 2 * overhang);
   return A / Math.cos((pitch * Math.PI) / 180);
@@ -272,20 +274,95 @@ export function siteItemLabel(s: Project['siteLogistics'][number]): string {
 
 // ───────────── Indicatori ─────────────
 
+/**
+ * Superficie lorda di un livello: muri più ambienti chiusi dai muri.
+ * Rilievo su griglia: i muri occupano le celle, lo spazio esterno si «allaga» dal bordo,
+ * ciò che resta è racchiuso. Un ambito racchiuso conta se è coperto in buona parte da solai
+ * del livello (un cortile a cielo aperto no, un vano con il foro scala sì).
+ * Rientranze e spazi tra edifici separati restano esterni.
+ */
+export function levelGrossArea(p: Project, levelId: string): number {
+  const outlines = p.elements.flatMap((e) => (e.kind === 'wall' && e.levelId === levelId ? [wallOutline(wallGeom(p, e))] : []));
+  if (!outlines.length) return 0;
+  const slabs = p.elements.flatMap((e) => (e.kind === 'slab' && e.levelId === levelId ? [e.points] : []));
+  const all = outlines.flat();
+  const b = bbox(all);
+  const cell = Math.max(0.05, Math.max(b.w, b.h) / 700);
+  const pad = 2;
+  const nx = Math.ceil(b.w / cell) + 2 * pad;
+  const ny = Math.ceil(b.h / cell) + 2 * pad;
+  const x0 = b.minX - pad * cell;
+  const y0 = b.minY - pad * cell;
+  const WALL = 1;
+  const OUT = 2;
+  const grid = new Uint8Array(nx * ny);
+  const center = (i: number, j: number) => ({ x: x0 + (i + 0.5) * cell, y: y0 + (j + 0.5) * cell });
+  // muri: per ogni contorno si provano solo le celle del suo ingombro
+  for (const poly of outlines) {
+    const pb = bbox(poly);
+    const i0 = Math.max(0, Math.floor((pb.minX - x0) / cell) - 1);
+    const i1 = Math.min(nx - 1, Math.ceil((pb.maxX - x0) / cell) + 1);
+    const j0 = Math.max(0, Math.floor((pb.minY - y0) / cell) - 1);
+    const j1 = Math.min(ny - 1, Math.ceil((pb.maxY - y0) / cell) + 1);
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) if (!grid[j * nx + i] && pointInPolygon(center(i, j), poly)) grid[j * nx + i] = WALL;
+  }
+  // allagamento dall'esterno
+  const stack: number[] = [0];
+  grid[0] = OUT;
+  while (stack.length) {
+    const k = stack.pop()!;
+    const i = k % nx;
+    const j = (k - i) / nx;
+    const nb = [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, j > 0 ? k - nx : -1, j < ny - 1 ? k + nx : -1];
+    for (const q of nb) if (q >= 0 && grid[q] === 0) {
+      grid[q] = OUT;
+      stack.push(q);
+    }
+  }
+  // ambiti racchiusi: si contano se coperti per almeno metà da solai del livello
+  let cells = 0;
+  const seen = new Uint8Array(nx * ny);
+  for (let k = 0; k < grid.length; k++) {
+    if (grid[k] === WALL) cells++;
+    if (grid[k] !== 0 || seen[k]) continue;
+    const comp: number[] = [];
+    const st = [k];
+    seen[k] = 1;
+    while (st.length) {
+      const c = st.pop()!;
+      comp.push(c);
+      const i = c % nx;
+      const nb = [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, c - nx, c + nx];
+      for (const q of nb) if (q >= 0 && q < grid.length && grid[q] === 0 && !seen[q]) {
+        seen[q] = 1;
+        st.push(q);
+      }
+    }
+    // campionamento della copertura dei solai (al massimo ~400 punti per ambito)
+    const step = Math.max(1, Math.floor(comp.length / 400));
+    let covered = 0;
+    let tested = 0;
+    for (let t = 0; t < comp.length; t += step) {
+      const c = comp[t];
+      const i = c % nx;
+      const pt = center(i, (c - i) / nx);
+      tested++;
+      if (slabs.some((sl) => pointInPolygon(pt, sl))) covered++;
+    }
+    if (!slabs.length || covered / tested >= 0.5) cells += comp.length;
+  }
+  return cells * cell * cell;
+}
+
 export function projectMetrics(p: Project) {
   let sul = 0;
   let volume = 0;
   let footprint = 0;
   for (const lvl of sortedLevels(p)) {
     if (lvl.kind === 'copertura') continue;
-    const pts: { x: number; y: number }[] = [];
-    for (const e of p.elements)
-      if (e.kind === 'wall' && e.levelId === lvl.id) {
-        const t = wallThickness(byId(p.catalog.wall, e.typeId));
-        pts.push(...wallSegmentQuad(e, t, 0, wallLength(e)));
-      }
-    if (pts.length < 3) continue;
-    const a = polygonArea(convexHull(pts));
+    const a = levelGrossArea(p, lvl.id);
+    if (!a) continue;
     sul += a;
     volume += a * lvl.height;
     if (lvl.elevation <= 0.01) footprint = Math.max(footprint, a);

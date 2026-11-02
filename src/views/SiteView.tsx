@@ -7,6 +7,7 @@ import {
   bbox,
   byId,
   fmtLevel,
+  roofOutline,
   roofRidgeRise,
   centroid,
   fmt,
@@ -210,8 +211,9 @@ export function RoofSymbols({
           const c = centroid(r.points);
           return (
             <g key={r.id}>
-              <polygon points={pts(r.points)} className="sv-roof" strokeWidth={0.5 * mm} />
-              <polygon points={pts(r.points)} className="sv-roof-inner" strokeWidth={0.13 * mm} transform={`translate(${c.x} ${-c.y}) scale(0.97) translate(${-c.x} ${c.y})`} />
+              {/* bordo con lo sporto e filo dei muri sottostanti */}
+              <polygon points={pts(roofOutline(r))} className="sv-roof" strokeWidth={0.5 * mm} />
+              <polygon points={pts(r.points)} className="sv-roof-inner" strokeWidth={0.13 * mm} />
               {showLabels && (
                 <text x={c.x} y={-c.y} fontSize={2 * mm * ts} textAnchor="middle" className="sv-text">
                   <tspan x={c.x}>copertura piana</tspan>

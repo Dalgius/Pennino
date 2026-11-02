@@ -4,6 +4,7 @@ import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
 import { getImage, putImage } from './images';
 import { followWalls } from './constraints';
+import { ProjectFormatError, validateProject, type ValidationResult } from './validate';
 
 const STORAGE_KEY = 'pennino.project.v1';
 const HISTORY_LIMIT = 120;
@@ -12,8 +13,7 @@ function loadInitial(): Project {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Project;
-      if (p && p.version === 1 && Array.isArray(p.elements)) return p;
+      return validateProject(JSON.parse(raw)).project;
     }
   } catch {
     /* progetto salvato non leggibile: si riparte dall'esempio */
@@ -201,12 +201,18 @@ export async function exportProjectFile(p: Project) {
 }
 
 /** Legge un file di progetto, salvando a parte le immagini raster incluse */
-export async function importProjectFile(text: string): Promise<Project> {
-  const raw = JSON.parse(text) as Project & { images?: Record<string, string> };
-  if (raw.version !== 1 || !Array.isArray(raw.elements)) throw new Error('formato');
-  const { images, ...p } = raw;
-  for (const [id, url] of Object.entries(images ?? {})) await putImage(id, url);
-  return p;
+export async function importProjectFile(text: string): Promise<ValidationResult> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new ProjectFormatError('Il file non è un JSON leggibile.');
+  }
+  const result = validateProject(raw);
+  const images = (raw as { images?: Record<string, unknown> }).images;
+  if (images && typeof images === 'object')
+    for (const [id, url] of Object.entries(images)) if (typeof url === 'string' && url.startsWith('data:image/')) await putImage(id, url);
+  return result;
 }
 
 export function downloadText(name: string, text: string, mime = 'text/plain') {
