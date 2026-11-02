@@ -127,13 +127,24 @@ export function computeComputo(p: Project): ComputoLine[] {
       const t = byId(p.catalog.slab, e.typeId);
       const A = polygonArea(e.points);
       const th = t?.thickness ?? 0.3;
-      push(t?.priceCode, base, {
-        area: A,
-        volume: A * th,
-        length: polygonPerimeter(e.points),
-        f: { m2: `A poligono ${n2(A)}`, m3: `${n2(A)} × ${n2(th)}`, m: 'perimetro' },
-      });
-      if (t?.finishPriceCode)
+      // senza stratigrafia la modalità «strati» non ha voci: si torna al pacchetto (più il pavimento)
+      const mode = t?.layers?.length ? wallMode(p, t) : wallMode(p, t) === 'strati' ? 'misto' : wallMode(p, t);
+      const fA = `A poligono ${n2(A)}`;
+      if (mode !== 'strati')
+        push(t?.priceCode, base, {
+          area: A,
+          volume: A * th,
+          length: polygonPerimeter(e.points),
+          f: { m2: fA, m3: `${n2(A)} × ${n2(th)}`, m: 'perimetro' },
+        });
+      if (t?.layers?.length) {
+        // strati con voce propria: m² = superficie, m³ = superficie × spessore dello strato
+        if (mode !== 'pacchetto')
+          for (const layer of t.layers)
+            if (layer.priceCode)
+              push(layer.priceCode, { ...base, label: `${label} · ${layer.name}` }, { area: A, volume: A * layer.thickness, f: { m2: fA, m3: `${n2(A)} × ${n2(layer.thickness)}` } });
+      } else if (t?.finishPriceCode && mode !== 'pacchetto')
+        // tipologie senza stratigrafia: pavimento a parte
         push(t.finishPriceCode, { ...base, label: `${label} · ${t.finishName}` }, { area: A, f: { m2: `A ${n2(A)}` } });
     } else if (e.kind === 'column') {
       const t = byId(p.catalog.column, e.typeId);
@@ -170,14 +181,15 @@ export function computeComputo(p: Project): ComputoLine[] {
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const A = roofSurface(e.points, e.shape, e.pitch, e.overhang);
-      push(t?.priceCode, base, {
-        area: A,
-        volume: A * (t?.thickness ?? 0.3),
-        f: {
-          m2: e.shape === 'falde' ? `A orizz. con sporto / cos ${e.pitch}°` : 'A con sporto',
-          m3: `${n2(A)} × ${n2(t?.thickness ?? 0.3)}`,
-        },
-      });
+      const th = t?.thickness ?? 0.3;
+      const mode = wallMode(p, t);
+      const fA = e.shape === 'falde' ? `A orizz. con sporto / cos ${e.pitch}°` : 'A con sporto';
+      if (mode !== 'strati' || !t?.layers?.length)
+        push(t?.priceCode, base, { area: A, volume: A * th, f: { m2: fA, m3: `${n2(A)} × ${n2(th)}` } });
+      if (mode !== 'pacchetto')
+        for (const layer of t?.layers ?? [])
+          if (layer.priceCode)
+            push(layer.priceCode, { ...base, label: `${label} · ${layer.name}` }, { area: A, volume: A * layer.thickness, f: { m2: fA, m3: `${n2(A)} × ${n2(layer.thickness)}` } });
     }
   }
 

@@ -322,6 +322,146 @@ function WallInspector({
 
 // ───────── Editor delle tipologie ─────────
 
+interface Packaged {
+  priceCode: string;
+  layers?: WallLayer[];
+  computeMode?: WallComputeMode;
+  thickness?: number;
+}
+
+/**
+ * Stratigrafia e modalità di computo, comuni a muri, solai e coperture:
+ * voce del pacchetto, voci degli strati, Pacchetto / Strati / Misto, confronto al m².
+ */
+function PackageEditor({
+  kind,
+  type,
+  update,
+  priceOptions,
+  order,
+  upLabel,
+  downLabel,
+  areaNote,
+  syncThickness,
+  starter,
+}: {
+  kind: 'muro' | 'solaio' | 'copertura';
+  type: Packaged;
+  update: (fn: (x: Packaged) => void) => void;
+  priceOptions: { value: string; label: string }[];
+  order: string;
+  upLabel: string;
+  downLabel: string;
+  areaNote: string;
+  /** Solai e coperture: lo spessore del pacchetto è la somma degli strati */
+  syncThickness?: boolean;
+  /** Primi strati proposti quando la tipologia non ha ancora una stratigrafia */
+  starter?: () => WallLayer[];
+}) {
+  const project = useStore((s) => s.project);
+  const layers = type.layers ?? [];
+  const mode: WallComputeMode = type.computeMode ?? 'misto';
+  const override = project.wallComputeOverride ?? 'tipologia';
+  const costs = wallTypeUnitCosts(project, { priceCode: type.priceCode, layers });
+  const total = layers.reduce((s, l) => s + l.thickness, 0);
+  const sync = (x: Packaged) => {
+    if (syncThickness && x.layers?.length) x.thickness = +x.layers.reduce((s, l) => s + l.thickness, 0).toFixed(4);
+  };
+  const edit = (fn: (x: Packaged & { layers: WallLayer[] }) => void) =>
+    update((x) => {
+      x.layers = x.layers ?? [];
+      fn(x as Packaged & { layers: WallLayer[] });
+      sync(x);
+    });
+  const setLayer = (i: number, patch: Partial<WallLayer>) => edit((x) => Object.assign(x.layers[i], patch));
+  return (
+    <>
+      <div className="subhead">Computo {kind === 'muro' ? 'del muro' : kind === 'solaio' ? 'del solaio' : 'della copertura'}</div>
+      <Segmented<WallComputeMode>
+        value={mode}
+        onChange={(v) => update((x) => (x.computeMode = v))}
+        options={[
+          { value: 'pacchetto', label: 'Pacchetto', title: 'Una sola voce per tutto il pacchetto' },
+          { value: 'strati', label: 'Strati', title: 'Somma delle voci dei singoli strati' },
+          { value: 'misto', label: 'Misto', title: 'Voce del pacchetto più gli strati con voce propria' },
+        ]}
+      />
+      <p className="note">
+        {mode === 'pacchetto' && 'Si computa con la sola voce del pacchetto; le voci degli strati restano memorizzate ma non contano.'}
+        {mode === 'strati' && `Si computa come somma degli strati: m² = ${areaNote}, m³ = superficie × spessore dello strato.`}
+        {mode === 'misto' && 'Voce del pacchetto più gli strati che hanno una voce propria (per esempio le finiture computate a parte).'}
+      </p>
+      {override !== 'tipologia' && (
+        <div className="check-row warn">
+          <b>! Nel computo è attiva la scelta globale «tutti {override === 'pacchetto' ? 'a pacchetto' : 'per strati'}»</b>
+          <span>Si cambia in 04 · Computo.</span>
+        </div>
+      )}
+      <div className={mode === 'strati' ? 'is-off' : ''}>
+        <SelectField label="Voce del pacchetto" value={type.priceCode} options={priceOptions} onChange={(v) => update((x) => (x.priceCode = v))} />
+      </div>
+      <div className="kv-grid">
+        <div>
+          <span>Pacchetto</span>
+          <b className="mono">{costs.pack !== null ? `${fmtEuro(costs.pack)} / m²` : '—'}</b>
+        </div>
+        <div>
+          <span>Somma strati ({costs.priced}/{costs.count} con voce)</span>
+          <b className="mono">{costs.layers !== null ? `${fmtEuro(costs.layers)} / m²` : '—'}</b>
+        </div>
+      </div>
+      {mode === 'misto' && type.priceCode && layers.some((l) => l.priceCode && l.role !== 'finitura') && (
+        <div className="check-row warn">
+          <b>! Possibile doppio computo</b>
+          <span>In modalità Misto la voce del pacchetto e quella di uno strato non di finitura potrebbero contare la stessa lavorazione due volte.</span>
+        </div>
+      )}
+      {!layers.length && starter ? (
+        <>
+          <p className="note">Questa tipologia non ha ancora una stratigrafia: è un pacchetto unico con il suo spessore.</p>
+          <button className="btn btn-block" onClick={() => edit((x) => (x.layers = starter()))}>
+            <Icon name="plus" size={14} /> Crea stratigrafia
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="subhead">
+            Stratigrafia ({order}) · {fmt(total * 100, 1)} cm
+          </div>
+          <div className="strata-bar">
+            {layers.map((l, i) => (
+              <span key={i} style={{ background: l.color, flexGrow: l.thickness }} title={l.name} />
+            ))}
+          </div>
+          {layers.map((l, i) => (
+            <div key={i} className="layer-card">
+              <div className="layer-top">
+                <input type="color" value={l.color} onChange={(e) => setLayer(i, { color: e.target.value })} />
+                <TextField label="Strato" value={l.name} onChange={(v) => setLayer(i, { name: v })} />
+                <div className="layer-tools">
+                  <button className="icon-btn" disabled={i === 0} title={`Sposta ${upLabel}`} onClick={() => edit((x) => x.layers.splice(i - 1, 0, x.layers.splice(i, 1)[0]))}>↑</button>
+                  <button className="icon-btn" disabled={i === layers.length - 1} title={`Sposta ${downLabel}`} onClick={() => edit((x) => x.layers.splice(i + 1, 0, x.layers.splice(i, 1)[0]))}>↓</button>
+                  <button className="icon-btn" disabled={layers.length < 2} title="Rimuovi strato" onClick={() => edit((x) => x.layers.splice(i, 1))}>×</button>
+                </div>
+              </div>
+              <div className="fields fields-2">
+                <NumberField label="Spessore" unit="cm" digits={1} step={0.5} value={l.thickness * 100} min={0.1} onChange={(v) => setLayer(i, { thickness: v / 100 })} />
+                <SelectField label="Funzione" value={l.role} options={ROLES} onChange={(v) => setLayer(i, { role: v })} />
+              </div>
+              <div className={mode === 'pacchetto' ? 'is-off' : ''}>
+                <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
+              </div>
+            </div>
+          ))}
+          <button className="btn btn-block" onClick={() => edit((x) => x.layers.push({ name: 'Nuovo strato', thickness: 0.05, role: 'altro', color: '#cccccc' }))}>
+            <Icon name="plus" size={14} /> Aggiungi strato
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * Eliminazione di una tipologia. Se è usata, gli elementi passano alla tipologia scelta
  * (per porte e finestre si propongono quelle della stessa categoria).
@@ -417,86 +557,17 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
 
       {catKey === 'wall' && (() => {
         const wt = byId(project.catalog.wall, id)!;
-        const total = wallThickness(wt);
-        const setLayer = (i: number, patch: Partial<WallLayer>) => upd((x: { layers: WallLayer[] }) => Object.assign(x.layers[i], patch));
-        const mode: WallComputeMode = wt.computeMode ?? 'misto';
-        const override = project.wallComputeOverride ?? 'tipologia';
-        const costs = wallTypeUnitCosts(project, wt);
         return (
-          <>
-            <div className="subhead">Computo del muro</div>
-            <Segmented<WallComputeMode>
-              value={mode}
-              onChange={(v) => upd((x: { computeMode?: WallComputeMode }) => (x.computeMode = v))}
-              options={[
-                { value: 'pacchetto', label: 'Pacchetto', title: 'Una sola voce per tutto il muro' },
-                { value: 'strati', label: 'Strati', title: 'Somma delle voci dei singoli strati' },
-                { value: 'misto', label: 'Misto', title: 'Voce del pacchetto più gli strati con voce propria' },
-              ]}
-            />
-            <p className="note">
-              {mode === 'pacchetto' && 'Il muro si computa con la sola voce del pacchetto; le voci degli strati restano memorizzate ma non contano.'}
-              {mode === 'strati' && 'Il muro si computa come somma degli strati: m² = superficie netta, m³ = superficie × spessore dello strato.'}
-              {mode === 'misto' && 'Voce del pacchetto più gli strati che hanno una voce propria (per esempio le finiture computate a parte).'}
-            </p>
-            {override !== 'tipologia' && (
-              <div className="check-row warn">
-                <b>! Nel computo è attiva la scelta globale «tutti {override === 'pacchetto' ? 'a pacchetto' : 'per strati'}»</b>
-                <span>Si cambia in 04 · Computo.</span>
-              </div>
-            )}
-            <div className={mode === 'strati' ? 'is-off' : ''}>
-              <SelectField label="Voce del pacchetto" value={wt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
-            </div>
-            <div className="kv-grid">
-              <div>
-                <span>Pacchetto</span>
-                <b className="mono">{costs.pack !== null ? `${fmtEuro(costs.pack)} / m²` : '—'}</b>
-              </div>
-              <div>
-                <span>Somma strati ({costs.priced}/{costs.count} con voce)</span>
-                <b className="mono">{costs.layers !== null ? `${fmtEuro(costs.layers)} / m²` : '—'}</b>
-              </div>
-            </div>
-            {mode === 'misto' && wt.priceCode && wt.layers.some((l) => l.priceCode && l.role !== 'finitura') && (
-              <div className="check-row warn">
-                <b>! Possibile doppio computo</b>
-                <span>In modalità Misto la voce del pacchetto e quella di uno strato non di finitura potrebbero contare la stessa lavorazione due volte.</span>
-              </div>
-            )}
-            <div className="subhead">Stratigrafia (dall’esterno all’interno) · {fmt(total * 100, 1)} cm</div>
-            <div className="strata-bar">
-              {wt.layers.map((l, i) => (
-                <span key={i} style={{ background: l.color, flexGrow: l.thickness }} title={l.name} />
-              ))}
-            </div>
-            {wt.layers.map((l, i) => (
-              <div key={i} className="layer-card">
-                <div className="layer-top">
-                  <input type="color" value={l.color} onChange={(e) => setLayer(i, { color: e.target.value })} />
-                  <TextField label="Strato" value={l.name} onChange={(v) => setLayer(i, { name: v })} />
-                  <div className="layer-tools">
-                    <button className="icon-btn" disabled={i === 0} title="Sposta verso l’esterno" onClick={() => upd((x: { layers: WallLayer[] }) => x.layers.splice(i - 1, 0, x.layers.splice(i, 1)[0]))}>↑</button>
-                    <button className="icon-btn" disabled={i === wt.layers.length - 1} title="Sposta verso l’interno" onClick={() => upd((x: { layers: WallLayer[] }) => x.layers.splice(i + 1, 0, x.layers.splice(i, 1)[0]))}>↓</button>
-                    <button className="icon-btn" disabled={wt.layers.length < 2} title="Rimuovi strato" onClick={() => upd((x: { layers: WallLayer[] }) => x.layers.splice(i, 1))}>×</button>
-                  </div>
-                </div>
-                <div className="fields fields-2">
-                  <NumberField label="Spessore" unit="cm" digits={1} step={0.5} value={l.thickness * 100} min={0.1} onChange={(v) => setLayer(i, { thickness: v / 100 })} />
-                  <SelectField label="Funzione" value={l.role} options={ROLES} onChange={(v) => setLayer(i, { role: v })} />
-                </div>
-                <div className={mode === 'pacchetto' ? 'is-off' : ''}>
-                  <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
-                </div>
-              </div>
-            ))}
-            <button
-              className="btn btn-block"
-              onClick={() => upd((x: { layers: WallLayer[] }) => x.layers.push({ name: 'Nuovo strato', thickness: 0.05, role: 'altro', color: '#cccccc' }))}
-            >
-              <Icon name="plus" size={14} /> Aggiungi strato
-            </button>
-          </>
+          <PackageEditor
+            kind="muro"
+            type={wt}
+            update={(fn) => upd(fn as never)}
+            priceOptions={priceOptions}
+            order="dall’esterno all’interno"
+            upLabel="verso l’esterno"
+            downLabel="verso l’interno"
+            areaNote="superficie netta del muro"
+          />
         );
       })()}
 
@@ -504,10 +575,28 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         const st = byId(project.catalog.slab, id)!;
         return (
           <>
-            <NumberField label="Spessore pacchetto" unit="cm" digits={1} value={st.thickness * 100} min={1} onChange={(v) => upd((x: { thickness: number }) => (x.thickness = v / 100))} />
-            <SelectField label="Voce di computo (solaio)" value={st.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
-            <TextField label="Pavimento" value={st.finishName} onChange={(v) => upd((x: { finishName: string }) => (x.finishName = v))} />
-            <SelectField label="Voce di computo (pavimento)" value={st.finishPriceCode ?? ''} options={priceOptions} onChange={(v) => upd((x: { finishPriceCode?: string }) => (x.finishPriceCode = v || undefined))} />
+            {!st.layers?.length && (
+              <>
+                <NumberField label="Spessore pacchetto" unit="cm" digits={1} value={st.thickness * 100} min={1} onChange={(v) => upd((x: { thickness: number }) => (x.thickness = v / 100))} />
+                <TextField label="Pavimento" value={st.finishName} onChange={(v) => upd((x: { finishName: string }) => (x.finishName = v))} />
+                <SelectField label="Voce di computo (pavimento)" value={st.finishPriceCode ?? ''} options={priceOptions} onChange={(v) => upd((x: { finishPriceCode?: string }) => (x.finishPriceCode = v || undefined))} />
+              </>
+            )}
+            <PackageEditor
+              kind="solaio"
+              type={st}
+              update={(fn) => upd(fn as never)}
+              priceOptions={priceOptions}
+              order="dall’alto al basso"
+              upLabel="verso l’alto"
+              downLabel="verso il basso"
+              areaNote="superficie del solaio"
+              syncThickness
+              starter={() => [
+                { name: st.finishName || 'Pavimento', thickness: 0.015, role: 'finitura', color: '#c9b79c', priceCode: st.finishPriceCode },
+                { name: 'Solaio', thickness: Math.max(0.05, st.thickness - 0.015), role: 'struttura', color: '#9aa0a6' },
+              ]}
+            />
           </>
         );
       })()}
@@ -569,8 +658,21 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         const rt = byId(project.catalog.roof, id)!;
         return (
           <>
-            <NumberField label="Spessore pacchetto" unit="cm" digits={1} value={rt.thickness * 100} min={1} onChange={(v) => upd((x: { thickness: number }) => (x.thickness = v / 100))} />
-            <SelectField label="Voce di computo" value={rt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            {!rt.layers?.length && (
+              <NumberField label="Spessore pacchetto" unit="cm" digits={1} value={rt.thickness * 100} min={1} onChange={(v) => upd((x: { thickness: number }) => (x.thickness = v / 100))} />
+            )}
+            <PackageEditor
+              kind="copertura"
+              type={rt}
+              update={(fn) => upd(fn as never)}
+              priceOptions={priceOptions}
+              order="dall’alto al basso"
+              upLabel="verso l’alto"
+              downLabel="verso il basso"
+              areaNote="superficie di falda"
+              syncThickness
+              starter={() => [{ name: 'Pacchetto di copertura', thickness: rt.thickness, role: 'altro', color: '#9a5b45' }]}
+            />
           </>
         );
       })()}

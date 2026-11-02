@@ -78,8 +78,8 @@ export function Computo() {
             ]}
           />
           <div className="stage-bar-right">
-            <label className="chip" title="Come computare i muri in tutto il progetto">
-              Muri
+            <label className="chip" title="Come computare muri, solai e coperture in tutto il progetto">
+              Pacchetti
               <select
                 className="chip-select"
                 value={project.wallComputeOverride ?? 'tipologia'}

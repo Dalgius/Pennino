@@ -105,9 +105,12 @@ export interface SlabType {
   name: string;
   thickness: number;
   priceCode: string;
-  /** Pavimento: computato per superficie */
+  /** Pavimento (tipologie senza stratigrafia): computato per superficie */
   finishName: string;
   finishPriceCode?: string;
+  /** Stratigrafia dall'alto al basso; se presente, lo spessore è la somma degli strati */
+  layers?: WallLayer[];
+  computeMode?: WallComputeMode;
 }
 
 export interface ColumnType {
@@ -147,6 +150,9 @@ export interface RoofType {
   name: string;
   thickness: number;
   priceCode: string;
+  /** Stratigrafia dall'alto al basso; se presente, lo spessore è la somma degli strati */
+  layers?: WallLayer[];
+  computeMode?: WallComputeMode;
 }
 
 export interface Catalog {
