@@ -4,17 +4,18 @@
 
 :root,
 :root[data-theme='dark'] {
-  /* comandi e pannelli in grigio neutro, area di disegno quasi nera */
-  --bg: #1b1b1d;
-  --canvas: #0b0b0c;
-  --surface: #232325;
-  --surface-2: #2c2c2f;
-  --surface-3: #37373b;
-  --line: #3a3a3e;
-  --line-strong: #4d4d52;
+  /* menu e pannelli grigio scuro, area di lavoro chiara */
+  --bg: #171717;
+  --canvas: #e8e8e8;
+  --field: #0e0e0e;
+  --surface: #1c1c1c;
+  --surface-2: #242424;
+  --surface-3: #2e2e2e;
+  --line: #2a2a2a;
+  --line-strong: #3b3b3b;
   --text: #ececec;
-  --text-2: #ababb0;
-  --text-3: #7a7a80;
+  --text-2: #a8a8a8;
+  --text-3: #737373;
   --primary: #38bdf8;
   --primary-ink: #06202c;
   --primary-soft: rgba(56, 189, 248, 0.14);
@@ -25,21 +26,45 @@
   --ok: #34d399;
   --ok-soft: rgba(52, 211, 153, 0.12);
 
-  /* inchiostri del disegno a schermo */
-  --ink: #ece7de;
-  --ink-2: #a8abb2;
-  --ink-soft: #55575d;
-  --slab: rgba(255, 255, 255, 0.045);
-  --context: rgba(255, 255, 255, 0.07);
-  --grid-minor: rgba(255, 255, 255, 0.035);
-  --grid-major: rgba(255, 255, 255, 0.075);
+  /* inchiostri del disegno (su fondo chiaro) */
+  --ink: #1b1b1b;
+  --ink-2: #4b4f56;
+  --ink-soft: #a9a9a9;
+  --slab: rgba(0, 0, 0, 0.04);
+  --context: rgba(0, 0, 0, 0.07);
+  --grid-minor: rgba(0, 0, 0, 0.045);
+  --grid-major: rgba(0, 0, 0, 0.09);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
+}
+
+/* Il disegno usa sempre la tavolozza chiara: dentro l'SVG dell'area di lavoro
+   testi, superfici e accenti sono quelli da carta, i comandi attorno restano scuri. */
+:root[data-theme='dark'] .canvas2d svg,
+:root[data-theme='dark'] .hud3d-compass {
+  --surface: #f4f4f4;
+  --surface-2: #ffffff;
+  --surface-3: #dcdcdc;
+  --line: #cfcfcf;
+  --line-strong: #b0b0b0;
+  --text: #1c1d21;
+  --text-2: #555a63;
+  --text-3: #80858e;
+  --primary: #0284c7;
+  --primary-ink: #ffffff;
+  --primary-soft: rgba(2, 132, 199, 0.12);
+  --ochre: #b45309;
+  --ochre-soft: rgba(180, 83, 9, 0.1);
+  --terra: #c2410c;
+  --terra-soft: rgba(194, 65, 12, 0.08);
+  --ok: #059669;
+  --ok-soft: rgba(5, 150, 105, 0.08);
 }
 
 :root[data-theme='light'] {
   --bg: #ecebe6;
   --canvas: #fbfaf7;
+  --field: #ffffff;
   --surface: #f6f5f1;
   --surface-2: #ffffff;
   --surface-3: #ebe9e3;
@@ -501,7 +526,7 @@ button.chip:hover {
   display: flex;
   align-items: center;
   border: 1px solid var(--line-strong);
-  background: var(--canvas);
+  background: var(--field);
 }
 .field-input:focus-within {
   border-color: var(--primary);
@@ -1343,11 +1368,11 @@ button.chip:hover {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: var(--bg);
+  background: var(--canvas);
 }
 .sheet-stage > .sheet-wrap {
   flex: none;
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
   margin: auto;
 }
 .sheet-wrap svg {
@@ -1471,7 +1496,7 @@ button.chip:hover {
   color: var(--text-2);
   padding-top: 5px;
   padding-bottom: 5px;
-  background: var(--canvas);
+  background: var(--field);
 }
 .warn-text {
   color: var(--ochre);
@@ -1489,7 +1514,7 @@ button.chip:hover {
 .cell-input:focus {
   border-color: var(--primary);
   outline: none;
-  background: var(--canvas);
+  background: var(--field);
 }
 .cell-wide {
   text-align: left;
@@ -1623,7 +1648,7 @@ td.num .cell-input {
   text-align: left;
   padding: 7px 9px;
   font-size: 11.5px;
-  background: var(--canvas);
+  background: var(--field);
   border: 1px solid var(--line);
   color: var(--text-2);
 }
@@ -1722,7 +1747,7 @@ a.link {
 .raster-calib input {
   width: 90px;
   border: 1px solid var(--primary);
-  background: var(--canvas);
+  background: var(--field);
   padding: 3px 6px;
   outline: none;
 }

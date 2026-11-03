@@ -116,7 +116,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     }
     c.model = buildScene(project, { selectedIds, maxElevation });
     c.scene.add(c.model);
-    c.scene.background = new THREE.Color(dark ? 0x0f0f10 : 0xeef0f2);
+    c.scene.background = new THREE.Color(dark ? 0xe8e8e8 : 0xeef0f2);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.elements, project.levels, project.catalog, site.context, site.lot, site.groundLevel, selectedIds, maxElevation, dark]);
 
