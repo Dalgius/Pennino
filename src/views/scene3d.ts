@@ -18,6 +18,7 @@ import {
   wallHeight,
   wallTopProfile,
   wallLength,
+  slabOutline,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -106,7 +107,7 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
     } else if (e.kind === 'slab') {
       const t = byId(p.catalog.slab, e.typeId);
       if (e.points.length < 3) continue;
-      root.add(tag(extrudePolygon(e.points, z0, t?.thickness ?? 0.3, pick(e.id, M('slab', COLORS.slab))), e.id));
+      root.add(tag(extrudePolygon(slabOutline(p, e), z0, t?.thickness ?? 0.3, pick(e.id, M('slab', COLORS.slab))), e.id));
     } else if (e.kind === 'column') {
       const t = byId(p.catalog.column, e.typeId);
       const geo = new THREE.BoxGeometry(t?.width ?? 0.3, lvl.height, t?.depth ?? 0.3);

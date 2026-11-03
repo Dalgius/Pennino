@@ -9,6 +9,7 @@ import {
   norm,
   openingSpans,
   roofRidgeRise,
+  slabOutline,
   sortedLevels,
   sub,
   wallHeight,
@@ -187,10 +188,11 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       });
     } else if (e.kind === 'slab') {
       const t = byId(p.catalog.slab, e.typeId);
-      const us = e.points.map(U);
+      const outline = slabOutline(p, e);
+      const us = outline.map(U);
       const th = t?.thickness ?? 0.3;
       items.push({
-        depth: Math.min(...e.points.map(D)) - 0.01,
+        depth: Math.min(...outline.map(D)) - 0.01,
         node: (
           <rect
             key={e.id}
