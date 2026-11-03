@@ -748,8 +748,7 @@ button.chip:hover {
 }
 .swatch-layers {
   display: flex;
-  height: 16px;
-  border: 1px solid var(--line-strong);
+  height: 14px;
   position: relative;
 }
 .swatch-layers span {
@@ -866,15 +865,13 @@ button.chip:hover {
 .strata-row:last-child {
   border-bottom: none;
 }
-.strata-chip {
-  width: 10px;
-  height: 10px;
-  border: 1px solid var(--line-strong);
-}
 .strata-bar {
   display: flex;
   height: 22px;
-  border: 1px solid var(--line-strong);
+}
+.hatch-swatch {
+  display: block;
+  flex: none;
 }
 .layer-card {
   border: 1px solid var(--line);
@@ -914,6 +911,8 @@ button.chip:hover {
 }
 .canvas2d svg {
   display: block;
+  --hatch-paper: #fbfbfa;
+  --hatch-ink: #1b1b1b;
 }
 .grid-minor {
   stroke: var(--grid-minor);
@@ -957,12 +956,15 @@ button.chip:hover {
   fill: var(--slab);
   stroke: var(--ink-soft);
 }
-.canvas2d .pv-wall,
+.canvas2d .pv-wall {
+  fill: #3a3a3a;
+}
 .canvas2d .pv-column {
-  fill: var(--ink);
+  fill: #3a3a3a;
+  stroke: var(--ink);
 }
 .canvas2d .pv-layer {
-  stroke: rgba(0, 0, 0, 0.5);
+  stroke: var(--ink-2);
 }
 .canvas2d .pv-beam {
   fill: none;
@@ -970,8 +972,7 @@ button.chip:hover {
 }
 .canvas2d .pv-roof {
   fill: none;
-  stroke: var(--ochre);
-  opacity: 0.8;
+  stroke: var(--ink-2);
 }
 .canvas2d .pv-stair {
   fill: var(--canvas);
@@ -984,7 +985,7 @@ button.chip:hover {
   fill: var(--ink-2);
 }
 .canvas2d .pv-window {
-  stroke: var(--primary);
+  stroke: var(--ink);
   fill: none;
 }
 .canvas2d .pv-door {
@@ -992,10 +993,10 @@ button.chip:hover {
   fill: none;
 }
 .canvas2d .pv-dim {
-  stroke: var(--ochre);
+  stroke: var(--ink-2);
 }
 .canvas2d .pv-dimtext {
-  fill: var(--ochre);
+  fill: var(--ink);
   font-family: 'JetBrains Mono', monospace;
 }
 .canvas2d .pv-dimpartial {
@@ -1080,11 +1081,11 @@ button.chip:hover {
   stroke: var(--ink);
 }
 .canvas2d .ev-glass {
-  fill: var(--primary-soft);
+  fill: #dcdcdc;
   stroke: var(--ink);
 }
 .canvas2d .ev-door {
-  fill: var(--ochre-soft);
+  fill: #c8c8c8;
   stroke: var(--ink);
 }
 .canvas2d .ev-frame,
@@ -1104,20 +1105,20 @@ button.chip:hover {
   font-family: 'Inter', sans-serif;
 }
 .canvas2d .ls-ground {
-  fill: var(--ochre-soft);
+  fill: rgba(0, 0, 0, 0.05);
 }
 .canvas2d .ls-limit {
-  stroke: var(--terra);
+  stroke: var(--ink);
 }
 .canvas2d .ls-limit-text {
-  fill: var(--terra);
+  fill: var(--ink);
   font-family: 'JetBrains Mono', monospace;
 }
 .canvas2d .ls-level {
-  stroke: var(--primary);
+  stroke: var(--ink-2);
 }
 .canvas2d .ls-level-text {
-  fill: var(--primary);
+  fill: var(--ink-2);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -1134,15 +1135,15 @@ button.chip:hover {
   stroke: var(--ink-soft);
 }
 .canvas2d .sv-tree {
-  fill: rgba(125, 154, 100, 0.15);
-  stroke: #7d9a64;
+  fill: rgba(0, 0, 0, 0.025);
+  stroke: var(--ink-2);
 }
 .canvas2d .sv-tree-trunk {
-  fill: #7d9a64;
+  fill: var(--ink-2);
 }
 .canvas2d .sv-lot {
   fill: none;
-  stroke: var(--ochre);
+  stroke: var(--ink);
 }
 .canvas2d .sv-roof {
   fill: var(--surface-2);
@@ -1183,18 +1184,18 @@ button.chip:hover {
 }
 .canvas2d .sv-gate,
 .canvas2d .sv-gate-arrow {
-  stroke: var(--terra);
+  stroke: var(--ink);
 }
 .canvas2d .sv-arrowhead {
-  fill: var(--terra);
+  fill: var(--ink);
 }
 .canvas2d .sv-crane-radius {
-  fill: var(--ochre-soft);
-  stroke: var(--ochre);
+  fill: rgba(0, 0, 0, 0.025);
+  stroke: var(--ink-2);
 }
 .canvas2d .sv-crane {
   fill: none;
-  stroke: var(--ochre);
+  stroke: var(--ink);
 }
 .canvas2d .sv-vehicle {
   fill: var(--surface-2);
@@ -1766,7 +1767,7 @@ a.link {
 
 /* Quote associative */
 .canvas2d .pv-dim-ext {
-  stroke: var(--ochre);
+  stroke: var(--ink-2);
   opacity: 0.55;
 }
 .canvas2d .pv-wall-outline {
@@ -1817,7 +1818,7 @@ a.link {
   stroke: var(--ink);
 }
 .canvas2d .pv-glass {
-  stroke: var(--primary);
+  stroke: var(--ink);
 }
 .door-tools {
   display: grid;
@@ -1861,17 +1862,17 @@ a.link {
   stroke: var(--ink);
 }
 .canvas2d .sc-earth {
-  fill: var(--ochre-soft);
+  fill: rgba(0, 0, 0, 0.06);
 }
 .canvas2d .sc-fixture rect {
   fill: var(--canvas);
   stroke: var(--ink);
 }
 .canvas2d .sc-fixture .sc-leaf {
-  fill: var(--ochre-soft);
+  fill: #d0d0d0;
 }
 .canvas2d .sc-glass {
-  stroke: var(--primary);
+  stroke: var(--ink);
 }
 .canvas2d .sc-sill {
   fill: var(--surface-2);
@@ -1879,18 +1880,18 @@ a.link {
 }
 .canvas2d .sm-line,
 .canvas2d .sm-thick {
-  stroke: var(--terra);
+  stroke: var(--ink);
   fill: none;
 }
 .canvas2d .sm-head {
-  fill: var(--terra);
+  fill: var(--ink);
 }
 .canvas2d .sm-circle {
   fill: var(--canvas);
-  stroke: var(--terra);
+  stroke: var(--ink);
 }
 .canvas2d .sm-text {
-  fill: var(--terra);
+  fill: var(--ink);
   font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
 }

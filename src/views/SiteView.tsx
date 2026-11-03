@@ -30,11 +30,12 @@ export const VEHICLE_SIZE: Record<VehicleKind, [number, number]> = {
 };
 
 export const AREA_COLORS: Record<string, string> = {
-  deposito: '#c9a24a',
-  baraccamenti: '#5b9bd5',
-  parcheggio: '#8a8f98',
-  rifiuti: '#b56b5a',
-  lavorazione: '#7fa36b',
+  // grigi da china: si distinguono per tono ed etichetta
+  deposito: '#5a5a5a',
+  baraccamenti: '#2e2e2e',
+  parcheggio: '#8a8a8a',
+  rifiuti: '#444444',
+  lavorazione: '#707070',
 };
 
 interface Props {

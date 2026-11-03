@@ -7,6 +7,7 @@ import { bbox, fmt, sortedLevels, wallThickness } from '../model/geometry';
 import { openingSchedule, wallSchedule } from '../model/quantities';
 import { getHandles } from '../model/edit';
 import { PlanView } from './PlanView';
+import { HatchDefs, hatchFill, hatchOf, useHatchPrefix } from './hatch';
 import { ElevationView, elevationExtents, elevationHeight } from './ElevationView';
 import { SiteView } from './SiteView';
 import { SectionView, sectionLength } from './SectionView';
@@ -317,8 +318,10 @@ function WallTable({ project: p }: { project: Project }) {
 }
 
 function Legend({ project: p }: { project: Project }) {
+  const hp = useHatchPrefix();
   let y = 4;
   const items: React.ReactNode[] = [];
+  items.push(<HatchDefs key="hd" prefix={hp} u={1} />);
   items.push(<text key="h1" x={0} y={y} fontSize={2.8} className="sh-text sh-text-bold">TIPOLOGIE MURARIE</text>);
   y += 5;
   for (const t of p.catalog.wall) {
@@ -328,7 +331,7 @@ function Legend({ project: p }: { project: Project }) {
       <g key={t.id}>
         {t.layers.map((l, i) => {
           const w = (l.thickness / tot) * 20;
-          const r = <rect key={i} x={x} y={y} width={w} height={5} fill={l.color} stroke="#222" strokeWidth={0.1} />;
+          const r = <rect key={i} x={x} y={y} width={w} height={5} fill={hatchFill(hp, hatchOf(l))} stroke="#222" strokeWidth={0.1} />;
           x += w;
           return r;
         })}
@@ -422,7 +425,7 @@ export const SHEET_CSS = `
 .sheet-svg .sh-text-inv { fill: #fff; }
 .sheet-svg .sh-mono { font-family: 'JetBrains Mono', Menlo, monospace; }
 .sheet-svg .sh-th { fill: #ececec; }
-.sheet-svg .sh-elev { fill: #e5f0f7; stroke: #111; stroke-width: 0.25; }
+.sheet-svg .sh-elev { fill: #f0f0f0; stroke: #111; stroke-width: 0.25; }
 .sheet-svg .sh-fill-dark { fill: #222; }
 .sheet-svg .sh-hatch { fill: #d6d6d6; stroke: #555; stroke-width: 0.18; }
 .sheet-svg .sh-tb-box { fill: #fff; stroke: #111; stroke-width: 0.5; }
@@ -436,7 +439,7 @@ export const SHEET_CSS = `
 .sheet-svg .pv-layer { stroke: #111; }
 .sheet-svg .pv-wall-outline { fill: none; stroke: #111; }
 .sheet-svg .pv-dim-ext { stroke: #555; }
-.sheet-svg .pv-column { fill: #1a1a1a; }
+.sheet-svg .pv-column { fill: #1a1a1a; stroke: #111; }
 .sheet-svg .pv-beam { fill: none; stroke: #333; }
 .sheet-svg .pv-roof { fill: none; stroke: #555; }
 .sheet-svg .pv-stair { fill: #fff; stroke: #222; }
@@ -459,8 +462,8 @@ export const SHEET_CSS = `
 .sheet-svg .ev-wall { fill: #f7f5f0; stroke: #111; }
 .sheet-svg .ev-slab { fill: #cfcfcf; stroke: #111; }
 .sheet-svg .ev-roof { fill: #8d8d8d; stroke: #111; }
-.sheet-svg .ev-glass { fill: #dbe9f2; stroke: #111; }
-.sheet-svg .ev-door { fill: #c9b79c; stroke: #111; }
+.sheet-svg .ev-glass { fill: #e4e4e4; stroke: #111; }
+.sheet-svg .ev-door { fill: #cfcfcf; stroke: #111; }
 .sheet-svg .ev-frame { stroke: #111; }
 .sheet-svg .ev-frame-fill { fill: #f2f2f2; stroke: #111; }
 .sheet-svg .ev-swing { fill: none; stroke: #444; }
@@ -482,8 +485,8 @@ export const SHEET_CSS = `
 .sheet-svg .sv-road { stroke: #e3e3e3; fill: none; stroke-linecap: butt; }
 .sheet-svg .sv-road-axis { stroke: #999; fill: none; }
 .sheet-svg .sv-context { fill: #d9d9d9; stroke: #555; }
-.sheet-svg .sv-tree { fill: #eef3e8; stroke: #6b8a55; }
-.sheet-svg .sv-tree-trunk { fill: #6b8a55; }
+.sheet-svg .sv-tree { fill: #f6f6f6; stroke: #555; }
+.sheet-svg .sv-tree-trunk { fill: #555; }
 .sheet-svg .sv-lot { fill: none; stroke: #111; }
 .sheet-svg .sv-roof { fill: #fff; stroke: #111; }
 .sheet-svg .sv-slab { fill: #f0f0f0; stroke: #888; }
@@ -500,11 +503,11 @@ export const SHEET_CSS = `
 .sheet-svg .sv-north-open { fill: #fff; stroke: #111; }
 .sheet-svg .sv-fence { stroke: #111; fill: none; }
 .sheet-svg .sv-fence-dash { stroke: #fff; fill: none; }
-.sheet-svg .sv-gate { stroke: #c2410c; }
-.sheet-svg .sv-gate-arrow { stroke: #c2410c; }
-.sheet-svg .sv-arrowhead { fill: #c2410c; }
-.sheet-svg .sv-crane-radius { fill: rgba(234,179,8,0.06); stroke: #b45309; }
-.sheet-svg .sv-crane { fill: none; stroke: #b45309; }
+.sheet-svg .sv-gate { stroke: #111; }
+.sheet-svg .sv-gate-arrow { stroke: #111; }
+.sheet-svg .sv-arrowhead { fill: #111; }
+.sheet-svg .sv-crane-radius { fill: rgba(0,0,0,0.02); stroke: #555; }
+.sheet-svg .sv-crane { fill: none; stroke: #111; }
 .sheet-svg .sv-vehicle { fill: #fff; stroke: #111; }
 .sheet-svg .sv-vehicle-cab { fill: #111; }
 .sheet-svg .sv-path { stroke: rgba(0,0,0,0.08); fill: none; stroke-linejoin: round; }

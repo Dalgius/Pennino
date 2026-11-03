@@ -5,6 +5,7 @@
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
 import { RoofSymbols } from './SiteView';
+import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
@@ -70,9 +71,11 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
 
   const thin = 0.13 * mm;
   const med = 0.25 * mm;
+  const hp = useHatchPrefix();
 
   return (
     <g className="plan">
+      <HatchDefs prefix={hp} u={mm} />
       {ghostLevelId && lvl?.kind !== 'copertura' && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
 
       {slabs.map(
@@ -138,12 +141,20 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       })}
 
       {walls.map((w) => (
-        <WallPlan key={w.id} project={p} wall={w} mm={mm} center={center} />
+        <WallPlan key={w.id} project={p} wall={w} mm={mm} center={center} hp={hp} />
       ))}
 
       {columns.map((c) => {
         if (c.kind !== 'column') return null;
-        return <polygon key={c.id} points={pts(columnQuad(c, byId(p.catalog.column, c.typeId)))} className="pv-column" />;
+        return (
+          <polygon
+            key={c.id}
+            points={pts(columnQuad(c, byId(p.catalog.column, c.typeId)))}
+            className="pv-column"
+            style={mm > 0.25 ? undefined : { fill: hatchFill(hp, 'calcestruzzo') }}
+            strokeWidth={0.35 * mm}
+          />
+        );
       })}
 
       {beams.map((b) => {
@@ -201,7 +212,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   );
 }
 
-function WallPlan({ project: p, wall: w, mm, center }: { project: Project; wall: Wall; mm: number; center: Vec2 }) {
+function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; wall: Wall; mm: number; center: Vec2; hp: string }) {
   const t = byId(p.catalog.wall, w.typeId);
   const g = wallGeom(p, w, center);
   const spans = openingSpans(p, w);
@@ -211,18 +222,26 @@ function WallPlan({ project: p, wall: w, mm, center }: { project: Project; wall:
 
   return (
     <g>
-      {pieces.map(({ s0, s1 }, i) =>
-        isLayered ? (
+      {pieces.map(({ s0, s1 }, i) => {
+        const outline = <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall-outline" strokeWidth={0.35 * mm} />;
+        if (isLayered)
+          return (
+            <g key={i}>
+              {bands.map((band, j) => (
+                <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={hatchFill(hp, hatchOf(t!.layers[j]))} className="pv-layer" strokeWidth={0.1 * mm} />
+              ))}
+              {outline}
+            </g>
+          );
+        // scale piccole: retino dello strato portante su tutto lo spessore; lontanissimo, grigio pieno
+        if (mm > 0.25 || !t) return <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />;
+        return (
           <g key={i}>
-            {bands.map((band, j) => (
-              <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={t!.layers[j].color} className="pv-layer" strokeWidth={0.1 * mm} />
-            ))}
-            <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall-outline" strokeWidth={0.35 * mm} />
+            <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} fill={hatchFill(hp, mainHatch(t.layers))} />
+            {outline}
           </g>
-        ) : (
-          <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />
-        ),
-      )}
+        );
+      })}
       {spans.map(({ opening: o, type, start, end }) => (
         <OpeningPlan key={o.id} project={p} wall={w} g={g} opening={o} type={type} start={start} end={end} mm={mm} detail={mm < 0.08} />
       ))}

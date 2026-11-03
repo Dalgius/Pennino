@@ -73,11 +73,27 @@ export interface Site {
 
 export type LayerRole = 'finitura' | 'isolante' | 'struttura' | 'altro';
 
+/** Campitura da disegno a china */
+export type HatchKind =
+  | 'laterizio'
+  | 'calcestruzzo'
+  | 'isolante'
+  | 'legno'
+  | 'intonaco'
+  | 'massetto'
+  | 'pietra'
+  | 'impermeabile'
+  | 'terreno'
+  | 'vuoto';
+
 export interface WallLayer {
   name: string;
   thickness: number;
   role: LayerRole;
+  /** Colore (storico, non più usato nei disegni) */
   color: string;
+  /** Campitura scelta; se assente si deduce dal nome del materiale */
+  hatch?: HatchKind;
   /** Voce di elenco prezzi per gli strati di finitura (computata per superficie netta) */
   priceCode?: string;
 }

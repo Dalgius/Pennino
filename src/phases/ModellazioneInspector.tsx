@@ -26,6 +26,8 @@ import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { leavesOf } from '../model/openings';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
+import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
+import type { HatchKind } from '../model/types';
 
 export type CatalogKey = keyof Catalog;
 
@@ -302,7 +304,7 @@ function WallInspector({
       <div className="strata">
         {t?.layers.map((l, i) => (
           <div key={i} className="strata-row">
-            <span className="strata-chip" style={{ background: l.color }} />
+            <HatchSwatch kinds={[hatchOf(l)]} width={16} height={12} />
             <span className="strata-name">{l.name}</span>
             <span className="mono">{fmt(l.thickness * 100, 1)} cm</span>
           </div>
@@ -429,14 +431,12 @@ function PackageEditor({
             Stratigrafia ({order}) · {fmt(total * 100, 1)} cm
           </div>
           <div className="strata-bar">
-            {layers.map((l, i) => (
-              <span key={i} style={{ background: l.color, flexGrow: l.thickness }} title={l.name} />
-            ))}
+            <HatchSwatch kinds={layers.map(hatchOf)} weights={layers.map((l) => l.thickness)} width={262} height={22} />
           </div>
           {layers.map((l, i) => (
             <div key={i} className="layer-card">
               <div className="layer-top">
-                <input type="color" value={l.color} onChange={(e) => setLayer(i, { color: e.target.value })} />
+                <HatchSwatch kinds={[hatchOf(l)]} width={26} height={26} />
                 <TextField label="Strato" value={l.name} onChange={(v) => setLayer(i, { name: v })} />
                 <div className="layer-tools">
                   <button className="icon-btn" disabled={i === 0} title={`Sposta ${upLabel}`} onClick={() => edit((x) => x.layers.splice(i - 1, 0, x.layers.splice(i, 1)[0]))}>↑</button>
@@ -448,6 +448,12 @@ function PackageEditor({
                 <NumberField label="Spessore" unit="cm" digits={1} step={0.5} value={l.thickness * 100} min={0.1} onChange={(v) => setLayer(i, { thickness: v / 100 })} />
                 <SelectField label="Funzione" value={l.role} options={ROLES} onChange={(v) => setLayer(i, { role: v })} />
               </div>
+              <SelectField<HatchKind | ''>
+                label="Campitura"
+                value={l.hatch ?? ''}
+                options={[{ value: '', label: `Automatica · ${HATCH_LABEL[hatchOf({ ...l, hatch: undefined })].split(' · ')[0]}` }, ...HATCH_KINDS.map((k) => ({ value: k, label: HATCH_LABEL[k] }))]}
+                onChange={(v) => setLayer(i, { hatch: v || undefined })}
+              />
               <div className={mode === 'pacchetto' ? 'is-off' : ''}>
                 <SelectField label="Voce di computo dello strato" value={l.priceCode ?? ''} options={priceOptions} onChange={(v) => setLayer(i, { priceCode: v || undefined })} />
               </div>

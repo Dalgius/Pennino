@@ -20,6 +20,7 @@ import {
   wallSegmentQuad,
   wallThickness,
 } from '../model/geometry';
+import { HatchSwatch, hatchOf } from '../views/hatch';
 import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
@@ -996,9 +997,7 @@ function TypeSwatch({ project, catKey, id }: { project: Project; catKey: Catalog
     const tot = wallThickness(t);
     return (
       <div className="swatch-layers" title={`${(tot * 100).toFixed(1)} cm`}>
-        {t?.layers.map((l, i) => (
-          <span key={i} style={{ background: l.color, flexGrow: l.thickness }} />
-        ))}
+        {t && <HatchSwatch kinds={t.layers.map(hatchOf)} weights={t.layers.map((l) => l.thickness)} width={44} height={14} />}
         <em className="mono">{Math.round(tot * 100)}</em>
       </div>
     );
