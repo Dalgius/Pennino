@@ -61,7 +61,8 @@ export function sampleProject(): Project {
       kind: 'slab',
       levelId: L1,
       typeId: 'st_lc',
-      points: [P(0, -2.6), P(6.2, -2.6), P(6.2, 0), P(12, 0), P(12, 9), P(5.8, 9), P(5.8, 7.5), P(0.7, 7.5), P(0.7, 9), P(0, 9)],
+      // il foro scala si ricava dalla scala
+      points: [P(0, -2.6), P(6.2, -2.6), P(6.2, 0), P(12, 0), P(12, 9), P(0, 9)],
     },
     { id: uid('c'), kind: 'column', levelId: L0, typeId: 'ct_30', p: P(0.15, -2.45) },
     { id: uid('c'), kind: 'column', levelId: L0, typeId: 'ct_30', p: P(6.05, -2.45) },

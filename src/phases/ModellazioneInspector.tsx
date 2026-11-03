@@ -4,6 +4,7 @@ import type { Catalog, LayerRole, Project, SlabEdge, Wall, WallComputeMode, Wall
 import {
   add,
   byId,
+  DEFAULT_HEADROOM,
   dist,
   elementCode,
   elementLabel,
@@ -15,6 +16,8 @@ import {
   openingSpans,
   polygonArea,
   polygonPerimeter,
+  slabHoles,
+  slabNetArea,
   slabOutline,
   sortedLevels,
   sub,
@@ -138,7 +141,8 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
       {e.kind === 'slab' && (() => {
         const t = byId(project.catalog.slab, e.typeId);
         const outline = slabOutline(project, e);
-        const A = polygonArea(outline);
+        const holes = slabHoles(project, e);
+        const A = slabNetArea(project, e);
         const edge = e.edge ?? 'auto';
         const lowest = sortedLevels(project)[0]?.id === e.levelId;
         return (
@@ -188,6 +192,9 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <div><span>Volume</span><b className="mono">{fmt(A * (t?.thickness ?? 0))} m³</b></div>
               <div><span>Pavimento</span><b>{t?.finishName}</b></div>
               <div><span>Vertici</span><b className="mono">{e.points.length}</b></div>
+              {holes.length > 0 && (
+                <div><span>Fori scala</span><b className="mono">{holes.length} · {fmt(holes.reduce((t, h) => t + polygonArea(h), 0))} m²</b></div>
+              )}
             </div>
           </>
         );
@@ -247,6 +254,19 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <NumberField label="Larghezza rampa" unit="m" value={e.width} min={0.6} onChange={(v) => upd((x) => x.kind === 'stair' && (x.width = v))} />
               <NumberField label="Sviluppo" unit="m" value={L} min={0.5} onChange={(v) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), v))))} />
             </div>
+            <label className="check">
+              <input type="checkbox" checked={e.hole !== false} onChange={(ev) => upd((x) => x.kind === 'stair' && (x.hole = ev.target.checked ? undefined : false))} />
+              Foro automatico nel solaio di arrivo
+            </label>
+            {e.hole !== false && (
+              <NumberField
+                label="Altezza libera minima sui gradini"
+                unit="m"
+                value={e.headroom ?? DEFAULT_HEADROOM}
+                min={1.8}
+                onChange={(v) => upd((x) => x.kind === 'stair' && (x.headroom = v))}
+              />
+            )}
             <div className="kv-grid">
               <div><span>Dislivello</span><b className="mono">{fmt(rise)} m</b></div>
               <div><span>Gradini</span><b className="mono">{n}</b></div>

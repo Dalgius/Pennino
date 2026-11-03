@@ -6,6 +6,7 @@ import type {
   Opening,
   OpeningType,
   Project,
+  Slab,
   Vec2,
   Wall,
   WallType,
@@ -483,4 +484,79 @@ export function slabOutline(
     return s.edgeOffset ?? 0;
   });
   return ds.some((d) => Math.abs(d) > 1e-9) ? offsetPolygon(pts, ds) : pts;
+}
+
+/** Area con segno (positiva se antioraria) */
+function signedArea(pts: Vec2[]) {
+  let s = 0;
+  pts.forEach((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    s += a.x * b.y - b.x * a.y;
+  });
+  return s / 2;
+}
+
+/** Intersezione di un poligono qualsiasi con un poligono convesso (Sutherland–Hodgman) */
+export function clipConvex(subject: Vec2[], clip: Vec2[]): Vec2[] {
+  const c = signedArea(clip) >= 0 ? clip : [...clip].reverse();
+  let out = subject;
+  for (let i = 0; i < c.length && out.length; i++) {
+    const A = c[i];
+    const B = c[(i + 1) % c.length];
+    const inside = (q: Vec2) => (B.x - A.x) * (q.y - A.y) - (B.y - A.y) * (q.x - A.x) >= -1e-9;
+    const cut = (P: Vec2, Q: Vec2) => {
+      const d1 = (B.x - A.x) * (P.y - A.y) - (B.y - A.y) * (P.x - A.x);
+      const d2 = (B.x - A.x) * (Q.y - A.y) - (B.y - A.y) * (Q.x - A.x);
+      const t = d1 / (d1 - d2);
+      return { x: P.x + (Q.x - P.x) * t, y: P.y + (Q.y - P.y) * t };
+    };
+    const inp = out;
+    out = [];
+    inp.forEach((P, k) => {
+      const Q = inp[(k + 1) % inp.length];
+      const pin = inside(P);
+      const qin = inside(Q);
+      if (pin) out.push(P);
+      if (pin !== qin) out.push(cut(P, Q));
+    });
+  }
+  return out;
+}
+
+export const DEFAULT_HEADROOM = 2.1;
+
+/**
+ * Fori scala nel solaio: per ogni scala che arriva al livello del solaio, il tratto di rampa in cui
+ * l'altezza libera sotto l'intradosso scende sotto il minimo, largo quanto la rampa e fino all'arrivo.
+ * Restituisce i fori già ritagliati sull'ingombro del solaio.
+ */
+export function slabHoles(p: Project, s: { levelId: string; typeId: string; points: Vec2[]; edge?: Slab['edge']; edgeOffset?: number }): Vec2[][] {
+  const outline = slabOutline(p, s);
+  if (outline.length < 3) return [];
+  const th = byId(p.catalog.slab, s.typeId)?.thickness ?? 0.3;
+  const out: Vec2[][] = [];
+  for (const e of p.elements) {
+    if (e.kind !== 'stair' || e.hole === false) continue;
+    const next = levelAbove(p, e.levelId);
+    const lvl = byId(p.levels, e.levelId);
+    if (!next || !lvl || next.id !== s.levelId) continue;
+    const L = dist(e.a, e.b);
+    const rise = next.elevation - lvl.elevation;
+    if (L < 1e-6 || rise <= 0) continue;
+    const underside = next.elevation - th;
+    const x0 = Math.max(0, Math.min(L, ((underside - (e.headroom ?? DEFAULT_HEADROOM) - lvl.elevation) / rise) * L));
+    if (L - x0 < 0.05) continue;
+    const d = norm(sub(e.b, e.a));
+    const n = mul(perp(d), e.width / 2);
+    const s0 = add(e.a, mul(d, x0));
+    const rect = [add(s0, n), add(e.b, n), sub(e.b, n), sub(s0, n)];
+    const hole = clipConvex(outline, rect);
+    if (hole.length >= 3 && Math.abs(signedArea(hole)) > 1e-3) out.push(hole);
+  }
+  return out;
+}
+
+/** Superficie netta del solaio (ingombro meno i fori scala) */
+export function slabNetArea(p: Project, s: Parameters<typeof slabHoles>[1]) {
+  return polygonArea(slabOutline(p, s)) - slabHoles(p, s).reduce((t, h) => t + polygonArea(h), 0);
 }

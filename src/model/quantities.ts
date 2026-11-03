@@ -14,6 +14,8 @@ import {
   pointInPolygon,
   polygonArea,
   polygonPerimeter,
+  slabHoles,
+  slabNetArea,
   slabOutline,
   sortedLevels,
   wallHeight,
@@ -129,11 +131,12 @@ export function computeComputo(p: Project): ComputoLine[] {
       const t = byId(p.catalog.slab, e.typeId);
       // si computa l'ingombro reale (bordo a filo interno, esterno, ad asse o a distanza)
       const outline = slabOutline(p, e);
-      const A = polygonArea(outline);
+      const A = slabNetArea(p, e);
       const th = t?.thickness ?? 0.3;
       // senza stratigrafia la modalità «strati» non ha voci: si torna al pacchetto (più il pavimento)
       const mode = t?.layers?.length ? wallMode(p, t) : wallMode(p, t) === 'strati' ? 'misto' : wallMode(p, t);
-      const fA = `A poligono ${n2(A)}`;
+      const nh = slabHoles(p, e).length;
+      const fA = nh ? `A poligono ${n2(polygonArea(outline))} − fori scala` : `A poligono ${n2(A)}`;
       if (mode !== 'strati')
         push(t?.priceCode, base, {
           area: A,

@@ -85,6 +85,20 @@ export function validateProject(raw: unknown): ValidationResult {
   // aperture senza muro ospite
   const wallIds = new Set(elements.filter((e) => e.kind === 'wall').map((e) => e.id));
   elements = elements.filter((e) => e.kind !== 'opening' || wallIds.has(e.wallId));
+  // coperture impostate alla quota di un livello delle coperture: vanno su quel livello
+  // (nei progetti creati prima del livello «copertura» stavano sul piano sottostante)
+  let moved = 0;
+  elements = elements.map((e) => {
+    if (e.kind !== 'roof') return e;
+    const own = levels.find((l) => l.id === e.levelId);
+    if (!own || own.kind === 'copertura') return e;
+    const top = own.elevation + own.height;
+    const roofLevel = levels.find((l) => l.kind === 'copertura' && Math.abs(l.elevation - top) < 0.01);
+    if (!roofLevel) return e;
+    moved++;
+    return { ...e, levelId: roofLevel.id };
+  });
+  if (moved) warnings.push(`${moved} coperture spostate sul livello delle coperture.`);
   const dropped = (raw.elements as unknown[]).length - elements.length;
   if (dropped > 0) warnings.push(`${dropped} elementi non validi o senza livello, tipologia o muro ospite sono stati scartati.`);
 

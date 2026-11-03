@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, levelAbove, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, levelAbove, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { wallGeom, wallOutline } from '../model/walls';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -119,7 +119,12 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       }
     } else if (e.kind === 'slab') {
       const th = byId(p.catalog.slab, e.typeId)?.thickness ?? 0.3;
-      cutIntervals(slabOutline(p, e), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0 - th, z0));
+      // tratti tagliati meno i fori scala
+      let ivs = cutIntervals(slabOutline(p, e), f);
+      for (const h of slabHoles(p, e))
+        for (const [h0, h1] of cutIntervals(h, f))
+          ivs = ivs.flatMap(([a, b]) => (h1 <= a || h0 >= b ? [[a, b] as [number, number]] : ([[a, h0], [h1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+      ivs.forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0 - th, z0));
     } else if (e.kind === 'column') {
       cutIntervals(columnQuad(e, byId(p.catalog.column, e.typeId)), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0, z0 + lvl.height));
     } else if (e.kind === 'beam') {

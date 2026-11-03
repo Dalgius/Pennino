@@ -249,6 +249,10 @@ export interface Stair {
   a: Vec2;
   b: Vec2;
   width: number;
+  /** Foro automatico nel solaio di arrivo (predefinito: sì) */
+  hole?: boolean;
+  /** Altezza libera minima sopra i gradini, in metri (predefinita 2,10) */
+  headroom?: number;
 }
 
 export interface Roof {

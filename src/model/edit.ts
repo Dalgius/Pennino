@@ -5,6 +5,7 @@ import {
   add,
   bbox,
   roofBase,
+  slabHoles,
   byId,
   columnQuad,
   dist,
@@ -86,7 +87,7 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
     if (e.kind === 'roof' && e.levelId === levelId && distToPolyline(w, e.points, true) < tol * 2) return e.id;
   }
   for (const e of [...p.elements].reverse()) {
-    if (e.kind === 'slab' && e.levelId === levelId && pointInPolygon(w, e.points)) return e.id;
+    if (e.kind === 'slab' && e.levelId === levelId && pointInPolygon(w, e.points) && !slabHoles(p, e).some((h) => pointInPolygon(w, h))) return e.id;
   }
   // coperture: clic all'interno della falda (con lo sporto)
   const here = byId(p.levels, levelId);

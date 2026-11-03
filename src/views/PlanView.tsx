@@ -14,6 +14,7 @@ import {
   roofBase,
   roofOutline,
   slabOutline,
+  slabHoles,
   bbox,
   byId,
   centroid,
@@ -86,7 +87,13 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       {slabs.map(
         (s) =>
           s.kind === 'slab' && (
-            <polygon key={s.id} points={pts(slabOutline(p, s))} className="pv-slab" strokeWidth={thin} />
+            <path
+              key={s.id}
+              d={[slabOutline(p, s), ...slabHoles(p, s)].map((r) => `M${pts(r).replace(/ /g, ' L')} Z`).join(' ')}
+              fillRule="evenodd"
+              className="pv-slab"
+              strokeWidth={thin}
+            />
           ),
       )}
 

@@ -250,7 +250,12 @@ export function Modellazione() {
   const finishPolygon = (poly: Vec2[]) => {
     if (poly.length < 3) return resetDraft();
     if (tool === 'slab') addElement({ id: uid('s'), kind: 'slab', levelId: lvlId, typeId: activeType.slab, points: poly });
-    else addElement({ id: uid('r'), kind: 'roof', levelId: lvlId, typeId: activeType.roof, points: poly, shape: 'falde', pitch: 22, overhang: 0.5 });
+    else {
+      // disegnata da un piano, la copertura va sul livello delle coperture alla sua imposta (se c'è)
+      const top = level ? level.elevation + level.height : NaN;
+      const roofLvl = level?.kind === 'copertura' ? lvlId : levels.find((l) => l.kind === 'copertura' && Math.abs(l.elevation - top) < 0.01)?.id ?? lvlId;
+      addElement({ id: uid('r'), kind: 'roof', levelId: roofLvl, typeId: activeType.roof, points: poly, shape: 'falde', pitch: 22, overhang: 0.5 });
+    }
     resetDraft();
   };
 

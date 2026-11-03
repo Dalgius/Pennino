@@ -19,6 +19,7 @@ import {
   wallTopProfile,
   wallLength,
   slabOutline,
+  slabHoles,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -68,8 +69,15 @@ function shapeFrom(points: Vec2[]) {
   return s;
 }
 
-function extrudePolygon(points: Vec2[], zTop: number, thickness: number, material: THREE.Material) {
-  const geo = new THREE.ExtrudeGeometry(shapeFrom(points), { depth: thickness, bevelEnabled: false });
+function extrudePolygon(points: Vec2[], zTop: number, thickness: number, material: THREE.Material, holes: Vec2[][] = []) {
+  const shape = shapeFrom(points);
+  for (const h of holes) {
+    const path = new THREE.Path();
+    h.forEach((q, i) => (i ? path.lineTo(q.x, q.y) : path.moveTo(q.x, q.y)));
+    path.closePath();
+    shape.holes.push(path);
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
   geo.rotateX(-Math.PI / 2);
   const m = new THREE.Mesh(geo, material);
   m.position.y = zTop - thickness;
@@ -107,7 +115,7 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
     } else if (e.kind === 'slab') {
       const t = byId(p.catalog.slab, e.typeId);
       if (e.points.length < 3) continue;
-      root.add(tag(extrudePolygon(slabOutline(p, e), z0, t?.thickness ?? 0.3, pick(e.id, M('slab', COLORS.slab))), e.id));
+      root.add(tag(extrudePolygon(slabOutline(p, e), z0, t?.thickness ?? 0.3, pick(e.id, M('slab', COLORS.slab)), slabHoles(p, e)), e.id));
     } else if (e.kind === 'column') {
       const t = byId(p.catalog.column, e.typeId);
       const geo = new THREE.BoxGeometry(t?.width ?? 0.3, lvl.height, t?.depth ?? 0.3);
