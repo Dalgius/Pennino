@@ -135,14 +135,53 @@ export function hitTestSite(items: (SiteItem | ContextItem)[], w: Vec2, tol: num
   return null;
 }
 
+export type SnapKind = 'estremo' | 'medio' | 'intersezione' | 'perpendicolare' | 'muro' | 'bordo' | 'griglia' | 'libero';
+
 export interface Snap {
   p: Vec2;
-  kind: 'estremo' | 'medio' | 'griglia' | 'libero' | 'muro';
+  kind: SnapKind;
+}
+
+export type SnapCandidate = { p: Vec2; kind: SnapKind };
+
+/** Segmento agganciabile: asse di muri e travi (con la loro mezza larghezza) o lato di solai e coperture */
+export interface SnapSegment {
+  id: string;
+  a: Vec2;
+  b: Vec2;
+  half: number;
+  kind: 'muro' | 'bordo';
+}
+
+/** Assi e lati del livello agganciabili */
+export function snapSegments(p: Project, levelId: string): SnapSegment[] {
+  const out: SnapSegment[] = [];
+  for (const e of p.elements) {
+    if (!('levelId' in e) || e.levelId !== levelId) continue;
+    if (e.kind === 'wall') out.push({ id: e.id, a: e.a, b: e.b, half: wallThickness(byId(p.catalog.wall, e.typeId)) / 2, kind: 'muro' });
+    else if (e.kind === 'beam') out.push({ id: e.id, a: e.a, b: e.b, half: (byId(p.catalog.beam, e.typeId)?.width ?? 0.3) / 2, kind: 'muro' });
+    else if (e.kind === 'slab' || e.kind === 'roof')
+      e.points.forEach((q, i) => out.push({ id: e.id, a: q, b: e.points[(i + 1) % e.points.length], half: 0, kind: 'bordo' }));
+  }
+  return out.filter((s) => dist(s.a, s.b) > 1e-6);
+}
+
+/** Intersezione propria tra due segmenti (estremi esclusi entro eps) */
+function segmentIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
+  const r = sub(b, a);
+  const s = sub(d, c);
+  const den = r.x * s.y - r.y * s.x;
+  if (Math.abs(den) < 1e-9) return null;
+  const q = sub(c, a);
+  const t = (q.x * s.y - q.y * s.x) / den;
+  const u = (q.x * r.y - q.y * r.x) / den;
+  if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null;
+  return { x: a.x + r.x * t, y: a.y + r.y * t };
 }
 
 /** Punti notevoli del livello per l'aggancio */
-export function snapPoints(p: Project, levelId: string): { p: Vec2; kind: Snap['kind'] }[] {
-  const out: { p: Vec2; kind: Snap['kind'] }[] = [];
+export function snapPoints(p: Project, levelId: string): SnapCandidate[] {
+  const out: SnapCandidate[] = [];
   for (const e of p.elements) {
     if (!('levelId' in e) || e.levelId !== levelId) continue;
     if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') {
@@ -151,12 +190,99 @@ export function snapPoints(p: Project, levelId: string): { p: Vec2; kind: Snap['
     } else if (e.kind === 'slab' || e.kind === 'roof') e.points.forEach((q) => out.push({ p: q, kind: 'estremo' }));
     else if (e.kind === 'column') out.push({ p: e.p, kind: 'estremo' });
   }
+  // incroci tra assi di muri e travi
+  const segs = snapSegments(p, levelId).filter((s) => s.kind === 'muro');
+  for (let i = 0; i < segs.length; i++)
+    for (let j = i + 1; j < segs.length; j++) {
+      const x = segmentIntersection(segs[i].a, segs[i].b, segs[j].a, segs[j].b);
+      if (x && !out.some((c) => c.kind === 'estremo' && dist(c.p, x) < 1e-4)) out.push({ p: x, kind: 'intersezione' });
+    }
   return out;
+}
+
+/**
+ * Aggancio agli oggetti. Priorità: estremi e incroci › punti medi › muri e lati
+ * (perpendicolare dal punto di partenza, incrocio della direzione ortogonale con l'asse,
+ * proiezione sull'asse) › griglia/ortogonale.
+ * Basta portare il cursore sul corpo del muro: il punto cade sull'asse, così le
+ * connessioni a T e ad L si formano da sole.
+ */
+export function snapModel(
+  raw: Vec2,
+  opts: { candidates: SnapCandidate[]; segments: SnapSegment[]; tol: number; grid: number; from?: Vec2; ortho: boolean },
+): Snap {
+  const { tol, from } = opts;
+  const pick = (kinds: SnapKind[]) => {
+    let best: Snap | null = null;
+    let bd = tol;
+    for (const c of opts.candidates) {
+      if (!kinds.includes(c.kind)) continue;
+      const d = dist(raw, c.p);
+      if (d < bd && !(from && dist(c.p, from) < 1e-6)) {
+        bd = d;
+        best = { p: c.p, kind: c.kind };
+      }
+    }
+    return best;
+  };
+  const strong = pick(['estremo', 'intersezione']);
+  if (strong) return strong;
+  const mid = pick(['medio']);
+  if (mid) return mid;
+
+  // segmento sotto il cursore (corpo del muro o lato)
+  let seg: SnapSegment | null = null;
+  let sd = Infinity;
+  for (const s of opts.segments) {
+    const pr = projectOnSegment(raw, s.a, s.b);
+    const reach = s.half + tol;
+    if (pr.d < reach && pr.d - s.half < sd) {
+      // il segmento appena disegnato da "from" non è un ospite utile
+      if (from && projectOnSegment(from, s.a, s.b).d < 1e-6) continue;
+      sd = pr.d - s.half;
+      seg = s;
+    }
+  }
+  if (seg) {
+    const L = dist(seg.a, seg.b);
+    const u = { x: (seg.b.x - seg.a.x) / L, y: (seg.b.y - seg.a.y) / L };
+    const onAxis = (q: Vec2) => {
+      const t = ((q.x - seg!.a.x) * u.x + (q.y - seg!.a.y) * u.y) / L;
+      return t >= -1e-6 && t <= 1 + 1e-6;
+    };
+    const ok = (q: Vec2) => onAxis(q) && dist(q, raw) < seg!.half + tol * 2 && !(from && dist(q, from) < 0.01);
+    if (from) {
+      if (opts.ortho) {
+        // incrocio della direzione ortogonale (orizzontale o verticale) con l'asse
+        const d = sub(raw, from);
+        const horiz = Math.abs(d.x) >= Math.abs(d.y);
+        const dir = horiz ? { x: 1, y: 0 } : { x: 0, y: 1 };
+        const den = dir.x * u.y - dir.y * u.x;
+        if (Math.abs(den) > 1e-6) {
+          const q0 = sub(seg.a, from);
+          const t = (q0.x * u.y - q0.y * u.x) / den;
+          const q = { x: from.x + dir.x * t, y: from.y + dir.y * t };
+          if (ok(q)) return { p: q, kind: seg.kind };
+        }
+      }
+      // piede della perpendicolare da "from"
+      const t = (from.x - seg.a.x) * u.x + (from.y - seg.a.y) * u.y;
+      const foot = { x: seg.a.x + u.x * t, y: seg.a.y + u.y * t };
+      if (ok(foot) && dist(foot, projectOnSegment(raw, seg.a, seg.b).q) < tol) return { p: foot, kind: 'perpendicolare' };
+    }
+    // proiezione sull'asse, arrotondata al passo lungo il muro
+    const pr = projectOnSegment(raw, seg.a, seg.b);
+    let s = pr.t * L;
+    if (opts.grid > 0) s = Math.min(L, Math.max(0, Math.round(s / opts.grid) * opts.grid));
+    const q = { x: seg.a.x + u.x * s, y: seg.a.y + u.y * s };
+    if (!(from && dist(q, from) < 0.01)) return { p: q, kind: seg.kind };
+  }
+  return snapPoint(raw, opts);
 }
 
 export function snapPoint(
   raw: Vec2,
-  opts: { candidates: { p: Vec2; kind: Snap['kind'] }[]; tol: number; grid: number; from?: Vec2; ortho: boolean },
+  opts: { candidates: SnapCandidate[]; tol: number; grid: number; from?: Vec2; ortho: boolean },
 ): Snap {
   let best: Snap | null = null;
   let bd = opts.tol;

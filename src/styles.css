@@ -1961,3 +1961,9 @@ input.brand-project:focus {
 .chip-select option {
   background: var(--surface-2);
 }
+.snap-label {
+  fill: var(--ochre);
+  font-family: ui-monospace, monospace;
+  paint-order: stroke;
+  stroke: var(--canvas);
+}

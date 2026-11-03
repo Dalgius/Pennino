@@ -20,7 +20,7 @@ import {
   wallSegmentQuad,
   wallThickness,
 } from '../model/geometry';
-import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapPoint, snapPoints, translate, type Snap } from '../model/edit';
+import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -186,6 +186,7 @@ export function Modellazione() {
   }, [lvlId]);
 
   const candidates = useMemo(() => snapPoints(project, lvlId), [project, lvlId]);
+  const segments = useMemo(() => snapSegments(project, lvlId), [project, lvlId]);
 
   // ───────── Creazione elementi ─────────
 
@@ -280,13 +281,15 @@ export function Modellazione() {
   const onPointer = (e: CanvasPointer) => {
     const tol = 10 / e.zoom;
     const last = draft[draft.length - 1];
-    const snap = snapPoint(e.world, {
+    const snapOpts = {
       candidates: [...candidates, ...draft.slice(0, 1).map((p) => ({ p, kind: 'estremo' as const }))],
       tol,
       grid: e.zoom > 120 ? Math.min(grid, 0.01) : grid,
       from: tool === 'select' ? undefined : last,
       ortho: ortho !== e.shift,
-    });
+    };
+    // Alt sospende l'aggancio agli oggetti (resta griglia/ortogonale)
+    const snap = tool === 'select' || e.alt ? snapPoint(e.world, snapOpts) : snapModel(e.world, { ...snapOpts, segments });
 
     if (tool === 'select') return handleSelect(e, snap, tol);
 
@@ -377,7 +380,7 @@ export function Modellazione() {
       return;
     }
     if (e.type === 'move') {
-      setCursor(snap);
+      setCursor({ p: snap.p, kind: 'libero' });
       const dr = drag.current;
       if (!dr) return;
       if (!dr.moved) {
@@ -421,13 +424,17 @@ export function Modellazione() {
         const el = o.elements.find((x) => x.id === dr.id)!;
         const orig = getHandles(el)[dr.handle!];
         const other = el.kind === 'wall' || el.kind === 'beam' || el.kind === 'stair' ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : undefined;
-        const sp = snapPoint(e.world, {
+        const hOpts = {
           candidates: candidates.filter((c) => dist(c.p, orig) > 1e-6),
+          // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
+          segments: segments.filter((g) => g.id !== dr.id && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
           tol,
           grid,
           from: other,
           ortho: other ? ortho !== e.shift : false,
-        });
+        };
+        const sp = e.alt ? snapPoint(e.world, hOpts) : snapModel(e.world, hOpts);
+        setCursor(sp);
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id)!;
           setHandle(x, dr.handle!, sp.p);
@@ -896,18 +903,11 @@ function DraftOverlay({
       {draft.map((p, i) => (
         <rect key={i} x={p.x - 0.8 * mm} y={-p.y - 0.8 * mm} width={1.6 * mm} height={1.6 * mm} className="draft-vertex" />
       ))}
+      {cursor && snapKind && <SnapMarker p={cursor} kind={snapKind} mm={mm} />}
       {cursor && tool !== 'select' && (
         <g>
           <line x1={cursor.x - 4 * mm} y1={-cursor.y} x2={cursor.x + 4 * mm} y2={-cursor.y} className="draft-cross" strokeWidth={0.2 * mm} />
           <line x1={cursor.x} y1={-cursor.y - 4 * mm} x2={cursor.x} y2={-cursor.y + 4 * mm} className="draft-cross" strokeWidth={0.2 * mm} />
-          {snapKind === 'estremo' && <rect x={cursor.x - 1.6 * mm} y={-cursor.y - 1.6 * mm} width={3.2 * mm} height={3.2 * mm} className="snap-mark" strokeWidth={0.3 * mm} />}
-          {snapKind === 'medio' && (
-            <polygon
-              points={`${cursor.x},${-cursor.y - 2 * mm} ${cursor.x + 1.8 * mm},${-cursor.y + 1.2 * mm} ${cursor.x - 1.8 * mm},${-cursor.y + 1.2 * mm}`}
-              className="snap-mark"
-              strokeWidth={0.3 * mm}
-            />
-          )}
           {last && (
             <g>
               <rect x={cursor.x + 2.5 * mm} y={-cursor.y + 2.5 * mm} width={20 * mm} height={5 * mm} className="draft-tag" />
@@ -918,6 +918,60 @@ function DraftOverlay({
           )}
         </g>
       )}
+    </g>
+  );
+}
+
+const SNAP_LABEL: Partial<Record<Snap['kind'], string>> = {
+  estremo: 'Estremo',
+  medio: 'Punto medio',
+  intersezione: 'Intersezione',
+  perpendicolare: 'Perpendicolare',
+  muro: 'Su muro',
+  bordo: 'Su bordo',
+};
+
+/** Simbolo dell'aggancio attivo, con etichetta */
+function SnapMarker({ p, kind, mm }: { p: Vec2; kind: Snap['kind']; mm: number }) {
+  const label = SNAP_LABEL[kind];
+  if (!label) return null;
+  const x = p.x;
+  const y = -p.y;
+  const r = 1.8 * mm;
+  const sw = 0.3 * mm;
+  let mark;
+  switch (kind) {
+    case 'estremo':
+      mark = <rect x={x - r} y={y - r} width={2 * r} height={2 * r} className="snap-mark" strokeWidth={sw} />;
+      break;
+    case 'medio':
+      mark = <polygon points={`${x},${y - 2.1 * mm} ${x + 1.9 * mm},${y + 1.2 * mm} ${x - 1.9 * mm},${y + 1.2 * mm}`} className="snap-mark" strokeWidth={sw} />;
+      break;
+    case 'intersezione':
+      mark = (
+        <g className="snap-mark" strokeWidth={sw}>
+          <line x1={x - r} y1={y - r} x2={x + r} y2={y + r} />
+          <line x1={x - r} y1={y + r} x2={x + r} y2={y - r} />
+        </g>
+      );
+      break;
+    case 'perpendicolare':
+      mark = (
+        <g className="snap-mark" strokeWidth={sw}>
+          <polyline points={`${x - r},${y - r} ${x - r},${y + r} ${x + r},${y + r}`} />
+          <polyline points={`${x - r},${y} ${x},${y} ${x},${y + r}`} />
+        </g>
+      );
+      break;
+    default:
+      mark = <polygon points={`${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}`} className="snap-mark" strokeWidth={sw} />;
+  }
+  return (
+    <g>
+      {mark}
+      <text x={x + 2.6 * mm} y={y - 2.4 * mm} fontSize={2.6 * mm} strokeWidth={0.6 * mm} className="snap-label">
+        {label}
+      </text>
     </g>
   );
 }
