@@ -2,7 +2,7 @@
 // Usata sia dall'editor (fase 02) sia dai fogli di stampa (fase 03): stesso disegno, stessi dati.
 // Coordinate in metri; l'asse Y del modello è ribaltato per l'SVG.
 
-import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
+import type { Opening, OpeningType, Project, Stair, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
 import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
@@ -20,6 +20,7 @@ import {
   columnQuad,
   dist,
   levelAbove,
+  sortedLevels,
   mul,
   norm,
   openingSpans,
@@ -58,6 +59,10 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   const columns = els.filter((e) => e.kind === 'column' && onLevel(e));
   const beams = els.filter((e) => e.kind === 'beam' && onLevel(e));
   const stairs = els.filter((e) => e.kind === 'stair' && onLevel(e));
+  // scale che salgono dal livello sottostante e arrivano qui
+  const below = sortedLevels(p).filter((l) => l.elevation < (byId(p.levels, levelId)?.elevation ?? 0) - 1e-6).pop();
+  const arriving =
+    below && byId(p.levels, levelId)?.kind !== 'copertura' ? els.filter((e) => e.kind === 'stair' && e.levelId === below.id) : [];
   const lvlRoof = byId(p.levels, levelId);
   // sul livello delle coperture compaiono anche i tetti impostati alla sua quota ma assegnati al piano sotto
   const roofs = els.filter(
@@ -67,7 +72,6 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
   );
   const sel = new Set(selectedIds);
   const lvl = byId(p.levels, levelId);
-  const nextLvl = levelAbove(p, levelId);
   const center = levelCenter(p, levelId);
 
   const thin = 0.13 * mm;
@@ -114,32 +118,8 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
         })
       )}
 
-      {stairs.map((s) => {
-        if (s.kind !== 'stair') return null;
-        const L = dist(s.a, s.b);
-        const d = norm(sub(s.b, s.a));
-        const n = mul(perp(d), s.width / 2);
-        const rise = nextLvl ? nextLvl.elevation - (lvl?.elevation ?? 0) : lvl?.height ?? 3;
-        const steps = Math.max(2, Math.ceil(rise / 0.18));
-        const tread = L / steps;
-        const quad = [add(s.a, n), add(s.b, n), sub(s.b, n), sub(s.a, n)];
-        return (
-          <g key={s.id} className="pv-stair" strokeWidth={thin}>
-            <polygon points={pts(quad)} />
-            {Array.from({ length: steps - 1 }, (_, i) => {
-              const c = add(s.a, mul(d, tread * (i + 1)));
-              const p1 = add(c, n);
-              const p2 = sub(c, n);
-              return <line key={i} x1={p1.x} y1={-p1.y} x2={p2.x} y2={-p2.y} />;
-            })}
-            <polyline
-              points={pts([s.a, add(s.b, mul(d, -tread * 0.6))])}
-              strokeWidth={med}
-              markerEnd="url(#pv-arrow)"
-            />
-          </g>
-        );
-      })}
+      {stairs.map((s) => s.kind === 'stair' && <StairPlan key={s.id} project={p} stair={s} mode="partenza" mm={mm} />)}
+      {arriving.map((s) => s.kind === 'stair' && <StairPlan key={`arr${s.id}`} project={p} stair={s} mode="arrivo" mm={mm} />)}
 
       {walls.map((w) => (
         <WallPlan key={w.id} project={p} wall={w} mm={mm} center={center} hp={hp} />
@@ -209,6 +189,80 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
           <path d="M0,0 L10,5 L0,10 z" className="pv-arrowhead" />
         </marker>
       </defs>
+    </g>
+  );
+}
+
+/** Altezza del piano di taglio della pianta */
+export const PLAN_CUT = 1.2;
+
+/**
+ * Scala in pianta secondo la convenzione: al piano di partenza è continua fino al piano di taglio,
+ * poi linea di interruzione obliqua e tratteggio; al piano di arrivo il contrario.
+ */
+function StairPlan({ project: p, stair: s, mode, mm }: { project: Project; stair: Stair; mode: 'partenza' | 'arrivo'; mm: number }) {
+  const lvl = byId(p.levels, s.levelId);
+  const next = levelAbove(p, s.levelId);
+  const L = dist(s.a, s.b);
+  if (!lvl || L < 1e-6) return null;
+  const rise = next ? next.elevation - lvl.elevation : lvl.height;
+  const steps = Math.max(2, Math.ceil(rise / 0.18));
+  const h = rise / steps;
+  const tread = L / steps;
+  const d = norm(sub(s.b, s.a));
+  const nn = perp(d);
+  const half = s.width / 2;
+  const P = (along: number, u: number) => add(add(s.a, mul(d, along)), mul(nn, half - u * s.width)); // u: 0 lato +n, 1 lato −n
+  // interruzione obliqua centrata sul gradino tagliato (piano di taglio), se la scala lo supera
+  const cutStep = Math.min(steps - 1, Math.max(1, Math.ceil(PLAN_CUT / h)));
+  const hasBreak = !!next && rise > PLAN_CUT;
+  const sc = cutStep * tread;
+  const span = Math.min(0.35 * s.width, sc, L - sc);
+  const sb = (u: number) => sc - span + 2 * span * u; // ascissa della linea d'interruzione
+  const solidLow = mode === 'partenza';
+  const thin = 0.13 * mm;
+  const med = 0.25 * mm;
+  const dash = `${1.6 * mm} ${1 * mm}`;
+  const seg = (a: Vec2, b: Vec2, solid: boolean, key: string, w = thin) => (
+    <line key={key} x1={a.x} y1={-a.y} x2={b.x} y2={-b.y} strokeWidth={w} strokeDasharray={solid ? undefined : dash} />
+  );
+  const out: React.ReactNode[] = [];
+  if (!hasBreak) {
+    // scala che non raggiunge il taglio (o ultimo livello): tutta visibile
+    if (mode === 'arrivo') return null;
+    out.push(<polygon key="o" points={pts([P(0, 0), P(L, 0), P(L, 1), P(0, 1)])} strokeWidth={thin} />);
+    for (let i = 1; i < steps; i++) out.push(seg(P(i * tread, 0), P(i * tread, 1), true, `t${i}`));
+  } else {
+    // fondo bianco per coprire il pavimento
+    out.push(<polygon key="bg" points={pts([P(0, 0), P(L, 0), P(L, 1), P(0, 1)])} stroke="none" />);
+    // gradini: ciascuno spezzato dove incontra l'interruzione
+    for (let i = 1; i < steps; i++) {
+      const si = i * tread;
+      const uc = Math.min(1, Math.max(0, (si - sc + span) / (2 * span || 1)));
+      // lato basso (prima dell'interruzione) per u > uc
+      if (uc > 0) out.push(seg(P(si, 0), P(si, uc), !solidLow, `tu${i}`));
+      if (uc < 1) out.push(seg(P(si, uc), P(si, 1), solidLow, `tl${i}`));
+    }
+    // fianchi
+    out.push(seg(P(0, 0), P(sb(0), 0), solidLow, 'f0l'), seg(P(sb(0), 0), P(L, 0), !solidLow, 'f0u'));
+    out.push(seg(P(0, 1), P(sb(1), 1), solidLow, 'f1l'), seg(P(sb(1), 1), P(L, 1), !solidLow, 'f1u'));
+    // primo e ultimo gradino
+    out.push(seg(P(0, 0), P(0, 1), solidLow, 'start'), seg(P(L, 0), P(L, 1), !solidLow, 'end'));
+    // linea d'interruzione
+    out.push(seg(P(sb(0), 0), P(sb(1), 1), true, 'brk', med));
+  }
+  // freccia di salita lungo l'asse, nel tratto visibile
+  const axis = (along: number) => P(along, 0.5);
+  const mid = hasBreak ? sb(0.5) : L;
+  const arrow =
+    mode === 'partenza'
+      ? [axis(tread * 0.4), axis(hasBreak ? mid - tread * 0.3 : L - tread * 0.6)]
+      : [axis(mid + tread * 0.3), axis(L - tread * 0.4)];
+  return (
+    <g className="pv-stair">
+      {out}
+      <polyline points={pts(arrow)} strokeWidth={med} markerEnd="url(#pv-arrow)" />
+      {mode === 'partenza' && <circle cx={arrow[0].x} cy={-arrow[0].y} r={0.6 * mm} className="pv-stair-dot" />}
     </g>
   );
 }

@@ -975,8 +975,8 @@ button.chip:hover {
   stroke: var(--ink-2);
 }
 .canvas2d .pv-stair {
-  fill: var(--canvas);
-  stroke: var(--ink-2);
+  fill: var(--hatch-paper, #fff);
+  stroke: var(--ink);
 }
 .canvas2d .pv-stair polyline {
   fill: none;
@@ -2001,4 +2001,8 @@ input.brand-project:focus {
   flex: 1 1 0;
   min-width: 0;
   padding: 5px 4px;
+}
+.canvas2d .pv-stair-dot {
+  fill: var(--ink-2);
+  stroke: none;
 }

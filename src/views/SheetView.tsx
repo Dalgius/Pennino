@@ -444,6 +444,7 @@ export const SHEET_CSS = `
 .sheet-svg .pv-roof { fill: none; stroke: #555; }
 .sheet-svg .pv-stair { fill: #fff; stroke: #222; }
 .sheet-svg .pv-stair polyline { fill: none; }
+.sheet-svg .pv-stair-dot { fill: #222; stroke: none; }
 .sheet-svg .pv-arrowhead { fill: #222; }
 .sheet-svg .pv-window { stroke: #111; fill: none; }
 .sheet-svg .pv-parapet { fill: #e9e9e9; stroke: #555; }
