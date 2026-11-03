@@ -14,6 +14,7 @@ import {
   pointInPolygon,
   polygonArea,
   polygonPerimeter,
+  slabOutline,
   sortedLevels,
   wallHeight,
   wallLength,
@@ -126,7 +127,9 @@ export function computeComputo(p: Project): ComputoLine[] {
       }
     } else if (e.kind === 'slab') {
       const t = byId(p.catalog.slab, e.typeId);
-      const A = polygonArea(e.points);
+      // si computa l'ingombro reale (bordo a filo interno, esterno, ad asse o a distanza)
+      const outline = slabOutline(p, e);
+      const A = polygonArea(outline);
       const th = t?.thickness ?? 0.3;
       // senza stratigrafia la modalità «strati» non ha voci: si torna al pacchetto (più il pavimento)
       const mode = t?.layers?.length ? wallMode(p, t) : wallMode(p, t) === 'strati' ? 'misto' : wallMode(p, t);
@@ -135,7 +138,7 @@ export function computeComputo(p: Project): ComputoLine[] {
         push(t?.priceCode, base, {
           area: A,
           volume: A * th,
-          length: polygonPerimeter(e.points),
+          length: polygonPerimeter(outline),
           f: { m2: fA, m3: `${n2(A)} × ${n2(th)}`, m: 'perimetro' },
         });
       if (t?.layers?.length) {

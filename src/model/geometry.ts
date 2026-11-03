@@ -424,14 +424,23 @@ export function sceneBounds(p: Project) {
 
 
 /**
- * Ingombro reale di un solaio. I vertici si disegnano sugli assi dei muri; il solaio del
- * livello più basso (platea, vespaio) prosegue sotto i muri fino al loro filo esterno.
+ * Ingombro reale di un solaio. I vertici si disegnano sugli assi dei muri; i lati appoggiati
+ * a un muro (dello stesso livello o di quello sotto) si spostano secondo slab.edge.
  */
-export function slabOutline(p: Project, s: { levelId: string; points: Vec2[] }): Vec2[] {
+export function slabOutline(
+  p: Project,
+  s: { levelId: string; points: Vec2[]; edge?: 'auto' | 'asse' | 'interno' | 'esterno' | 'distanza'; edgeOffset?: number },
+): Vec2[] {
   const pts = s.points;
-  if (pts.length < 3 || sortedLevels(p)[0]?.id !== s.levelId) return pts;
-  const walls = p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === s.levelId);
-  if (!walls.length) return pts;
+  const mode = s.edge ?? 'auto';
+  if (pts.length < 3 || mode === 'asse') return pts;
+  const levels = sortedLevels(p);
+  const li = levels.findIndex((l) => l.id === s.levelId);
+  const lowest = li === 0;
+  if (mode === 'auto' && !lowest) return pts;
+  const sameLevel = p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === s.levelId);
+  const below = li > 0 ? p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === levels[li - 1].id) : [];
+  if (!sameLevel.length && !below.length) return pts;
   // verso esterno dei lati (come in offsetPolygon) e centro dell'edificio
   let area2 = 0;
   pts.forEach((a, i) => {
@@ -439,29 +448,39 @@ export function slabOutline(p: Project, s: { levelId: string; points: Vec2[] }):
     area2 += a.x * b.y - b.x * a.y;
   });
   const sign = area2 >= 0 ? 1 : -1;
-  const ends = walls.flatMap((w) => [w.a, w.b]);
+  const ends = (sameLevel.length ? sameLevel : below).flatMap((w) => [w.a, w.b]);
   const center = { x: ends.reduce((t, q) => t + q.x, 0) / ends.length, y: ends.reduce((t, q) => t + q.y, 0) / ends.length };
-  const ds = pts.map((a, i) => {
-    const b = pts[(i + 1) % pts.length];
+  /** metà spessore del muro su cui giace il lato a→b (0 se non appoggia a un muro) */
+  const hostHalf = (a: Vec2, b: Vec2, walls: Wall[]) => {
     const ed = norm(sub(b, a));
-    // si allarga solo verso l'esterno dell'edificio (non una pavimentazione esterna addossata al muro)
-    const out = { x: ed.y * sign, y: -ed.x * sign };
-    if (dot(out, sub({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, center)) <= 0) return 0;
+    const L = dist(a, b);
     let best = 0;
     for (const w of walls) {
       const wd = norm(sub(w.b, w.a));
       if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01) continue;
       const off = (q: Vec2) => Math.abs((q.x - w.a.x) * wd.y - (q.y - w.a.y) * wd.x);
       if (off(a) > 0.02 || off(b) > 0.02) continue;
-      // sovrapposizione lungo la retta
       const t = (q: Vec2) => (q.x - a.x) * ed.x + (q.y - a.y) * ed.y;
-      const L = dist(a, b);
       const t0 = Math.min(t(w.a), t(w.b));
       const t1 = Math.max(t(w.a), t(w.b));
       if (Math.min(L, t1) - Math.max(0, t0) < 0.05) continue;
       best = Math.max(best, wallThickness(byId(p.catalog.wall, w.typeId)) / 2);
     }
     return best;
+  };
+  const ds = pts.map((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    const h = hostHalf(a, b, sameLevel) || hostHalf(a, b, below);
+    if (!h) return 0;
+    if (mode === 'auto') {
+      // si allarga solo verso l'esterno dell'edificio (non una pavimentazione esterna addossata al muro)
+      const ed = norm(sub(b, a));
+      const out = { x: ed.y * sign, y: -ed.x * sign };
+      return dot(out, sub({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, center)) > 0 ? h : 0;
+    }
+    if (mode === 'interno') return -h;
+    if (mode === 'esterno') return h;
+    return s.edgeOffset ?? 0;
   });
-  return ds.some((d) => d > 0) ? offsetPolygon(pts, ds) : pts;
+  return ds.some((d) => Math.abs(d) > 1e-9) ? offsetPolygon(pts, ds) : pts;
 }

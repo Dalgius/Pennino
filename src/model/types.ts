@@ -206,12 +206,23 @@ export interface Opening {
   mirror?: boolean;
 }
 
+/**
+ * Dove arriva il bordo di un solaio sui lati appoggiati ai muri (i vertici si disegnano sull'asse):
+ * - auto: platea del livello più basso a filo esterno, gli altri sull'asse;
+ * - asse, interno (filo del muro dal lato del solaio), esterno (filo opposto);
+ * - distanza: scostamento libero dall'asse (positivo verso l'esterno del solaio).
+ */
+export type SlabEdge = 'auto' | 'asse' | 'interno' | 'esterno' | 'distanza';
+
 export interface Slab {
   id: ID;
   kind: 'slab';
   levelId: ID;
   typeId: ID;
   points: Vec2[];
+  edge?: SlabEdge;
+  /** Scostamento dall'asse in metri, per edge = 'distanza' */
+  edgeOffset?: number;
 }
 
 export interface Column {

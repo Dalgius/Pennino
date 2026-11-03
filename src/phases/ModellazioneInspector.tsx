@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../model/store';
-import type { Catalog, LayerRole, Project, Wall, WallComputeMode, WallLayer } from '../model/types';
+import type { Catalog, LayerRole, Project, SlabEdge, Wall, WallComputeMode, WallLayer } from '../model/types';
 import {
   add,
   byId,
@@ -15,6 +15,7 @@ import {
   openingSpans,
   polygonArea,
   polygonPerimeter,
+  slabOutline,
   sortedLevels,
   sub,
   wallHeight,
@@ -136,14 +137,53 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
 
       {e.kind === 'slab' && (() => {
         const t = byId(project.catalog.slab, e.typeId);
-        const A = polygonArea(e.points);
+        const outline = slabOutline(project, e);
+        const A = polygonArea(outline);
+        const edge = e.edge ?? 'auto';
+        const lowest = sortedLevels(project)[0]?.id === e.levelId;
         return (
           <>
             {typeSelect('slab', e.typeId)}
             <SelectField label="Livello" value={e.levelId} options={levelOptions} onChange={(v) => upd((x) => x.kind === 'slab' && (x.levelId = v))} />
+            <div className="subhead">Bordo sui muri</div>
+            <Segmented<SlabEdge>
+              small
+              value={edge}
+              options={[
+                { value: 'auto', label: 'Auto', title: lowest ? 'Livello più basso: a filo esterno verso fuori' : 'Sull’asse dei muri' },
+                { value: 'asse', label: 'Asse', title: 'Sull’asse dei muri, come disegnato' },
+                { value: 'interno', label: 'Interno', title: 'A filo del muro dal lato del solaio' },
+                { value: 'esterno', label: 'Esterno', title: 'A filo del muro dal lato opposto' },
+                { value: 'distanza', label: 'Distanza', title: 'Scostamento libero dall’asse' },
+              ]}
+              onChange={(v) =>
+                upd((x) => {
+                  if (x.kind !== 'slab') return;
+                  x.edge = v === 'auto' ? undefined : v;
+                  if (v === 'distanza' && x.edgeOffset === undefined) x.edgeOffset = 0;
+                })
+              }
+            />
+            {edge === 'distanza' && (
+              <NumberField
+                label="Distanza dall’asse (+ verso l’esterno del solaio)"
+                unit="cm"
+                digits={1}
+                step={1}
+                value={(e.edgeOffset ?? 0) * 100}
+                onChange={(v) => upd((x) => x.kind === 'slab' && (x.edgeOffset = v / 100))}
+              />
+            )}
+            <p className="note">
+              {edge === 'auto'
+                ? lowest
+                  ? 'Platea: sotto i muri perimetrali fino al filo esterno; le pavimentazioni esterne restano sull’asse.'
+                  : 'Sull’asse dei muri.'
+                : 'Vale per i lati appoggiati a un muro del livello (o di quello sotto); gli altri restano come disegnati.'}
+            </p>
             <div className="kv-grid">
               <div><span>Superficie</span><b className="mono">{fmt(A)} m²</b></div>
-              <div><span>Perimetro</span><b className="mono">{fmt(polygonPerimeter(e.points))} m</b></div>
+              <div><span>Perimetro</span><b className="mono">{fmt(polygonPerimeter(outline))} m</b></div>
               <div><span>Spessore</span><b className="mono">{fmt(t?.thickness ?? 0)} m</b></div>
               <div><span>Volume</span><b className="mono">{fmt(A * (t?.thickness ?? 0))} m³</b></div>
               <div><span>Pavimento</span><b>{t?.finishName}</b></div>

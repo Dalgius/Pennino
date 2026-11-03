@@ -13,6 +13,7 @@ import {
   add,
   roofBase,
   roofOutline,
+  slabOutline,
   bbox,
   byId,
   centroid,
@@ -81,7 +82,7 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       {slabs.map(
         (s) =>
           s.kind === 'slab' && (
-            <polygon key={s.id} points={pts(s.points)} className="pv-slab" strokeWidth={thin} />
+            <polygon key={s.id} points={pts(slabOutline(p, s))} className="pv-slab" strokeWidth={thin} />
           ),
       )}
 
