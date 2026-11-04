@@ -92,11 +92,34 @@ export function followWalls(prev: Project, next: Project): Project {
     });
     updates.set(e.id, out);
   }
-  if (!updates.size) return next;
+  // aperture: se cambia un estremo del muro ospite restano dove sono (l'offset si misura
+  // dall'inizio del muro, che altrimenti le trascinerebbe); se il muro trasla tutto, lo seguono
+  const offsets = new Map<string, number>();
+  for (const e of next.elements) {
+    if (e.kind !== 'opening') continue;
+    const c = changed.get(e.wallId);
+    if (!c || prevById.get(e.id) !== e) continue;
+    const { before, after } = c;
+    const ma = sub(after.a, before.a);
+    const mb = sub(after.b, before.b);
+    if (Math.hypot(ma.x - mb.x, ma.y - mb.y) < 1e-6) continue;
+    const dB = norm(sub(before.b, before.a));
+    const dA = norm(sub(after.b, after.a));
+    const La = Math.hypot(after.b.x - after.a.x, after.b.y - after.a.y);
+    const w = next.catalog.opening.find((t) => t.id === e.typeId)?.width ?? 0.8;
+    const center = add(before.a, mul(dB, e.offset));
+    let off = dot(sub(center, after.a), dA);
+    off = La <= w ? La / 2 : Math.min(La - w / 2, Math.max(w / 2, off));
+    if (Math.abs(off - e.offset) > 1e-6) offsets.set(e.id, +off.toFixed(4));
+  }
+
+  if (!updates.size && !offsets.size) return next;
   return produce(next, (d) => {
     for (const e of d.elements) {
       const u = updates.get(e.id);
       if (u && (e.kind === 'slab' || e.kind === 'roof')) e.points = u;
+      const o = offsets.get(e.id);
+      if (o !== undefined && e.kind === 'opening') e.offset = o;
     }
   });
 }
