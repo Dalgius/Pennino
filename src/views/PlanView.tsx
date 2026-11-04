@@ -127,6 +127,10 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
 
       {stairs.map((s) => s.kind === 'stair' && <StairPlan key={s.id} project={p} stair={s} mode="partenza" mm={mm} />)}
       {arriving.map((s) => s.kind === 'stair' && <StairPlan key={`arr${s.id}`} project={p} stair={s} mode="arrivo" mm={mm} />)}
+      {/* bordi dei fori scala: linea continua del solaio tagliato */}
+      {slabs.flatMap((s) =>
+        s.kind === 'slab' ? slabHoles(p, s).map((h, i) => <polygon key={`hole${s.id}${i}`} points={pts(h)} className="pv-slab-hole" strokeWidth={med} />) : [],
+      )}
 
       {walls.map((w) => (
         <WallPlan key={w.id} project={p} wall={w} mm={mm} center={center} hp={hp} />
@@ -596,7 +600,12 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
     case 'roof':
       return (
         <g className="pv-sel" strokeWidth={sw}>
-          <polygon points={pts(e.points)} />
+          {e.kind === 'slab' ? (
+            // il foro scala resta vuoto anche nella selezione
+            <path d={[e.points, ...slabHoles(p, e)].map((r) => `M${pts(r).replace(/ /g, ' L')} Z`).join(' ')} fillRule="evenodd" />
+          ) : (
+            <polygon points={pts(e.points)} />
+          )}
           {e.points.map((q, i) => (
             <circle key={i} cx={q.x} cy={-q.y} r={1.2 * mm} className="pv-handle" />
           ))}

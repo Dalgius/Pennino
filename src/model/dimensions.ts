@@ -81,7 +81,48 @@ export function computeDimensions(p: Project, levelId: string): DimChain[] {
     if (inner.length) chains.push({ ...base, id: `${w.id}:1`, row: 1, marks: [start, ...inner, end] });
     chains.push({ ...base, id: `${w.id}:2`, row: inner.length ? 2 : 1, marks: [start, end] });
   }
-  return chains;
+  return dropDuplicates(p, walls, chains);
+}
+
+/**
+ * Un muro interno quotato con la sola lunghezza è superfluo se la stessa misura, sullo stesso
+ * tratto, compare già in una catena parallela (tipico: due muri opposti dello stesso vano).
+ */
+const TOL_SPAN = 0.3;
+
+function dropDuplicates(p: Project, walls: Wall[], chains: DimChain[]): DimChain[] {
+  const byWall = new Map(walls.map((w) => [w.id, w]));
+  const single = (c: DimChain) => c.marks.length === 2 && !isExteriorWall(p, byWall.get(c.wallId)!);
+  const kept = chains.filter((c) => !single(c));
+  const along = (c: DimChain, ref: DimChain, s: number) => dot(sub(add(c.origin, mul(c.dir, s)), ref.origin), ref.dir);
+  const dup = (c: DimChain) => {
+    const c0 = along(c, c, c.marks[0].s);
+    const c1 = along(c, c, c.marks[1].s);
+    return kept.some((d) => {
+      if (d.wallId === c.wallId || Math.abs(d.dir.x * c.dir.y - d.dir.y * c.dir.x) > 0.01) return false;
+      // distanza tra le due linee: entro un vano
+      const off = Math.abs(dot(sub(d.origin, c.origin), { x: -c.dir.y, y: c.dir.x }));
+      if (off > 8) return false;
+      // un segmento che copre lo stesso intervallo, a meno degli spessori dei muri
+      for (let i = 0; i + 1 < d.marks.length; i++)
+        for (let j = i + 1; j <= i + 1; j++) {
+          const t0 = along(d, c, d.marks[i].s);
+          const t1 = along(d, c, d.marks[j].s);
+          if (Math.abs(Math.min(t0, t1) - Math.min(c0, c1)) < TOL_SPAN && Math.abs(Math.max(t0, t1) - Math.max(c0, c1)) < TOL_SPAN) return true;
+        }
+      return false;
+    });
+  };
+  const out = [...kept];
+  for (const c of chains) {
+    if (!single(c)) continue;
+    if (dup(c)) continue;
+    kept.push(c);
+    out.push(c);
+  }
+  // ordine originale
+  const order = new Map(chains.map((c, i) => [c.id, i]));
+  return out.sort((x, y) => order.get(x.id)! - order.get(y.id)!);
 }
 
 /** Il segmento k (tra i segni k e k+1) è modificabile? Restituisce una descrizione */

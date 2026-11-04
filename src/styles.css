@@ -1014,6 +1014,7 @@ button.chip:hover {
   stroke-width: 1px;
 }
 .pv-sel polygon,
+.pv-sel path,
 .pv-sel polyline {
   fill: var(--primary-soft);
   stroke: var(--primary);
@@ -2005,4 +2006,8 @@ input.brand-project:focus {
 .canvas2d .pv-stair-dot {
   fill: var(--ink-2);
   stroke: none;
+}
+.canvas2d .pv-slab-hole {
+  fill: none;
+  stroke: var(--ink);
 }
