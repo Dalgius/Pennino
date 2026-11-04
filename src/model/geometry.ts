@@ -560,3 +560,16 @@ export function slabHoles(p: Project, s: { levelId: string; typeId: string; poin
 export function slabNetArea(p: Project, s: Parameters<typeof slabHoles>[1]) {
   return polygonArea(slabOutline(p, s)) - slabHoles(p, s).reduce((t, h) => t + polygonArea(h), 0);
 }
+
+/** Alzata massima usata quando il numero di alzate non è fissato */
+export const MAX_RISER = 0.18;
+
+/** Dislivello, numero di alzate, alzata e pedata di una scala */
+export function stairSteps(p: Project, s: { levelId: string; a: Vec2; b: Vec2; risers?: number }) {
+  const lvl = byId(p.levels, s.levelId);
+  const next = levelAbove(p, s.levelId);
+  const rise = next && lvl ? next.elevation - lvl.elevation : lvl?.height ?? 3;
+  const n = s.risers && s.risers >= 2 ? Math.round(s.risers) : Math.max(2, Math.ceil(rise / MAX_RISER - 1e-9));
+  const L = dist(s.a, s.b);
+  return { rise, n, h: rise / n, tread: L / n, L };
+}

@@ -10,7 +10,6 @@ import {
   elementLabel,
   fmt,
   fmtEuro,
-  levelAbove,
   mul,
   norm,
   openingSpans,
@@ -20,6 +19,7 @@ import {
   slabNetArea,
   slabOutline,
   sortedLevels,
+  stairSteps,
   sub,
   wallHeight,
   wallLength,
@@ -238,22 +238,45 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
       })()}
 
       {e.kind === 'stair' && (() => {
-        const lvl = byId(project.levels, e.levelId);
-        const next = levelAbove(project, e.levelId);
-        const rise = next && lvl ? next.elevation - lvl.elevation : lvl?.height ?? 3;
-        const L = dist(e.a, e.b);
-        const n = Math.max(2, Math.ceil(rise / 0.18));
-        const a = rise / n;
-        const p = L / n;
+        const { rise, n, h: a, tread: p, L } = stairSteps(project, e);
         const blondel = 2 * a + p;
         const ok = blondel >= 0.6 && blondel <= 0.66;
+        const setLength = (len: number) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, len)))));
+        // cambiando le alzate la pedata resta quella: si allunga o si accorcia la rampa
+        const setRisers = (k: number) =>
+          upd((x) => {
+            if (x.kind !== 'stair') return;
+            const r = Math.max(2, Math.round(k));
+            x.risers = r;
+            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, r * p)));
+          });
         return (
           <>
             <SelectField label="Livello di partenza" value={e.levelId} options={levelOptions} onChange={(v) => upd((x) => x.kind === 'stair' && (x.levelId = v))} />
             <div className="fields fields-2">
               <NumberField label="Larghezza rampa" unit="m" value={e.width} min={0.6} onChange={(v) => upd((x) => x.kind === 'stair' && (x.width = v))} />
-              <NumberField label="Sviluppo" unit="m" value={L} min={0.5} onChange={(v) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), v))))} />
+              <NumberField label="Sviluppo" unit="m" value={L} min={0.5} onChange={setLength} />
             </div>
+            <div className="subhead">
+              Gradini · dislivello {fmt(rise)} m
+              {e.risers ? (
+                <button className="link" onClick={() => upd((x) => x.kind === 'stair' && (x.risers = undefined))} title="Torna al numero minimo con alzata ≤ 18 cm">
+                  Automatico
+                </button>
+              ) : null}
+            </div>
+            <div className="fields fields-3">
+              <NumberField label="Alzate" digits={0} step={1} value={n} min={2} onChange={setRisers} />
+              <NumberField label="Alzata" unit="cm" digits={1} step={0.5} value={a * 100} min={10} max={25} onChange={(v) => setRisers(rise / (v / 100))} />
+              <NumberField label="Pedata" unit="cm" digits={1} step={0.5} value={p * 100} min={15} onChange={(v) => setLength(n * (v / 100))} />
+            </div>
+            <p className="note">
+              L’alzata deve dividere il dislivello: scrivendola si sceglie il numero di alzate più vicino. Alzate e pedata cambiano lo
+              sviluppo della rampa.
+            </p>
+            <button className="btn btn-block" onClick={() => setLength(n * Math.max(0.22, 0.63 - 2 * a))}>
+              Pedata secondo Blondel (2a + p = 63 cm)
+            </button>
             <label className="check">
               <input type="checkbox" checked={e.hole !== false} onChange={(ev) => upd((x) => x.kind === 'stair' && (x.hole = ev.target.checked ? undefined : false))} />
               Foro automatico nel solaio di arrivo
@@ -275,7 +298,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             </div>
             <div className={`check-row ${ok ? 'ok' : 'warn'}`}>
               <b>2a + p = {fmt(blondel * 100, 1)} cm</b>
-              <span>{ok ? 'Regola di Blondel rispettata (60–66 cm)' : 'Fuori dall’intervallo 60–66 cm: modifica lo sviluppo'}</span>
+              <span>{ok ? 'Regola di Blondel rispettata (60–66 cm)' : 'Fuori dall’intervallo 60–66 cm: modifica alzate o pedata'}</span>
             </div>
           </>
         );

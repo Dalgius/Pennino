@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, levelAbove, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, stairSteps, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { wallGeom, wallOutline } from '../model/walls';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -136,10 +136,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const q = wallSegmentQuad(e as unknown as Wall, e.width, 0, dist(e.a, e.b));
       const ivs = cutIntervals(q, f);
       if (!ivs.length) continue;
-      const next = levelAbove(p, e.levelId);
-      const rise = next ? next.elevation - z0 : lvl.height;
-      const steps = Math.max(2, Math.ceil(rise / 0.18));
-      const h = rise / steps;
+      const { rise, n: steps, h } = stairSteps(p, e);
       const sd = norm(sub(e.b, e.a));
       if (Math.abs(dot(sd, f.u)) > 0.7) {
         // rampa parallela al piano: profilo a gradini e intradosso

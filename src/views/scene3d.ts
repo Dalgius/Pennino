@@ -10,7 +10,6 @@ import {
   bbox,
   byId,
   dist,
-  levelAbove,
   openingSpans,
   roofOutline,
   roofRidgeRise,
@@ -20,6 +19,7 @@ import {
   wallLength,
   slabOutline,
   slabHoles,
+  stairSteps,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -127,11 +127,7 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       const top = z0 + lvl.height;
       root.add(tag(segmentBox(e.a, e.b, t?.width ?? 0.3, top - (t?.height ?? 0.4), top, pick(e.id, M('column', COLORS.column))), e.id));
     } else if (e.kind === 'stair') {
-      const next = levelAbove(p, e.levelId);
-      const rise = next ? next.elevation - z0 : lvl.height;
-      const steps = Math.max(2, Math.ceil(rise / 0.18));
-      const h = rise / steps;
-      const L = dist(e.a, e.b);
+      const { n: steps, h, L } = stairSteps(p, e);
       const g = new THREE.Group();
       for (let i = 0; i < steps; i++) {
         const t0 = (i / steps) * L;

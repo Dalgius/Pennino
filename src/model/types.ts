@@ -249,6 +249,8 @@ export interface Stair {
   a: Vec2;
   b: Vec2;
   width: number;
+  /** Numero di alzate; se assente si sceglie il minimo con alzata ≤ 18 cm */
+  risers?: number;
   /** Foro automatico nel solaio di arrivo (predefinito: sì) */
   hole?: boolean;
   /** Altezza libera minima sopra i gradini, in metri (predefinita 2,10) */

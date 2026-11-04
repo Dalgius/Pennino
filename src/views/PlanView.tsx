@@ -22,6 +22,7 @@ import {
   dist,
   levelAbove,
   sortedLevels,
+  stairSteps,
   mul,
   norm,
   openingSpans,
@@ -216,10 +217,7 @@ function StairPlan({ project: p, stair: s, mode, mm }: { project: Project; stair
   const next = levelAbove(p, s.levelId);
   const L = dist(s.a, s.b);
   if (!lvl || L < 1e-6) return null;
-  const rise = next ? next.elevation - lvl.elevation : lvl.height;
-  const steps = Math.max(2, Math.ceil(rise / 0.18));
-  const h = rise / steps;
-  const tread = L / steps;
+  const { rise, n: steps, h, tread } = stairSteps(p, s);
   const d = norm(sub(s.b, s.a));
   const nn = perp(d);
   const half = s.width / 2;
