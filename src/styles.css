@@ -2011,3 +2011,18 @@ input.brand-project:focus {
   fill: none;
   stroke: var(--ink);
 }
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: 560px;
+  padding: 9px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--ochre);
+  color: var(--text);
+  font-size: 12.5px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}

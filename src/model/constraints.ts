@@ -7,7 +7,8 @@
 
 import { produce } from 'immer';
 import type { Project, Vec2, Wall } from './types';
-import { add, dot, mul, norm, sortedLevels, sub } from './geometry';
+import { add, byId, dot, mul, norm, sortedLevels, sub } from './geometry';
+import { endAt, startAt, wallGeom } from './walls';
 
 const TOL = 0.02;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
@@ -37,7 +38,69 @@ function edgeOnWall(a: Vec2, b: Vec2, w: Wall) {
   return Math.abs(cross(ed, wl.d)) < 0.01 && distToLine(a, wl) < TOL && distToLine(b, wl) < TOL;
 }
 
+let refusal: string | null = null;
+
+/** Motivo dell'ultima modifica rifiutata da followWalls (e lo azzera) */
+export function takeRefusal() {
+  const r = refusal;
+  refusal = null;
+  return r;
+}
+
+/**
+ * Porte e finestre dei muri cambiati restano intere dentro il tratto libero del muro (tra le facce
+ * dei muri a cui si innesta): se escono vengono riportate dentro; se non ci stanno la modifica
+ * viene rifiutata.
+ */
+function fitOpenings(p: Project, wallIds: Set<string>): Project | null {
+  const fixes = new Map<string, number>();
+  for (const id of wallIds) {
+    const w = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === id);
+    if (!w) continue;
+    const ops = p.elements.filter((e) => e.kind === 'opening' && e.wallId === id);
+    if (!ops.length) continue;
+    const g = wallGeom(p, w);
+    const s0 = Math.max(startAt(g, g.half), startAt(g, -g.half), 0);
+    const s1 = Math.min(endAt(g, g.half), endAt(g, -g.half), g.L);
+    let need = 0;
+    for (const o of ops) {
+      if (o.kind !== 'opening') continue;
+      const wd = byId(p.catalog.opening, o.typeId)?.width ?? 0.8;
+      need += wd;
+      if (s1 - s0 < wd - 1e-6) {
+        refusal = `Il muro diventerebbe troppo corto per l’apertura da ${Math.round(wd * 100)} cm: modifica annullata.`;
+        return null;
+      }
+      const off = Math.min(s1 - wd / 2, Math.max(s0 + wd / 2, o.offset));
+      if (Math.abs(off - o.offset) > 1e-6) fixes.set(o.id, +off.toFixed(4));
+    }
+    if (need > s1 - s0 + 1e-6) {
+      refusal = 'Il muro diventerebbe troppo corto per contenere le sue aperture: modifica annullata.';
+      return null;
+    }
+  }
+  if (!fixes.size) return p;
+  return produce(p, (d) => {
+    for (const e of d.elements) if (e.kind === 'opening' && fixes.has(e.id)) e.offset = fixes.get(e.id)!;
+  });
+}
+
 export function followWalls(prev: Project, next: Project): Project {
+  const out = followWallsInner(prev, next);
+  if (out === prev) return out;
+  const prevById = new Map(prev.elements.map((e) => [e.id, e]));
+  const touched = new Set<string>();
+  for (const e of out.elements) {
+    if (e.kind === 'wall' && prevById.get(e.id) !== e) touched.add(e.id);
+    // anche le aperture modificate direttamente (spostate o cambiate di tipologia)
+    if (e.kind === 'opening' && prevById.get(e.id) !== e) touched.add(e.wallId);
+  }
+  if (!touched.size) return out;
+  const fitted = fitOpenings(out, touched);
+  return fitted ?? prev;
+}
+
+function followWallsInner(prev: Project, next: Project): Project {
   if (prev === next) return next;
   // muri cambiati (stesso id, oggetto diverso)
   const prevById = new Map(prev.elements.map((e) => [e.id, e]));

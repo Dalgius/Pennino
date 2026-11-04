@@ -25,6 +25,13 @@ export function App() {
   const setPhase = useStore((s) => s.setPhase);
   const project = useStore((s) => s.project);
   const theme = useStore((s) => s.theme);
+  const notice = useStore((s) => s.notice);
+  const setNotice = useStore((s) => s.setNotice);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice, setNotice]);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
@@ -164,6 +171,11 @@ export function App() {
         {phase === 'cantiere' && <Cantiere />}
       </div>
 
+      {notice && (
+        <div className="notice" role="status" onClick={() => setNotice(null)}>
+          {notice}
+        </div>
+      )}
       <footer className="statusbar">
         <span className="status-live">● Modello unico</span>
         <span className="mono">{project.levels.length} livelli · {count} elementi · {project.sheets.length} tavole</span>

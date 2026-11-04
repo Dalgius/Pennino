@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
 import { getImage, putImage } from './images';
-import { followWalls } from './constraints';
+import { followWalls, takeRefusal } from './constraints';
 import { ProjectFormatError, validateProject, type ValidationResult } from './validate';
 
 const STORAGE_KEY = 'pennino.project.v1';
@@ -34,6 +34,9 @@ interface State {
   selection: Selection;
   theme: 'scuro' | 'chiaro';
   savedAt: number | null;
+  /** Avviso breve all'utente (modifica rifiutata, ecc.) */
+  notice: string | null;
+  setNotice: (n: string | null) => void;
 
   /** Modifica del modello registrata nella cronologia */
   edit: (fn: (draft: Project) => void) => void;
@@ -93,6 +96,8 @@ export const useStore = create<State>((set, get) => ({
   theme: readTheme(),
   drafting: readDrafting(),
   savedAt: null,
+  notice: null,
+  setNotice: (n) => set({ notice: n }),
 
   edit: (fn) => {
     const { project, past, revision } = get();
@@ -104,6 +109,8 @@ export const useStore = create<State>((set, get) => ({
         fn(d);
       }),
     );
+    const why = takeRefusal();
+    if (why) set({ notice: why });
     if (next === project) return;
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [], revision: revision + 1 });
   },
@@ -116,6 +123,8 @@ export const useStore = create<State>((set, get) => ({
         fn(d);
       }),
     );
+    const why = takeRefusal();
+    if (why && why !== get().notice) set({ notice: why });
     if (next !== project) set({ project: next, revision: revision + 1 });
   },
   checkpoint: () => {
