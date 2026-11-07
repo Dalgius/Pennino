@@ -741,8 +741,8 @@ export function Modellazione() {
                 value={stairShape}
                 options={[
                   { value: 'dritta', label: 'Dritta' },
-                  { value: 'L', label: 'A L' },
-                  { value: 'U', label: 'A U' },
+                  { value: 'L', label: 'L' },
+                  { value: 'U', label: 'U' },
                 ]}
                 onChange={setStairShape}
               />

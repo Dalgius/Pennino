@@ -267,8 +267,8 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               value={shape}
               options={[
                 { value: 'dritta', label: 'Dritta' },
-                { value: 'L', label: 'A L' },
-                { value: 'U', label: 'A U' },
+                { value: 'L', label: 'L' },
+                { value: 'U', label: 'U' },
               ]}
               onChange={(v) => reshape({ shape: v === 'dritta' ? undefined : v, turn: e.turn ?? 'sinistra' })}
             />
