@@ -590,7 +590,9 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
   const e = p.elements.find((x) => x.id === id);
   if (!e) return null;
   const sw = 0.5 * mm;
-  if ('levelId' in e && e.levelId !== levelId) return null;
+  // la scala si evidenzia anche al piano di arrivo
+  const arrives = e.kind === 'stair' && levelAbove(p, e.levelId)?.id === levelId;
+  if ('levelId' in e && e.levelId !== levelId && !arrives) return null;
   switch (e.kind) {
     case 'wall': {
       return (
