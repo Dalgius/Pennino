@@ -5,6 +5,7 @@ import {
   add,
   bbox,
   roofBase,
+  levelAbove,
   slabHoles,
   stairFootprints,
   byId,
@@ -51,6 +52,12 @@ export function deleteElements(p: Project, ids: string[]) {
   p.elements = p.elements.filter((e) => !set.has(e.id) && !(e.kind === 'opening' && set.has(e.wallId)));
 }
 
+/** La scala arriva al livello indicato (il livello sopra quello di partenza, non una copertura) */
+function stairArrivesAt(p: Project, e: { levelId: string }, levelId: string) {
+  const up = levelAbove(p, e.levelId);
+  return !!up && up.id === levelId && up.kind !== 'copertura';
+}
+
 /** Elemento del modello sotto il puntatore sul livello indicato */
 export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number): string | null {
   const walls = p.elements.filter((e) => e.kind === 'wall' && e.levelId === levelId);
@@ -85,6 +92,13 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
     }
     if (e.kind === 'stair' && e.levelId === levelId) {
       if (stairFootprints(p, e).some((q) => pointInPolygon(w, q) || distToPolyline(w, q, true) < tol)) return e.id;
+    }
+    // dal piano di arrivo la scala si prende dove si vede: nel foro o fuori dai solai
+    if (e.kind === 'stair' && stairArrivesAt(p, e, levelId) && stairFootprints(p, e).some((q) => pointInPolygon(w, q))) {
+      const underSlab = p.elements.some(
+        (s) => s.kind === 'slab' && s.levelId === levelId && pointInPolygon(w, s.points) && !slabHoles(p, s).some((h) => pointInPolygon(w, h)),
+      );
+      if (!underSlab) return e.id;
     }
   }
   for (const e of p.elements) {
@@ -380,7 +394,7 @@ export function elementsInRect(
   const inside = (q: Vec2) => q.x >= r.minX && q.x <= r.maxX && q.y >= r.minY && q.y <= r.maxY;
   const out: string[] = [];
   for (const e of p.elements) {
-    if (openingLevel(p, e) !== levelId) continue;
+    if (openingLevel(p, e) !== levelId && !(e.kind === 'stair' && stairArrivesAt(p, e, levelId))) continue;
     const pts = footprintOf(p, e);
     if (!pts.length) continue;
     if (!crossing) {
