@@ -22,6 +22,8 @@ import {
   slabOutline,
   slabHoles,
   stairLayout,
+  flightProfile,
+  LANDING_THICKNESS,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -132,13 +134,23 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       const lay = stairLayout(p, e);
       const g = new THREE.Group();
       const mat = pick(e.id, M('stair', COLORS.stair));
-      for (const fl of lay.flights)
-        for (let i = 0; i < fl.steps; i++) {
-          const a = add(fl.a, mul(fl.d, i * lay.tread));
-          const b = add(fl.a, mul(fl.d, (i + 1) * lay.tread));
-          g.add(tag(segmentBox(a, b, lay.width, fl.base + i * lay.h, fl.base + (i + 1) * lay.h, mat), e.id));
-        }
-      for (const l of lay.landings) g.add(tag(extrudePolygon(l.poly, l.z, Math.min(0.2, lay.h * 1.2), mat), e.id));
+      lay.flights.forEach((fl, k) => {
+        // profilo (gradini + soletta) estruso per la larghezza della rampa
+        const prof = flightProfile(p, e, lay, k);
+        const shape = new THREE.Shape();
+        prof.forEach((q, i) => (i ? shape.lineTo(q.x, q.y) : shape.moveTo(q.x, q.y)));
+        shape.closePath();
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: lay.width, bevelEnabled: false });
+        // assi locali: x lungo la rampa, y in alto, z verso destra (−normale); modello (x, y, z) → three (x, z, −y)
+        const X = new THREE.Vector3(fl.d.x, 0, -fl.d.y);
+        const Y = new THREE.Vector3(0, 1, 0);
+        const Zv = new THREE.Vector3(-fl.n.x, 0, fl.n.y);
+        const start = add(fl.a, mul(fl.n, lay.width / 2));
+        const m = new THREE.Matrix4().makeBasis(X, Y, Zv).setPosition(start.x, 0, -start.y);
+        geo.applyMatrix4(m);
+        g.add(tag(new THREE.Mesh(geo, mat), e.id));
+      });
+      for (const l of lay.landings) g.add(tag(extrudePolygon(l.poly, l.z, LANDING_THICKNESS, mat), e.id));
       root.add(g);
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);

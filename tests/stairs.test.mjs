@@ -68,4 +68,20 @@ test('foro nel solaio di arrivo: un unico contorno che copre pianerottolo e seco
   assert.ok(!g.pointInPolygon({ x: 1.1, y: 1 }, holes[0]));
 });
 
+test('soletta rampante: parte dal pavimento e si raccorda all’intradosso del pianerottolo', () => {
+  const { p, s } = withStair({ shape: 'L', turn: 'destra' });
+  const lay = g.stairLayout(p, s);
+  const prof = g.flightProfile(p, s, lay, 0);
+  const zl = lay.landings[0].z;
+  const under = zl - g.LANDING_THICKNESS;
+  // un vertice sull'intradosso del pianerottolo, oltre la fine della rampa
+  assert.ok(prof.some((q) => near(q.y, under) && q.x >= lay.flights[0].len - 1e-6), 'raccordo col pianerottolo');
+  // appoggio sul pavimento
+  assert.ok(prof.some((q) => near(q.y, lay.flights[0].base) && q.x > 0), 'appoggio a terra');
+  // seconda rampa: parte dal pianerottolo e arriva all'intradosso del solaio del piano primo
+  const p2 = g.flightProfile(p, s, lay, 1);
+  assert.ok(Math.min(...p2.map((q) => q.y)) >= under - 1e-6);
+  assert.ok(near(Math.max(...p2.map((q) => q.y)), 3.2));
+});
+
 test.after(() => server.close());

@@ -770,3 +770,57 @@ export function stairHole(p: Project, s: StairLike & { headroom?: number }, unde
   const u = unionAligned(parts, s.a, d, perp(d));
   return u ? [u] : parts;
 }
+
+/** Spessore della soletta rampante (perpendicolare all'inclinazione) e del pianerottolo */
+export const STAIR_SLAB = 0.15;
+export const LANDING_THICKNESS = 0.2;
+
+/** Intradosso del solaio di arrivo sopra il punto q (o 25 cm sotto il piano se non c'è solaio) */
+function arrivalUnderside(p: Project, levelId: string, q: Vec2) {
+  const next = levelAbove(p, levelId);
+  if (!next) return null;
+  let th = 0.25;
+  for (const e of p.elements)
+    if (e.kind === 'slab' && e.levelId === next.id && pointInPolygon(q, slabOutline(p, e))) th = byId(p.catalog.slab, e.typeId)?.thickness ?? th;
+  return next.elevation - th;
+}
+
+/**
+ * Profilo della rampa i nel suo piano verticale: x = ascissa lungo la rampa, y = quota.
+ * Sopra i gradini; sotto la soletta inclinata, che parte dal pavimento (o dall'intradosso del
+ * pianerottolo) e arriva all'intradosso del pianerottolo o del solaio di arrivo.
+ */
+export function flightProfile(p: Project, s: StairLike, lay: StairLayout, i: number): Vec2[] {
+  const f = lay.flights[i];
+  const { h, tread: t } = lay;
+  const slope = h / t;
+  const tv = (STAIR_SLAB * Math.hypot(t, h)) / t; // spessore verticale della soletta
+  const zs = (x: number) => f.base + x * slope - tv; // intradosso: parallelo alla linea degli spigoli interni
+  const landingUnder = (z: number) => z - LANDING_THICKNESS;
+  // partenza: dal pavimento (prima rampa) o dal pianerottolo
+  const zStart = i === 0 ? f.base : landingUnder(f.base);
+  // arrivo: pianerottolo successivo o solaio del piano superiore
+  const nextLanding = lay.landings.find((l) => Math.abs(l.z - (f.base + (f.steps + 1) * h)) < 1e-6 && i < lay.flights.length - 1);
+  const endPt = add(f.a, mul(f.d, f.len));
+  const zEnd = nextLanding ? landingUnder(nextLanding.z) : arrivalUnderside(p, s.levelId, add(endPt, mul(f.d, 0.05))) ?? f.base + f.steps * h - 0.25;
+  const top: Vec2[] = [{ x: 0, y: f.base }];
+  for (let j = 0; j < f.steps; j++) {
+    top.push({ x: j * t, y: f.base + (j + 1) * h });
+    top.push({ x: (j + 1) * t, y: f.base + (j + 1) * h });
+  }
+  const topEnd = f.base + f.steps * h;
+  const out = [...top];
+  // fine: la soletta prosegue fino all'intradosso di arrivo
+  const sE = (zEnd - f.base + tv) / slope;
+  if (sE > f.len) {
+    out.push({ x: f.len, y: Math.min(topEnd, zEnd) });
+    out.push({ x: sE, y: zEnd });
+  } else out.push({ x: f.len, y: zs(f.len) });
+  // inizio: la soletta si appoggia al pavimento o al pianerottolo
+  const sB = (zStart - f.base + tv) / slope;
+  out.push({ x: sB, y: zStart });
+  if (sB > 0) out.push({ x: 0, y: zStart });
+  else out.push({ x: sB, y: f.base });
+  void topEnd;
+  return out;
+}
