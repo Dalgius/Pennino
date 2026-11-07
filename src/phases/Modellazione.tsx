@@ -427,7 +427,8 @@ export function Modellazione() {
       if (dr.kind === 'sezione' || dr.kind === 'sezione-estremo') {
         const src = (o.sections ?? []).find((x) => x.id === dr.id);
         if (!src) return;
-        const delta = sub(snap.p, dr.start);
+        const rawS = sub(snap.p, dr.start);
+        const delta = dr.kind === 'sezione' && ortho !== e.shift ? (Math.abs(rawS.x) >= Math.abs(rawS.y) ? { x: rawS.x, y: 0 } : { x: 0, y: rawS.y }) : rawS;
         editLive((d) => {
           const x = (d.sections ?? []).find((q) => q.id === dr.id);
           if (!x) return;
@@ -462,7 +463,9 @@ export function Modellazione() {
         return;
       }
       // spostamento dell'elemento (o della selezione)
-      const delta = sub(snap.p, dr.start);
+      // in ortogonale lo spostamento segue solo l'asse prevalente (Maiusc lo libera)
+      const raw = sub(snap.p, dr.start);
+      const delta = ortho !== e.shift ? (Math.abs(raw.x) >= Math.abs(raw.y) ? { x: raw.x, y: 0 } : { x: 0, y: raw.y }) : raw;
       const ids = selectedIds.includes(dr.id) ? selectedIds : [dr.id];
       editLive((d) => {
         for (const id of ids) {

@@ -115,7 +115,9 @@ export function useSiteEditor(o: Options) {
         const srcHandles = getHandles(src as never).map((h) => ({ ...h }));
         if (dr.handle === null) {
           // spostamento di tutti gli oggetti selezionati
-          const delta = { x: snap.x - dr.start.x, y: snap.y - dr.start.y };
+          // in ortogonale lo spostamento segue solo l'asse prevalente (Maiusc lo libera)
+          const raw = { x: snap.x - dr.start.x, y: snap.y - dr.start.y };
+          const delta = ortho !== e.shift ? (Math.abs(raw.x) >= Math.abs(raw.y) ? { x: raw.x, y: 0 } : { x: 0, y: raw.y }) : raw;
           const origs = new Map(o.list(dr.orig).filter((x) => dr.ids.includes(x.id)).map((x) => [x.id, getHandles(x as never).map((h) => ({ ...h }))]));
           editLive((d) => {
             for (const it of o.list(d)) {
@@ -146,7 +148,8 @@ export function useSiteEditor(o: Options) {
           } else {
             // riporta l'oggetto alla posizione iniziale, poi trasla
             srcHandles.forEach((h, i) => setHandle(it as never, i, h));
-            translate(it as never, { x: snap.x - dr.start.x, y: snap.y - dr.start.y });
+            const raw = { x: snap.x - dr.start.x, y: snap.y - dr.start.y };
+            translate(it as never, ortho !== e.shift ? (Math.abs(raw.x) >= Math.abs(raw.y) ? { x: raw.x, y: 0 } : { x: 0, y: raw.y }) : raw);
           }
         });
       } else if (e.type === 'up') drag.current = null;
