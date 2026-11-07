@@ -2026,3 +2026,7 @@ input.brand-project:focus {
   box-shadow: var(--shadow);
   cursor: pointer;
 }
+.canvas2d .sc-view {
+  fill: var(--hatch-paper, #fff);
+  stroke: var(--ink-2);
+}

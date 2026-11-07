@@ -207,10 +207,45 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
     }
   }
 
+  // scale oltre il piano di sezione, in vista: gradini e pianerottoli proiettati, dal più lontano
+  const views: { depth: number; node: React.ReactNode }[] = [];
+  for (const e of p.elements) {
+    if (e.kind !== 'stair' || !byId(p.levels, e.levelId)) continue;
+    const lay = stairLayout(p, e);
+    const boxes: { q: Vec2[]; z0: number; z1: number }[] = [];
+    for (const fl of lay.flights)
+      for (let j = 0; j < fl.steps; j++)
+        boxes.push({ q: flightQuad(fl, lay.width, j * lay.tread, (j + 1) * lay.tread), z0: fl.base + j * lay.h, z1: fl.base + (j + 1) * lay.h });
+    for (const l of lay.landings) boxes.push({ q: l.poly, z0: l.z - Math.min(0.2, lay.h * 1.2), z1: l.z });
+    boxes.forEach((b, k) => {
+      const ds = b.q.map(D);
+      const dc = ds.reduce((t, x) => t + x, 0) / ds.length;
+      // davanti al piano o oltre la profondità di vista: non si vede
+      if (Math.max(...ds) <= 1e-6 || Math.min(...ds) > section.depth) return;
+      const us = b.q.map(U);
+      views.push({
+        depth: dc,
+        node: (
+          <rect
+            key={`${e.id}v${k}`}
+            x={Math.min(...us)}
+            y={Z(b.z1)}
+            width={Math.max(...us) - Math.min(...us)}
+            height={b.z1 - b.z0}
+            className="sc-view"
+            strokeWidth={0.18 * mm}
+          />
+        ),
+      });
+    });
+  }
+  views.sort((a, b) => b.depth - a.depth);
+
   const gl = p.site.groundLevel;
   return (
     <g className="section">
       <ElevationView project={p} direction={f} mm={mm} textScale={textScale} extents={ext} />
+      {views.map((v) => v.node)}
       {/* terreno sezionato */}
       <rect x={ext.min} y={Z(gl)} width={ext.max - ext.min} height={0.8} className="sc-earth" />
       <line x1={ext.min} y1={Z(gl)} x2={ext.max} y2={Z(gl)} className="ev-ground" strokeWidth={0.7 * mm} />
