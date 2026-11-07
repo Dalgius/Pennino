@@ -242,21 +242,21 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
         const { rise, n, h: a, tread: p, L, k1, shape } = stairSteps(project, e);
         const blondel = 2 * a + p;
         const ok = blondel >= 0.6 && blondel <= 0.66;
-        const setLength = (len: number) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, len)))));
+        const setLength = (len: number) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.1, len)))));
         // cambiando le alzate la pedata resta quella: si allunga o si accorcia la rampa
         const setRisers = (k: number) =>
           upd((x) => {
             if (x.kind !== 'stair') return;
             const r = Math.max(2, Math.round(k));
             x.risers = r;
-            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, stairAxisLength(x, r, p))));
+            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.1, stairAxisLength(x, r, p))));
           });
         // forma e prima rampa: la pedata resta quella
         const reshape = (patch: Partial<Stair>) =>
           upd((x) => {
             if (x.kind !== 'stair') return;
             Object.assign(x, patch);
-            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.3, stairAxisLength(x, n, p))));
+            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.1, stairAxisLength(x, n, p))));
           });
         return (
           <>
@@ -301,7 +301,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             )}
             <div className="fields fields-2">
               <NumberField label="Larghezza rampa" unit="m" value={e.width} min={0.6} onChange={(v) => upd((x) => x.kind === 'stair' && (x.width = v))} />
-              <NumberField label={shape === 'dritta' ? 'Sviluppo' : 'Prima rampa'} unit="m" value={L} min={0.3} onChange={setLength} />
+              <NumberField label={shape === 'dritta' ? 'Sviluppo' : 'Prima rampa'} unit="m" value={L} min={0.1} onChange={setLength} />
             </div>
             <div className="subhead">
               Gradini · dislivello {fmt(rise)} m
