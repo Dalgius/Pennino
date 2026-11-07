@@ -439,6 +439,8 @@ export const SHEET_CSS = `
 .sheet-svg .pv-wall { fill: #1a1a1a; }
 .sheet-svg .pv-layer { stroke: #111; }
 .sheet-svg .pv-wall-outline { fill: none; stroke: #111; }
+.sheet-svg .pv-wall-line { stroke: #111; }
+.sheet-svg .pv-layer-line { stroke: #444; }
 .sheet-svg .pv-dim-ext { stroke: #555; }
 .sheet-svg .pv-column { fill: #1a1a1a; stroke: #111; }
 .sheet-svg .pv-beam { fill: none; stroke: #333; }

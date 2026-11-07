@@ -8,7 +8,7 @@ import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans } from '../model/openings';
-import { bandPolygon, layerBands, levelCenter, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
+import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
   roofBase,
@@ -21,6 +21,8 @@ import {
   columnQuad,
   dist,
   levelAbove,
+  projectOnSegment,
+  dot,
   sortedLevels,
   stairLayout,
   stairFootprints,
@@ -301,26 +303,61 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   const pieces = wallPieces(g, spans);
   const isLayered = mm < 0.08 && t && t.layers.length > 1; // a scala ≥ 1:50 si vedono gli strati
   const bands = t ? layerBands(g, t.layers) : [];
+  const lw = 0.35 * mm;
+  const at = (sv: number, o: number) => add(add(w.a, mul(g.d, sv)), mul(g.n, o));
+  const sA = (sv: number | 'inizio', o: number) => (sv === 'inizio' ? startAt(g, o) : sv);
+  const sB = (sv: number | 'fine', o: number) => (sv === 'fine' ? endAt(g, o) : sv);
+  // tratti di faccia dove si innestano muri a T: lì la faccia si interrompe (muratura continua)
+  const tGaps = tJunctionGaps(p, w, g);
+  const faceLine = (o: number, a: number, b: number, key: string) => {
+    const side = Math.sign(o);
+    let segs: [number, number][] = [[Math.min(a, b), Math.max(a, b)]];
+    for (const gap of tGaps)
+      if (gap.side === side)
+        segs = segs.flatMap(([x, y]) => (gap.s1 <= x || gap.s0 >= y ? [[x, y] as [number, number]] : ([[x, gap.s0], [gap.s1, y]] as [number, number][]).filter(([u, v]) => v - u > 1e-4)));
+    return segs.map(([x, y], k) => {
+      const P = at(x, o);
+      const Q = at(y, o);
+      return <line key={`${key}${k}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-wall-line" strokeWidth={lw} />;
+    });
+  };
+  // linee di contorno di un tratto: facce, estremi liberi e spalle delle aperture (non i giunti)
+  const edges = (s0: number | 'inizio', s1: number | 'fine', key: string) => {
+    const out: React.ReactNode[] = [];
+    for (const o of [g.half, -g.half]) out.push(...faceLine(o, sA(s0, o), sB(s1, o), `${key}f${o > 0 ? 'p' : 'm'}`));
+    const endLine = (P: Vec2, Q: Vec2, k: string) => <line key={k} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-wall-line" strokeWidth={lw} strokeLinecap="square" />;
+    if (s0 !== 'inizio' || g.a.kind === 'libero') out.push(endLine(at(sA(s0, g.half), g.half), at(sA(s0, -g.half), -g.half), `${key}e0`));
+    if (s1 !== 'fine' || g.b.kind === 'libero') out.push(endLine(at(sB(s1, g.half), g.half), at(sB(s1, -g.half), -g.half), `${key}e1`));
+    return out;
+  };
 
   return (
     <g>
       {pieces.map(({ s0, s1 }, i) => {
-        const outline = <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall-outline" strokeWidth={0.35 * mm} />;
+        if (mm > 0.25 || !t) return <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />;
         if (isLayered)
           return (
             <g key={i}>
-              {bands.map((band, j) => (
-                <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={hatchFill(hp, hatchOf(t!.layers[j]))} className="pv-layer" strokeWidth={0.1 * mm} />
-              ))}
-              {outline}
+              {bands.map((band, j) => {
+                const fill = hatchFill(hp, hatchOf(t.layers[j]));
+                // contorno dello stesso riempimento: nessuna fessura sui giunti tra muri
+                return <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />;
+              })}
+              {/* separazioni tra gli strati: proseguono negli angoli */}
+              {bands.slice(0, -1).map((band, j) => {
+                const P = at(sA(s0, band.o1), band.o1);
+                const Q = at(sB(s1, band.o1), band.o1);
+                return <line key={`l${j}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-layer-line" strokeWidth={0.1 * mm} />;
+              })}
+              {edges(s0, s1, `e${i}`)}
             </g>
           );
-        // scale piccole: retino dello strato portante su tutto lo spessore; lontanissimo, grigio pieno
-        if (mm > 0.25 || !t) return <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />;
+        // scale piccole: retino dello strato portante su tutto lo spessore
+        const fill = hatchFill(hp, mainHatch(t.layers));
         return (
           <g key={i}>
-            <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} fill={hatchFill(hp, mainHatch(t.layers))} />
-            {outline}
+            <polygon points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />
+            {edges(s0, s1, `e${i}`)}
           </g>
         );
       })}
@@ -329,6 +366,29 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
       ))}
     </g>
   );
+}
+
+/** Tratti delle facce del muro su cui si innestano a T altri muri (lato +1/−1 rispetto alla normale) */
+function tJunctionGaps(p: Project, w: Wall, g: WallGeom) {
+  const out: { side: number; s0: number; s1: number }[] = [];
+  for (const o of p.elements) {
+    if (o.kind !== 'wall' || o.id === w.id || o.levelId !== w.levelId) continue;
+    for (const [P, Q] of [
+      [o.a, o.b],
+      [o.b, o.a],
+    ] as const) {
+      const pr = projectOnSegment(P, w.a, w.b);
+      if (pr.d > 0.02 || pr.t <= 1e-3 || pr.t >= 1 - 1e-3) continue;
+      const dO = norm(sub(Q, P));
+      const side = Math.sign(dot(dO, g.n));
+      if (!side) continue;
+      const sin = Math.abs(dot(dO, g.n)) || 1;
+      const half = wallThickness(byId(p.catalog.wall, o.typeId)) / 2 / sin;
+      const sc = pr.t * g.L;
+      out.push({ side, s0: sc - half, s1: sc + half });
+    }
+  }
+  return out;
 }
 
 /** Arco d'apertura in SVG (centro c, da a verso b, raggio r) */

@@ -2030,3 +2030,9 @@ input.brand-project:focus {
   fill: var(--hatch-paper, #fff);
   stroke: var(--ink-2);
 }
+.canvas2d .pv-wall-line {
+  stroke: var(--ink);
+}
+.canvas2d .pv-layer-line {
+  stroke: var(--ink-2);
+}
