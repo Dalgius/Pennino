@@ -429,12 +429,13 @@ function WallInspector({
           Inverti lati ⇄
         </button>
       </div>
-      <p className="note">Dall’alto in basso: dal lato esterno al lato interno.</p>
+      <p className="note">Dall’alto in basso: dal lato esterno al lato interno. Il nucleo strutturale (bordo pieno) va dal primo all’ultimo strato «Struttura»; gli altri sono rivestimenti, posati dopo.</p>
       <div className="strata">
         {t?.layers.map((l, i) => (
-          <div key={i} className="strata-row">
+          <div key={i} className={`strata-row ${layerInCore(t.layers, i) ? 'strata-core' : 'strata-cover'}`}>
             <HatchSwatch kinds={[hatchOf(l)]} width={16} height={12} />
             <span className="strata-name">{l.name}</span>
+            <span className="strata-role">{ROLES.find((r) => r.value === l.role)?.label}</span>
             <span className="mono">{fmt(l.thickness * 100, 1)} cm</span>
           </div>
         ))}
@@ -562,8 +563,14 @@ function PackageEditor({
           <div className="strata-bar">
             <HatchSwatch kinds={layers.map(hatchOf)} weights={layers.map((l) => l.thickness)} width={262} height={22} />
           </div>
+          {kind === 'muro' && (
+            <p className="note">
+              Funzione «Struttura» = nucleo (dal primo all’ultimo strato strutturale, intercapedini comprese); finiture e isolanti
+              fuori dal nucleo sono rivestimenti: negli innesti a T la struttura li attraversa.
+            </p>
+          )}
           {layers.map((l, i) => (
-            <div key={i} className="layer-card">
+            <div key={i} className={`layer-card ${kind === 'muro' ? (layerInCore(layers, i) ? 'strata-core' : 'strata-cover') : ''}`}>
               <div className="layer-top">
                 <HatchSwatch kinds={[hatchOf(l)]} width={26} height={26} />
                 <TextField label="Strato" value={l.name} onChange={(v) => setLayer(i, { name: v })} />
@@ -655,6 +662,15 @@ function DeleteType({ catKey, id, instances, onDone }: { catKey: CatalogKey; id:
       <p className="note">Si può annullare con Ctrl+Z.</p>
     </div>
   );
+}
+
+/** Nucleo strutturale: dal primo all'ultimo strato «struttura»; fuori, i rivestimenti (posati dopo) */
+function layerInCore(layers: { role: string }[], j: number) {
+  const first = layers.findIndex((l) => l.role === 'struttura');
+  if (first < 0) return true;
+  let last = first;
+  layers.forEach((l, i) => l.role === 'struttura' && (last = i));
+  return j >= first && j <= last;
 }
 
 const ROLES: { value: LayerRole; label: string }[] = [

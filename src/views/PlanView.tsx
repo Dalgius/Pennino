@@ -303,7 +303,7 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   const pieces = wallPieces(g, spans);
   const isLayered = mm < 0.08 && t && t.layers.length > 1; // a scala ≥ 1:50 si vedono gli strati
   const bands = t ? layerBands(g, t.layers) : [];
-  const isFinish = (j: number) => t?.layers[j]?.role === 'finitura';
+  const isFinish = (j: number) => (t ? !inCore(t.layers, j) : false);
   const lw = 0.35 * mm;
   const at = (sv: number, o: number) => add(add(w.a, mul(g.d, sv)), mul(g.n, o));
   const sA = (sv: number | 'inizio', o: number) => (sv === 'inizio' ? startAt(g, o) : sv);
@@ -412,7 +412,20 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   );
 }
 
-/** Spessore delle finiture sul lato σ di un muro (dalla faccia fino al primo strato non di finitura) */
+/**
+ * Nucleo strutturale di una stratigrafia: dal primo all'ultimo strato «struttura» (comprese
+ * intercapedini e strati intermedi). Fuori dal nucleo stanno i rivestimenti, posati dopo:
+ * isolanti a cappotto e finiture, uno o più per lato. Senza strati strutturali tutto è nucleo.
+ */
+function inCore(layers: { role: string }[], j: number) {
+  const first = layers.findIndex((l) => l.role === 'struttura');
+  if (first < 0) return true;
+  let last = first;
+  layers.forEach((l, i) => l.role === 'struttura' && (last = i));
+  return j >= first && j <= last;
+}
+
+/** Spessore dei rivestimenti (finiture e isolanti esterni al nucleo) sul lato σ di un muro (dalla faccia fino al primo strato non di finitura) */
 function finishDepthOn(p: Project, w: Wall, g: WallGeom, side: number) {
   const t = byId(p.catalog.wall, w.typeId);
   if (!t) return 0;
@@ -422,7 +435,7 @@ function finishDepthOn(p: Project, w: Wall, g: WallGeom, side: number) {
   bands.sort((x, y) => outer(y) - outer(x));
   let d = 0;
   for (const b of bands) {
-    if (t.layers[b.j].role !== 'finitura') break;
+    if (inCore(t.layers, b.j)) break;
     d += Math.abs(b.o0 - b.o1);
   }
   return d;
@@ -468,7 +481,7 @@ function tJunctions(p: Project, w: Wall, g: WallGeom, center: Vec2) {
       let core = ends;
       if (to && to.layers.length > 1) {
         const lb = layerBands(go, to.layers);
-        const os = lb.flatMap((b, j) => (to.layers[j].role !== 'finitura' ? [b.o0, b.o1] : []));
+        const os = lb.flatMap((b, j) => (inCore(to.layers, j) ? [b.o0, b.o1] : []));
         if (os.length) core = [sOf(Math.max(...os)), sOf(Math.min(...os))];
       }
       out.push({ side, s0: Math.min(...ends), s1: Math.max(...ends), c0: Math.min(...core), c1: Math.max(...core) });

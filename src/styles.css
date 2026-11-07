@@ -855,7 +855,7 @@ button.chip:hover {
 }
 .strata-row {
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
@@ -2035,4 +2035,18 @@ input.brand-project:focus {
 }
 .canvas2d .pv-layer-line {
   stroke: var(--ink-2);
+}
+.strata-role {
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.strata-row.strata-core,
+.layer-card.strata-core {
+  border-left: 3px solid var(--text-2);
+}
+.strata-row.strata-cover,
+.layer-card.strata-cover {
+  border-left: 3px solid transparent;
 }
