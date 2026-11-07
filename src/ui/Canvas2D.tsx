@@ -113,6 +113,9 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
 
   const onDown = (e: React.PointerEvent) => {
     if (fromHud(e)) return;
+    // un campo in modifica nei pannelli si conferma prima che il clic cambi la selezione
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) active.blur();
     if (e.button === 1 || e.button === 2 || (e.button === 0 && space.current)) {
       pan.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
       (e.target as Element).setPointerCapture?.(e.pointerId);

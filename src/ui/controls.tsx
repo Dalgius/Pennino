@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export function Panel({
   title,
@@ -48,15 +48,33 @@ export function NumberField({
 }) {
   const [text, setText] = useState(value.toFixed(digits));
   useEffect(() => setText(value.toFixed(digits)), [value, digits]);
-  const commit = () => {
-    const n = parseFloat(text.replace(',', '.'));
-    if (!isFinite(n)) return setText(value.toFixed(digits));
+  const parse = (t: string) => {
+    const n = parseFloat(t.replace(',', '.'));
+    if (!isFinite(n)) return null;
     let v = n;
     if (min !== undefined) v = Math.max(min, v);
     if (max !== undefined) v = Math.min(max, v);
+    return v;
+  };
+  const commit = () => {
+    pending.current = null;
+    const v = parse(text);
+    if (v === null) return setText(value.toFixed(digits));
     if (Math.abs(v - value) > 1e-9) onChange(v);
     setText(v.toFixed(digits));
   };
+  // valore scritto ma non ancora confermato: si applica anche se il pannello si chiude
+  const pending = useRef<{ text: string; value: number; onChange: (v: number) => void } | null>(null);
+  useEffect(
+    () => () => {
+      const p = pending.current;
+      if (!p) return;
+      const v = parse(p.text);
+      if (v !== null && Math.abs(v - p.value) > 1e-9) p.onChange(v);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   return (
     <label className="field">
       <span className="field-label">{label}</span>
@@ -66,11 +84,15 @@ export function NumberField({
           value={text}
           disabled={disabled}
           inputMode="decimal"
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            pending.current = { text: e.target.value, value, onChange };
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') {
+              pending.current = null;
               setText(value.toFixed(digits));
               (e.target as HTMLInputElement).blur();
             }
