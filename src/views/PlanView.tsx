@@ -303,31 +303,41 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   const pieces = wallPieces(g, spans);
   const isLayered = mm < 0.08 && t && t.layers.length > 1; // a scala ≥ 1:50 si vedono gli strati
   const bands = t ? layerBands(g, t.layers) : [];
+  const isFinish = (j: number) => t?.layers[j]?.role === 'finitura';
   const lw = 0.35 * mm;
   const at = (sv: number, o: number) => add(add(w.a, mul(g.d, sv)), mul(g.n, o));
   const sA = (sv: number | 'inizio', o: number) => (sv === 'inizio' ? startAt(g, o) : sv);
   const sB = (sv: number | 'fine', o: number) => (sv === 'fine' ? endAt(g, o) : sv);
-  // tratti di faccia dove si innestano muri a T: lì la faccia si interrompe (muratura continua)
-  const tGaps = tJunctionGaps(p, w, g);
-  const faceLine = (o: number, a: number, b: number, key: string) => {
-    const side = Math.sign(o);
+  // innesti a T su questo muro: la faccia si interrompe su tutto il tramezzo, le finiture sulla sua struttura
+  const tJ = tJunctions(p, w, g, center);
+  // estremi a T di questo muro: la struttura attraversa la finitura del muro ospite
+  const extA = g.a.kind === 'T' ? hostFinishDepth(p, g, 'a', center) : 0;
+  const extB = g.b.kind === 'T' ? hostFinishDepth(p, g, 'b', center) : 0;
+
+  const cut = (a: number, b: number, gaps: { s0: number; s1: number }[]) => {
     let segs: [number, number][] = [[Math.min(a, b), Math.max(a, b)]];
-    for (const gap of tGaps)
-      if (gap.side === side)
-        segs = segs.flatMap(([x, y]) => (gap.s1 <= x || gap.s0 >= y ? [[x, y] as [number, number]] : ([[x, gap.s0], [gap.s1, y]] as [number, number][]).filter(([u, v]) => v - u > 1e-4)));
-    return segs.map(([x, y], k) => {
-      const P = at(x, o);
-      const Q = at(y, o);
-      return <line key={`${key}${k}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-wall-line" strokeWidth={lw} />;
-    });
+    for (const gap of gaps)
+      segs = segs.flatMap(([x, y]) => (gap.s1 <= x || gap.s0 >= y ? [[x, y] as [number, number]] : ([[x, gap.s0], [gap.s1, y]] as [number, number][]).filter(([u, v]) => v - u > 1e-4)));
+    return segs;
   };
+  const line = (P: Vec2, Q: Vec2, key: string, cls: string, width: number, cap?: 'square') => (
+    <line key={key} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className={cls} strokeWidth={width} strokeLinecap={cap} />
+  );
+  // sta lo scostamento o nella zona delle finiture del lato σ (tra la faccia e la struttura)?
+  const inFinishZone = (o: number, side: number) => {
+    const d = finishDepthOn(p, w, g, side);
+    return d > 0 && side * o > g.half - d - 1e-6;
+  };
+  const faceGaps = (side: number) => tJ.filter((j) => j.side === side).map((j) => ({ s0: j.s0, s1: j.s1 }));
+  const coreGaps = (side: number) => tJ.filter((j) => j.side === side).map((j) => ({ s0: j.c0, s1: j.c1 }));
+
   // linee di contorno di un tratto: facce, estremi liberi e spalle delle aperture (non i giunti)
   const edges = (s0: number | 'inizio', s1: number | 'fine', key: string) => {
     const out: React.ReactNode[] = [];
-    for (const o of [g.half, -g.half]) out.push(...faceLine(o, sA(s0, o), sB(s1, o), `${key}f${o > 0 ? 'p' : 'm'}`));
-    const endLine = (P: Vec2, Q: Vec2, k: string) => <line key={k} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-wall-line" strokeWidth={lw} strokeLinecap="square" />;
-    if (s0 !== 'inizio' || g.a.kind === 'libero') out.push(endLine(at(sA(s0, g.half), g.half), at(sA(s0, -g.half), -g.half), `${key}e0`));
-    if (s1 !== 'fine' || g.b.kind === 'libero') out.push(endLine(at(sB(s1, g.half), g.half), at(sB(s1, -g.half), -g.half), `${key}e1`));
+    for (const o of [g.half, -g.half])
+      cut(sA(s0, o), sB(s1, o), faceGaps(Math.sign(o))).forEach(([x, y], k) => out.push(line(at(x, o), at(y, o), `${key}f${o > 0 ? 'p' : 'm'}${k}`, 'pv-wall-line', lw)));
+    if (s0 !== 'inizio' || g.a.kind === 'libero') out.push(line(at(sA(s0, g.half), g.half), at(sA(s0, -g.half), -g.half), `${key}e0`, 'pv-wall-line', lw, 'square'));
+    if (s1 !== 'fine' || g.b.kind === 'libero') out.push(line(at(sB(s1, g.half), g.half), at(sB(s1, -g.half), -g.half), `${key}e1`, 'pv-wall-line', lw, 'square'));
     return out;
   };
 
@@ -335,23 +345,57 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
     <g>
       {pieces.map(({ s0, s1 }, i) => {
         if (mm > 0.25 || !t) return <polygon key={i} points={pts(bandPolygon(g, g.half, -g.half, s0, s1))} className="pv-wall" />;
-        if (isLayered)
-          return (
-            <g key={i}>
-              {bands.map((band, j) => {
-                const fill = hatchFill(hp, hatchOf(t.layers[j]));
-                // contorno dello stesso riempimento: nessuna fessura sui giunti tra muri
-                return <polygon key={j} points={pts(bandPolygon(g, band.o0, band.o1, s0, s1))} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />;
-              })}
-              {/* separazioni tra gli strati: proseguono negli angoli */}
-              {bands.slice(0, -1).map((band, j) => {
-                const P = at(sA(s0, band.o1), band.o1);
-                const Q = at(sB(s1, band.o1), band.o1);
-                return <line key={`l${j}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-layer-line" strokeWidth={0.1 * mm} />;
-              })}
-              {edges(s0, s1, `e${i}`)}
-            </g>
-          );
+        if (isLayered) {
+          const eA = s0 === 'inizio' ? extA : 0;
+          const eB = s1 === 'fine' ? extB : 0;
+          const out: React.ReactNode[] = [];
+          bands.forEach((band, j) => {
+            const fill = hatchFill(hp, hatchOf(t.layers[j]));
+            const core = !isFinish(j);
+            // struttura: prosegue nella finitura del muro ospite; finitura: si ferma alla faccia
+            const xa = (o: number) => sA(s0, o) - (core ? eA : 0);
+            const xb = (o: number) => sB(s1, o) + (core ? eB : 0);
+            // finiture di questo muro: interrotte dove entra la struttura di un tramezzo
+            const mid = (band.o0 + band.o1) / 2;
+            const side = Math.sign(mid);
+            const gaps = !core && inFinishZone(mid, side) ? coreGaps(side) : [];
+            const lo = Math.min(xa(band.o0), xa(band.o1));
+            const hi = Math.max(xb(band.o0), xb(band.o1));
+            const segs = gaps.length ? cut(lo, hi, gaps) : [[lo, hi] as [number, number]];
+            segs.forEach(([x, y], k) => {
+              const poly = [
+                at(Math.max(x, xa(band.o0)), band.o0),
+                at(Math.min(y, xb(band.o0)), band.o0),
+                at(Math.min(y, xb(band.o1)), band.o1),
+                at(Math.max(x, xa(band.o1)), band.o1),
+              ];
+              out.push(<polygon key={`b${j}-${k}`} points={pts(poly)} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />);
+            });
+          });
+          // separazioni tra gli strati: girano gli angoli; quelle della struttura entrano nel muro ospite
+          bands.slice(0, -1).forEach((band, j) => {
+            const o = band.o1;
+            const touchesCore = !isFinish(j) || !isFinish(j + 1);
+            const a = sA(s0, o) - (touchesCore ? (s0 === 'inizio' ? extA : 0) : 0);
+            const b = sB(s1, o) + (touchesCore ? (s1 === 'fine' ? extB : 0) : 0);
+            const side = Math.sign(o);
+            const gaps = inFinishZone(o, side) ? coreGaps(side) : [];
+            cut(a, b, gaps).forEach(([x, y], k) => out.push(line(at(x, o), at(y, o), `l${j}-${k}`, 'pv-layer-line', 0.1 * mm)));
+          });
+          // fianchi della struttura dentro la finitura del muro ospite
+          if (eA > 0 || eB > 0) {
+            const coreIdx = bands.map((_, j) => j).filter((j) => !isFinish(j));
+            if (coreIdx.length) {
+              const os = coreIdx.flatMap((j) => [bands[j].o0, bands[j].o1]);
+              for (const o of [Math.max(...os), Math.min(...os)]) {
+                if (eA > 0) out.push(line(at(sA(s0, o) - eA, o), at(sA(s0, o), o), `ca${o}`, 'pv-layer-line', 0.1 * mm));
+                if (eB > 0) out.push(line(at(sB(s1, o), o), at(sB(s1, o) + eB, o), `cb${o}`, 'pv-layer-line', 0.1 * mm));
+              }
+            }
+          }
+          out.push(...edges(s0, s1, `e${i}`));
+          return <g key={i}>{out}</g>;
+        }
         // scale piccole: retino dello strato portante su tutto lo spessore
         const fill = hatchFill(hp, mainHatch(t.layers));
         return (
@@ -368,9 +412,40 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   );
 }
 
-/** Tratti delle facce del muro su cui si innestano a T altri muri (lato +1/−1 rispetto alla normale) */
-function tJunctionGaps(p: Project, w: Wall, g: WallGeom) {
-  const out: { side: number; s0: number; s1: number }[] = [];
+/** Spessore delle finiture sul lato σ di un muro (dalla faccia fino al primo strato non di finitura) */
+function finishDepthOn(p: Project, w: Wall, g: WallGeom, side: number) {
+  const t = byId(p.catalog.wall, w.typeId);
+  if (!t) return 0;
+  const bands = layerBands(g, t.layers).map((b, j) => ({ ...b, j }));
+  // dalla faccia σ verso l'interno
+  const outer = (x: { o0: number; o1: number }) => Math.max(side * x.o0, side * x.o1);
+  bands.sort((x, y) => outer(y) - outer(x));
+  let d = 0;
+  for (const b of bands) {
+    if (t.layers[b.j].role !== 'finitura') break;
+    d += Math.abs(b.o0 - b.o1);
+  }
+  return d;
+}
+
+/** Quanto la struttura di un muro innestato a T entra nella finitura del muro ospite, lungo il suo asse */
+function hostFinishDepth(p: Project, g: WallGeom, end: 'a' | 'b', center: Vec2) {
+  const cutEnd = end === 'a' ? g.a : g.b;
+  const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === cutEnd.otherId);
+  if (!host) return 0;
+  const gh = wallGeom(p, host, center);
+  const into = end === 'a' ? g.d : mul(g.d, -1); // dal giunto verso il muro innestato
+  const c = dot(into, gh.n);
+  if (Math.abs(c) < 0.2) return 0;
+  return finishDepthOn(p, host, gh, Math.sign(c)) / Math.abs(c);
+}
+
+/**
+ * Innesti a T sul muro: per ciascuno il lato σ, l'intervallo dell'intero tramezzo [s0, s1] e quello
+ * della sua parte strutturale [c0, c1] lungo il muro.
+ */
+function tJunctions(p: Project, w: Wall, g: WallGeom, center: Vec2) {
+  const out: { side: number; s0: number; s1: number; c0: number; c1: number }[] = [];
   for (const o of p.elements) {
     if (o.kind !== 'wall' || o.id === w.id || o.levelId !== w.levelId) continue;
     for (const [P, Q] of [
@@ -380,12 +455,23 @@ function tJunctionGaps(p: Project, w: Wall, g: WallGeom) {
       const pr = projectOnSegment(P, w.a, w.b);
       if (pr.d > 0.02 || pr.t <= 1e-3 || pr.t >= 1 - 1e-3) continue;
       const dO = norm(sub(Q, P));
-      const side = Math.sign(dot(dO, g.n));
-      if (!side) continue;
-      const sin = Math.abs(dot(dO, g.n)) || 1;
-      const half = wallThickness(byId(p.catalog.wall, o.typeId)) / 2 / sin;
+      const c = dot(dO, g.n);
+      const side = Math.sign(c);
+      if (!side || Math.abs(c) < 0.2) continue;
+      const go = wallGeom(p, o, center);
+      const to = byId(p.catalog.wall, o.typeId);
       const sc = pr.t * g.L;
-      out.push({ side, s0: sc - half, s1: sc + half });
+      // scostamento o del tramezzo → ascissa lungo questo muro
+      const k = dot(go.n, g.d) / Math.abs(c);
+      const sOf = (off: number) => sc + off * k;
+      const ends = [sOf(go.half), sOf(-go.half)];
+      let core = ends;
+      if (to && to.layers.length > 1) {
+        const lb = layerBands(go, to.layers);
+        const os = lb.flatMap((b, j) => (to.layers[j].role !== 'finitura' ? [b.o0, b.o1] : []));
+        if (os.length) core = [sOf(Math.max(...os)), sOf(Math.min(...os))];
+      }
+      out.push({ side, s0: Math.min(...ends), s1: Math.max(...ends), c0: Math.min(...core), c1: Math.max(...core) });
     }
   }
   return out;
