@@ -251,6 +251,17 @@ export interface Stair {
   width: number;
   /** Numero di alzate; se assente si sceglie il minimo con alzata ≤ 18 cm */
   risers?: number;
+  /**
+   * Forma: dritta (a→b è la rampa), a L o a U con pianerottolo (a→b è la prima rampa,
+   * b è il bordo del pianerottolo).
+   */
+  shape?: 'dritta' | 'L' | 'U';
+  /** Verso della svolta guardando in salita */
+  turn?: 'sinistra' | 'destra';
+  /** Alzate della prima rampa (pianerottolo compreso) per le scale a L e a U */
+  firstRisers?: number;
+  /** Distanza tra le due rampe di una scala a U (pozzo), in metri */
+  gap?: number;
   /** Foro automatico nel solaio di arrivo (predefinito: sì) */
   hole?: boolean;
   /** Altezza libera minima sopra i gradini, in metri (predefinita 2,10) */

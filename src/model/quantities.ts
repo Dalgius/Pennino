@@ -18,6 +18,7 @@ import {
   slabNetArea,
   slabOutline,
   sortedLevels,
+  stairLayout,
   wallHeight,
   wallLength,
   wallThickness,
@@ -184,7 +185,9 @@ export function computeComputo(p: Project): ComputoLine[] {
         { area: (t?.width ?? 0) * (t?.height ?? 0), f: { m2: `${n2(t?.width ?? 0)} × ${n2(t?.height ?? 0)}` } },
       );
     } else if (e.kind === 'stair') {
-      push('SCA.01', base, { length: dist(e.a, e.b), f: { m: `L ${n2(dist(e.a, e.b))}` } });
+      const lay = stairLayout(p, e);
+      const Ls = lay.flights.reduce((t, f) => t + f.len, 0);
+      push('SCA.01', base, { length: Ls, f: { m: lay.flights.length > 1 ? `rampe ${lay.flights.map((f) => n2(f.len)).join(' + ')}` : `L ${n2(Ls)}` } });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const A = roofSurface(e.points, e.shape, e.pitch, e.overhang);

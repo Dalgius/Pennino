@@ -7,8 +7,10 @@ import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/w
 import { fixtureSpec, leafSpans } from '../model/openings';
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import {
+  add,
   bbox,
   byId,
+  mul,
   dist,
   openingSpans,
   roofOutline,
@@ -19,7 +21,7 @@ import {
   wallLength,
   slabOutline,
   slabHoles,
-  stairSteps,
+  stairLayout,
 } from '../model/geometry';
 
 export interface SceneOptions {
@@ -127,16 +129,16 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       const top = z0 + lvl.height;
       root.add(tag(segmentBox(e.a, e.b, t?.width ?? 0.3, top - (t?.height ?? 0.4), top, pick(e.id, M('column', COLORS.column))), e.id));
     } else if (e.kind === 'stair') {
-      const { n: steps, h, L } = stairSteps(p, e);
+      const lay = stairLayout(p, e);
       const g = new THREE.Group();
-      for (let i = 0; i < steps; i++) {
-        const t0 = (i / steps) * L;
-        const t1 = ((i + 1) / steps) * L;
-        const d = { x: (e.b.x - e.a.x) / L, y: (e.b.y - e.a.y) / L };
-        const a = { x: e.a.x + d.x * t0, y: e.a.y + d.y * t0 };
-        const b = { x: e.a.x + d.x * t1, y: e.a.y + d.y * t1 };
-        g.add(tag(segmentBox(a, b, e.width, z0 + i * h, z0 + (i + 1) * h, pick(e.id, M('stair', COLORS.stair))), e.id));
-      }
+      const mat = pick(e.id, M('stair', COLORS.stair));
+      for (const fl of lay.flights)
+        for (let i = 0; i < fl.steps; i++) {
+          const a = add(fl.a, mul(fl.d, i * lay.tread));
+          const b = add(fl.a, mul(fl.d, (i + 1) * lay.tread));
+          g.add(tag(segmentBox(a, b, lay.width, fl.base + i * lay.h, fl.base + (i + 1) * lay.h, mat), e.id));
+        }
+      for (const l of lay.landings) g.add(tag(extrudePolygon(l.poly, l.z, Math.min(0.2, lay.h * 1.2), mat), e.id));
       root.add(g);
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);

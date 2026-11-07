@@ -19,6 +19,7 @@ import {
   wallLength,
   wallSegmentQuad,
   wallThickness,
+  stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
 import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
@@ -126,6 +127,9 @@ export function Modellazione() {
   const [ghost, setGhost] = useState(true);
   const [flipNext, setFlipNext] = useState(false);
   const [mirrorNext, setMirrorNext] = useState(false);
+  // forma delle nuove scale
+  const [stairShape, setStairShape] = useState<'dritta' | 'L' | 'U'>('dritta');
+  const [stairTurn, setStairTurn] = useState<'sinistra' | 'destra'>('sinistra');
   const [openingPreview, setOpeningPreview] = useState<{ wallId: string; offset: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   // selezione a riquadro: da sinistra a destra = finestra, da destra a sinistra = intersezione
@@ -224,7 +228,16 @@ export function Modellazione() {
       if (draft.length === 1) {
         if (dist(draft[0], q) > 0.1) {
           if (tool === 'beam') addElement({ id: uid('b'), kind: 'beam', levelId: lvlId, typeId: activeType.beam, a: draft[0], b: q });
-          else addElement({ id: uid('sc'), kind: 'stair', levelId: lvlId, a: draft[0], b: q, width: 1.1 });
+          else
+            addElement({
+              id: uid('sc'),
+              kind: 'stair',
+              levelId: lvlId,
+              a: draft[0],
+              b: q,
+              width: 1.1,
+              ...(stairShape === 'dritta' ? {} : { shape: stairShape, turn: stairTurn }),
+            });
         }
         resetDraft();
       } else setDraft([q]);
@@ -593,6 +606,14 @@ export function Modellazione() {
               previewLen={previewLen}
               thickness={tool === 'wall' ? wallThickness(byId(project.catalog.wall, activeType.wall)) : 0}
             />
+            {tool === 'stair' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.1 && (
+              // anteprima della scala: rampe e pianerottolo
+              <g className="draft" pointerEvents="none">
+                {stairFootprints(project, { levelId: lvlId, a: draft[0], b: cursor.p, width: 1.1, shape: stairShape, turn: stairTurn }).map((q, i) => (
+                  <polygon key={i} points={pts(q)} className="draft-poly" strokeWidth={0.35 * mm} />
+                ))}
+              </g>
+            )}
             {marquee && (
               <rect
                 x={Math.min(marquee.a.x, marquee.b.x)}
@@ -711,6 +732,37 @@ export function Modellazione() {
             <button className="btn btn-block" onClick={() => fromWalls(tool)}>
               {tool === 'slab' ? 'Solaio dal perimetro dei muri' : 'Copertura sull’edificio'}
             </button>
+          )}
+          {tool === 'stair' && (
+            <>
+              <div className="subhead">Forma della scala</div>
+              <Segmented<'dritta' | 'L' | 'U'>
+                small
+                value={stairShape}
+                options={[
+                  { value: 'dritta', label: 'Dritta' },
+                  { value: 'L', label: 'A L' },
+                  { value: 'U', label: 'A U' },
+                ]}
+                onChange={setStairShape}
+              />
+              {stairShape !== 'dritta' && (
+                <Segmented<'sinistra' | 'destra'>
+                  small
+                  value={stairTurn}
+                  options={[
+                    { value: 'sinistra', label: 'Svolta a sinistra' },
+                    { value: 'destra', label: 'Svolta a destra' },
+                  ]}
+                  onChange={setStairTurn}
+                />
+              )}
+              <p className="note">
+                {stairShape === 'dritta'
+                  ? 'Clic su partenza e arrivo della rampa.'
+                  : 'Clic sulla partenza e sul bordo del pianerottolo: la prima rampa prende metà delle alzate, la seconda gira dopo il pianerottolo.'}
+              </p>
+            </>
           )}
           {(tool === 'door') && (
             <label className="check">

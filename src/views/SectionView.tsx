@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, stairSteps, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { wallGeom, wallOutline } from '../model/walls';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -133,34 +133,36 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const top = z0 + lvl.height;
       cutIntervals(q, f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, top - (t?.height ?? 0.4), top));
     } else if (e.kind === 'stair') {
-      const q = wallSegmentQuad(e as unknown as Wall, e.width, 0, dist(e.a, e.b));
-      const ivs = cutIntervals(q, f);
-      if (!ivs.length) continue;
-      const { rise, n: steps, h } = stairSteps(p, e);
-      const sd = norm(sub(e.b, e.a));
-      if (Math.abs(dot(sd, f.u)) > 0.7) {
-        // rampa parallela al piano: profilo a gradini e intradosso
-        const ua = U(e.a);
-        const ub = U(e.b);
-        const tr = (ub - ua) / steps;
-        const ptsArr: string[] = [`${ua},${Z(z0)}`];
-        for (let i = 0; i < steps; i++) {
-          ptsArr.push(`${ua + i * tr},${Z(z0 + (i + 1) * h)}`);
-          ptsArr.push(`${ua + (i + 1) * tr},${Z(z0 + (i + 1) * h)}`);
+      const lay = stairLayout(p, e);
+      lay.flights.forEach((fl, k) => {
+        const ivs = cutIntervals(flightQuad(fl, lay.width), f);
+        if (!ivs.length) return;
+        const h = lay.h;
+        if (Math.abs(dot(fl.d, f.u)) > 0.7) {
+          // rampa parallela al piano: profilo a gradini e intradosso
+          const ua = U(fl.a);
+          const ub = U(add(fl.a, mul(fl.d, fl.len)));
+          const tr = (ub - ua) / fl.steps;
+          const ptsArr: string[] = [`${ua},${Z(fl.base)}`];
+          for (let i = 0; i < fl.steps; i++) {
+            ptsArr.push(`${ua + i * tr},${Z(fl.base + (i + 1) * h)}`);
+            ptsArr.push(`${ua + (i + 1) * tr},${Z(fl.base + (i + 1) * h)}`);
+          }
+          const slope = Math.hypot(tr, h) / Math.abs(tr || 1);
+          const soffit = 0.16 * slope;
+          ptsArr.push(`${ub},${Z(fl.base + fl.steps * h - h - soffit)}`);
+          ptsArr.push(`${ua + tr},${Z(fl.base - soffit + h * 0.2)}`);
+          cuts.push(<polygon key={`${e.id}f${k}`} points={ptsArr.join(' ')} className="sc-cut" strokeWidth={sw} />);
+        } else {
+          // rampa perpendicolare: si taglia un gradino
+          const mid = (ivs[0][0] + ivs[0][1]) / 2;
+          const X = add(f.origin, mul(f.u, mid));
+          const t = Math.max(0, Math.min(1, dot(sub(X, fl.a), fl.d) / (fl.len || 1)));
+          const zt = fl.base + Math.max(1, Math.ceil(t * fl.steps)) * h;
+          ivs.forEach(([u0, u1], i) => rect(`${e.id}f${k}${i}`, u0, u1, zt - 0.2, zt));
         }
-        const slope = Math.hypot(tr, h) / Math.abs(tr || 1);
-        const soffit = 0.16 * slope;
-        ptsArr.push(`${ub},${Z(z0 + rise - h - soffit)}`);
-        ptsArr.push(`${ua + tr},${Z(z0 - soffit + h * 0.2)}`);
-        cuts.push(<polygon key={e.id} points={ptsArr.join(' ')} className="sc-cut" strokeWidth={sw} />);
-      } else {
-        // rampa perpendicolare: si taglia un gradino
-        const mid = (ivs[0][0] + ivs[0][1]) / 2;
-        const X = add(f.origin, mul(f.u, mid));
-        const t = Math.max(0, Math.min(1, dot(sub(X, e.a), sd) / dist(e.a, e.b)));
-        const zt = z0 + Math.ceil(t * steps) * h;
-        ivs.forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, zt - 0.2, zt));
-      }
+      });
+      lay.landings.forEach((l, k) => cutIntervals(l.poly, f).forEach(([u0, u1], i) => rect(`${e.id}l${k}${i}`, u0, u1, l.z - 0.2, l.z)));
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;

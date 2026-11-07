@@ -19,6 +19,7 @@ import {
   slabNetArea,
   slabOutline,
   sortedLevels,
+  stairAxisLength,
   stairSteps,
   sub,
   wallHeight,
@@ -31,7 +32,7 @@ import { leavesOf } from '../model/openings';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { HatchKind } from '../model/types';
+import type { HatchKind, Stair } from '../model/types';
 
 export type CatalogKey = keyof Catalog;
 
@@ -238,7 +239,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
       })()}
 
       {e.kind === 'stair' && (() => {
-        const { rise, n, h: a, tread: p, L } = stairSteps(project, e);
+        const { rise, n, h: a, tread: p, L, k1, shape } = stairSteps(project, e);
         const blondel = 2 * a + p;
         const ok = blondel >= 0.6 && blondel <= 0.66;
         const setLength = (len: number) => upd((x) => x.kind === 'stair' && (x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, len)))));
@@ -248,14 +249,59 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             if (x.kind !== 'stair') return;
             const r = Math.max(2, Math.round(k));
             x.risers = r;
-            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, r * p)));
+            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.5, stairAxisLength(x, r, p))));
+          });
+        // forma e prima rampa: la pedata resta quella
+        const reshape = (patch: Partial<Stair>) =>
+          upd((x) => {
+            if (x.kind !== 'stair') return;
+            Object.assign(x, patch);
+            x.b = add(x.a, mul(norm(sub(x.b, x.a)), Math.max(0.3, stairAxisLength(x, n, p))));
           });
         return (
           <>
             <SelectField label="Livello di partenza" value={e.levelId} options={levelOptions} onChange={(v) => upd((x) => x.kind === 'stair' && (x.levelId = v))} />
+            <div className="subhead">Forma</div>
+            <Segmented<'dritta' | 'L' | 'U'>
+              small
+              value={shape}
+              options={[
+                { value: 'dritta', label: 'Dritta' },
+                { value: 'L', label: 'A L' },
+                { value: 'U', label: 'A U' },
+              ]}
+              onChange={(v) => reshape({ shape: v === 'dritta' ? undefined : v, turn: e.turn ?? 'sinistra' })}
+            />
+            {shape !== 'dritta' && (
+              <>
+                <Segmented<'sinistra' | 'destra'>
+                  small
+                  value={e.turn ?? 'sinistra'}
+                  options={[
+                    { value: 'sinistra', label: 'Svolta a sinistra' },
+                    { value: 'destra', label: 'Svolta a destra' },
+                  ]}
+                  onChange={(v) => reshape({ turn: v })}
+                />
+                <div className={`fields ${shape === 'U' ? 'fields-2' : ''}`}>
+                  <NumberField
+                    label={`Alzate 1ª rampa (2ª: ${n - k1})`}
+                    digits={0}
+                    step={1}
+                    value={k1}
+                    min={2}
+                    max={n - 1}
+                    onChange={(v) => reshape({ firstRisers: Math.round(v) })}
+                  />
+                  {shape === 'U' && (
+                    <NumberField label="Pozzo tra le rampe" unit="cm" digits={0} step={5} value={(e.gap ?? 0.1) * 100} min={0} onChange={(v) => upd((x) => x.kind === 'stair' && (x.gap = v / 100))} />
+                  )}
+                </div>
+              </>
+            )}
             <div className="fields fields-2">
               <NumberField label="Larghezza rampa" unit="m" value={e.width} min={0.6} onChange={(v) => upd((x) => x.kind === 'stair' && (x.width = v))} />
-              <NumberField label="Sviluppo" unit="m" value={L} min={0.5} onChange={setLength} />
+              <NumberField label={shape === 'dritta' ? 'Sviluppo' : 'Prima rampa'} unit="m" value={L} min={0.3} onChange={setLength} />
             </div>
             <div className="subhead">
               Gradini · dislivello {fmt(rise)} m
@@ -268,13 +314,13 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             <div className="fields fields-3">
               <NumberField label="Alzate" digits={0} step={1} value={n} min={2} onChange={setRisers} />
               <NumberField label="Alzata" unit="cm" digits={1} step={0.5} value={a * 100} min={10} max={25} onChange={(v) => setRisers(rise / (v / 100))} />
-              <NumberField label="Pedata" unit="cm" digits={1} step={0.5} value={p * 100} min={15} onChange={(v) => setLength(n * (v / 100))} />
+              <NumberField label="Pedata" unit="cm" digits={1} step={0.5} value={p * 100} min={15} onChange={(v) => setLength(stairAxisLength(e, n, v / 100))} />
             </div>
             <p className="note">
               L’alzata deve dividere il dislivello: scrivendola si sceglie il numero di alzate più vicino. Alzate e pedata cambiano lo
               sviluppo della rampa.
             </p>
-            <button className="btn btn-block" onClick={() => setLength(n * Math.max(0.22, 0.63 - 2 * a))}>
+            <button className="btn btn-block" onClick={() => setLength(stairAxisLength(e, n, Math.max(0.22, 0.63 - 2 * a)))}>
               Pedata secondo Blondel (2a + p = 63 cm)
             </button>
             <label className="check">

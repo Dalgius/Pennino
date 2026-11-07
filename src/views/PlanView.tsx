@@ -22,11 +22,12 @@ import {
   dist,
   levelAbove,
   sortedLevels,
-  stairSteps,
+  stairLayout,
+  stairFootprints,
+  flightQuad,
   mul,
   norm,
   openingSpans,
-  perp,
   sub,
   wallLength,
   wallSegmentQuad,
@@ -215,19 +216,11 @@ export const PLAN_CUT = 1.2;
 function StairPlan({ project: p, stair: s, mode, mm }: { project: Project; stair: Stair; mode: 'partenza' | 'arrivo'; mm: number }) {
   const lvl = byId(p.levels, s.levelId);
   const next = levelAbove(p, s.levelId);
-  const L = dist(s.a, s.b);
-  if (!lvl || L < 1e-6) return null;
-  const { rise, n: steps, h, tread } = stairSteps(p, s);
-  const d = norm(sub(s.b, s.a));
-  const nn = perp(d);
-  const half = s.width / 2;
-  const P = (along: number, u: number) => add(add(s.a, mul(d, along)), mul(nn, half - u * s.width)); // u: 0 lato +n, 1 lato −n
-  // interruzione obliqua centrata sul gradino tagliato (piano di taglio), se la scala lo supera
-  const cutStep = Math.min(steps - 1, Math.max(1, Math.ceil(PLAN_CUT / h)));
-  const hasBreak = !!next && rise > PLAN_CUT;
-  const sc = cutStep * tread;
-  const span = Math.min(0.35 * s.width, sc, L - sc);
-  const sb = (u: number) => sc - span + 2 * span * u; // ascissa della linea d'interruzione
+  if (!lvl || dist(s.a, s.b) < 1e-6) return null;
+  const lay = stairLayout(p, s);
+  const { h, tread, n, width: W } = lay;
+  const hasBreak = !!next && lay.rise > PLAN_CUT;
+  if (!hasBreak && mode === 'arrivo') return null;
   const solidLow = mode === 'partenza';
   const thin = 0.13 * mm;
   const med = 0.25 * mm;
@@ -235,38 +228,63 @@ function StairPlan({ project: p, stair: s, mode, mm }: { project: Project; stair
   const seg = (a: Vec2, b: Vec2, solid: boolean, key: string, w = thin) => (
     <line key={key} x1={a.x} y1={-a.y} x2={b.x} y2={-b.y} strokeWidth={w} strokeDasharray={solid ? undefined : dash} />
   );
-  const out: React.ReactNode[] = [];
-  if (!hasBreak) {
-    // scala che non raggiunge il taglio (o ultimo livello): tutta visibile
-    if (mode === 'arrivo') return null;
-    out.push(<polygon key="o" points={pts([P(0, 0), P(L, 0), P(L, 1), P(0, 1)])} strokeWidth={thin} />);
-    for (let i = 1; i < steps; i++) out.push(seg(P(i * tread, 0), P(i * tread, 1), true, `t${i}`));
-  } else {
-    // fondo bianco per coprire il pavimento
-    out.push(<polygon key="bg" points={pts([P(0, 0), P(L, 0), P(L, 1), P(0, 1)])} stroke="none" />);
-    // gradini: ciascuno spezzato dove incontra l'interruzione
-    for (let i = 1; i < steps; i++) {
-      const si = i * tread;
-      const uc = Math.min(1, Math.max(0, (si - sc + span) / (2 * span || 1)));
-      // lato basso (prima dell'interruzione) per u > uc
-      if (uc > 0) out.push(seg(P(si, 0), P(si, uc), !solidLow, `tu${i}`));
-      if (uc < 1) out.push(seg(P(si, uc), P(si, 1), solidLow, `tl${i}`));
-    }
-    // fianchi
-    out.push(seg(P(0, 0), P(sb(0), 0), solidLow, 'f0l'), seg(P(sb(0), 0), P(L, 0), !solidLow, 'f0u'));
-    out.push(seg(P(0, 1), P(sb(1), 1), solidLow, 'f1l'), seg(P(sb(1), 1), P(L, 1), !solidLow, 'f1u'));
-    // primo e ultimo gradino
-    out.push(seg(P(0, 0), P(0, 1), solidLow, 'start'), seg(P(L, 0), P(L, 1), !solidLow, 'end'));
-    // linea d'interruzione
-    out.push(seg(P(sb(0), 0), P(sb(1), 1), true, 'brk', med));
+  // gradino tagliato dal piano di taglio; se cade sul pianerottolo si sposta alla rampa successiva
+  let c = Math.min(n - 1, Math.max(1, Math.ceil(PLAN_CUT / h)));
+  let fi = lay.flights.findIndex((f) => c >= f.first && c < f.first + f.steps);
+  if (fi < 0) {
+    fi = lay.flights.findIndex((f) => f.first > c);
+    if (fi >= 0) c = lay.flights[fi].first + Math.min(1, lay.flights[fi].steps - 1);
   }
+  const vis = (low: boolean) => (low ? solidLow : !solidLow);
+  const out: React.ReactNode[] = [];
+  // fondo bianco per coprire il pavimento
+  for (const [k, q] of [...lay.flights.map((f) => flightQuad(f, W)), ...lay.landings.map((l) => l.poly)].entries())
+    out.push(<polygon key={`bg${k}`} points={pts(q)} stroke="none" />);
+  let breakPt: Vec2 | null = null;
+  lay.flights.forEach((f, k) => {
+    const P = (along: number, u: number) => add(add(f.a, mul(f.d, along)), mul(f.n, W / 2 - u * W)); // u: 0 lato sinistro, 1 lato destro
+    const split = hasBreak && k === fi;
+    if (!split) {
+      const low = !hasBreak || f.first + f.steps <= c;
+      const sol = !hasBreak || vis(low);
+      out.push(seg(P(0, 0), P(f.len, 0), sol, `f${k}s0`), seg(P(0, 1), P(f.len, 1), sol, `f${k}s1`));
+      out.push(seg(P(0, 0), P(0, 1), sol, `f${k}a`), seg(P(f.len, 0), P(f.len, 1), sol, `f${k}b`));
+      for (let j = 1; j < f.steps; j++) out.push(seg(P(j * tread, 0), P(j * tread, 1), sol, `f${k}t${j}`));
+      return;
+    }
+    const sc = (c - f.first) * tread;
+    const span = Math.min(0.35 * W, sc, f.len - sc);
+    const sb = (u: number) => sc - span + 2 * span * u;
+    for (let j = 1; j < f.steps; j++) {
+      const si = j * tread;
+      const uc = Math.min(1, Math.max(0, (si - sc + span) / (2 * span || 1)));
+      if (uc > 0) out.push(seg(P(si, 0), P(si, uc), vis(false), `f${k}tu${j}`));
+      if (uc < 1) out.push(seg(P(si, uc), P(si, 1), vis(true), `f${k}tl${j}`));
+    }
+    out.push(seg(P(0, 0), P(sb(0), 0), vis(true), `f${k}0l`), seg(P(sb(0), 0), P(f.len, 0), vis(false), `f${k}0u`));
+    out.push(seg(P(0, 1), P(sb(1), 1), vis(true), `f${k}1l`), seg(P(sb(1), 1), P(f.len, 1), vis(false), `f${k}1u`));
+    out.push(seg(P(0, 0), P(0, 1), vis(true), `f${k}start`), seg(P(f.len, 0), P(f.len, 1), vis(false), `f${k}end`));
+    out.push(seg(P(sb(0), 0), P(sb(1), 1), true, `f${k}brk`, med));
+    breakPt = P(sc, 0.5);
+  });
+  lay.landings.forEach((l, k) => {
+    const sol = !hasBreak || vis(l.step < c);
+    l.poly.forEach((q, i) => out.push(seg(q, l.poly[(i + 1) % l.poly.length], sol, `l${k}e${i}`)));
+  });
   // freccia di salita lungo l'asse, nel tratto visibile
-  const axis = (along: number) => P(along, 0.5);
-  const mid = hasBreak ? sb(0.5) : L;
-  const arrow =
-    mode === 'partenza'
-      ? [axis(tread * 0.4), axis(hasBreak ? mid - tread * 0.3 : L - tread * 0.6)]
-      : [axis(mid + tread * 0.3), axis(L - tread * 0.4)];
+  const ax = lay.axis;
+  const d0 = norm(sub(ax[1], ax[0]));
+  const dn = norm(sub(ax[ax.length - 1], ax[ax.length - 2]));
+  const start = add(ax[0], mul(d0, tread * 0.4));
+  const end = sub(ax[ax.length - 1], mul(dn, tread * 0.4));
+  const path = [start, ...ax.slice(1, -1), end];
+  let arrow = path;
+  if (hasBreak && breakPt) {
+    const bp: Vec2 = breakPt;
+    // la rampa tagliata è la prima (primo tratto dell'asse) o l'ultima (ultimo tratto)
+    if (fi === 0) arrow = mode === 'partenza' ? [start, bp] : [bp, ...path.slice(1)];
+    else arrow = mode === 'partenza' ? [...path.slice(0, -1), bp] : [bp, end];
+  }
   return (
     <g className="pv-stair">
       {out}
@@ -620,7 +638,11 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
       const wdt = e.kind === 'stair' ? e.width : byId(p.catalog.beam, e.typeId)?.width ?? 0.3;
       return (
         <g className="pv-sel" strokeWidth={sw}>
-          <polygon points={pts(wallSegmentQuad(e as unknown as Wall, wdt, 0, dist(e.a, e.b)))} />
+          {e.kind === 'stair' ? (
+            stairFootprints(p, e).map((q, i) => <polygon key={i} points={pts(q)} />)
+          ) : (
+            <polygon points={pts(wallSegmentQuad(e as unknown as Wall, wdt, 0, dist(e.a, e.b)))} />
+          )}
           <circle cx={e.a.x} cy={-e.a.y} r={1.2 * mm} className="pv-handle" />
           <circle cx={e.b.x} cy={-e.b.y} r={1.2 * mm} className="pv-handle" />
         </g>

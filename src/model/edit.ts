@@ -6,6 +6,7 @@ import {
   bbox,
   roofBase,
   slabHoles,
+  stairFootprints,
   byId,
   columnQuad,
   dist,
@@ -78,9 +79,12 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
   }
   if (best) return best.id;
   for (const e of p.elements) {
-    if ((e.kind === 'beam' || e.kind === 'stair') && e.levelId === levelId) {
-      const width = e.kind === 'stair' ? e.width : byId(p.catalog.beam, e.typeId)?.width ?? 0.3;
+    if (e.kind === 'beam' && e.levelId === levelId) {
+      const width = byId(p.catalog.beam, e.typeId)?.width ?? 0.3;
       if (projectOnSegment(w, e.a, e.b).d < width / 2 + tol) return e.id;
+    }
+    if (e.kind === 'stair' && e.levelId === levelId) {
+      if (stairFootprints(p, e).some((q) => pointInPolygon(w, q) || distToPolyline(w, q, true) < tol)) return e.id;
     }
   }
   for (const e of p.elements) {
@@ -351,8 +355,9 @@ function footprintOf(p: Project, e: BuildingElement): Vec2[] {
     case 'column':
       return columnQuad(e, byId(p.catalog.column, e.typeId));
     case 'beam':
-    case 'stair':
       return [e.a, e.b];
+    case 'stair':
+      return stairFootprints(p, e).flat();
   }
 }
 

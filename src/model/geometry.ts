@@ -540,18 +540,13 @@ export function slabHoles(p: Project, s: { levelId: string; typeId: string; poin
     const next = levelAbove(p, e.levelId);
     const lvl = byId(p.levels, e.levelId);
     if (!next || !lvl || next.id !== s.levelId) continue;
-    const L = dist(e.a, e.b);
-    const rise = next.elevation - lvl.elevation;
-    if (L < 1e-6 || rise <= 0) continue;
-    const underside = next.elevation - th;
-    const x0 = Math.max(0, Math.min(L, ((underside - (e.headroom ?? DEFAULT_HEADROOM) - lvl.elevation) / rise) * L));
-    if (L - x0 < 0.05) continue;
-    const d = norm(sub(e.b, e.a));
-    const n = mul(perp(d), e.width / 2);
-    const s0 = add(e.a, mul(d, x0));
-    const rect = [add(s0, n), add(e.b, n), sub(e.b, n), sub(s0, n)];
-    const hole = clipConvex(outline, rect);
-    if (hole.length >= 3 && Math.abs(signedArea(hole)) > 1e-3) out.push(hole);
+    if (dist(e.a, e.b) < 1e-6 || next.elevation - lvl.elevation <= 0) continue;
+    const under = next.elevation - th;
+    const whole = stairHole(p, e, under);
+    // foro tutto dentro il solaio: si usa così com'è; altrimenti si ritaglia ogni rettangolo sul solaio
+    const inside = whole.every((h) => h.every((q) => pointInPolygon(q, outline) || distToPolyline(q, outline, true) < 1e-6));
+    const pieces = inside ? whole : stairHoleParts(p, e, under).map((r) => clipConvex(outline, r));
+    for (const h of pieces) if (h.length >= 3 && Math.abs(signedArea(h)) > 1e-3) out.push(h);
   }
   return out;
 }
@@ -564,12 +559,214 @@ export function slabNetArea(p: Project, s: Parameters<typeof slabHoles>[1]) {
 /** Alzata massima usata quando il numero di alzate non è fissato */
 export const MAX_RISER = 0.18;
 
+type StairLike = {
+  levelId: string;
+  a: Vec2;
+  b: Vec2;
+  width: number;
+  risers?: number;
+  shape?: 'dritta' | 'L' | 'U';
+  turn?: 'sinistra' | 'destra';
+  firstRisers?: number;
+  gap?: number;
+};
+
+/** Alzate della prima rampa (pianerottolo compreso) di una scala a L o a U */
+export function stairFirstRisers(s: StairLike, n: number) {
+  const k = s.firstRisers ?? Math.ceil(n / 2);
+  return Math.max(2, Math.min(n - 1, Math.round(k)));
+}
+
 /** Dislivello, numero di alzate, alzata e pedata di una scala */
-export function stairSteps(p: Project, s: { levelId: string; a: Vec2; b: Vec2; risers?: number }) {
+export function stairSteps(p: Project, s: StairLike) {
   const lvl = byId(p.levels, s.levelId);
   const next = levelAbove(p, s.levelId);
   const rise = next && lvl ? next.elevation - lvl.elevation : lvl?.height ?? 3;
   const n = s.risers && s.risers >= 2 ? Math.round(s.risers) : Math.max(2, Math.ceil(rise / MAX_RISER - 1e-9));
   const L = dist(s.a, s.b);
-  return { rise, n, h: rise / n, tread: L / n, L };
+  const shape = s.shape ?? 'dritta';
+  // dritta: a→b contiene n pedate; a L/U: a→b contiene le pedate della prima rampa fino al pianerottolo
+  const k1 = shape === 'dritta' ? n : stairFirstRisers(s, n);
+  const tread = shape === 'dritta' ? L / n : L / (k1 - 1);
+  return { rise, n, h: rise / n, tread, L, k1, shape };
+}
+
+/** Lunghezza a→b che dà la pedata voluta con n alzate (e prima rampa k1 per L/U) */
+export function stairAxisLength(s: StairLike, n: number, tread: number) {
+  return (s.shape ?? 'dritta') === 'dritta' ? n * tread : (stairFirstRisers(s, n) - 1) * tread;
+}
+
+/** Una rampa: gradino j con fronte a j·tread dall'inizio e piano a base + (j+1)·h */
+export interface StairFlight {
+  a: Vec2;
+  d: Vec2;
+  /** normale a sinistra della direzione di salita */
+  n: Vec2;
+  len: number;
+  steps: number;
+  base: number;
+  /** indice globale (da 0) del primo gradino della rampa */
+  first: number;
+}
+
+export interface StairLanding {
+  poly: Vec2[];
+  z: number;
+  /** indice globale del gradino che il pianerottolo rappresenta */
+  step: number;
+}
+
+export interface StairLayout {
+  flights: StairFlight[];
+  landings: StairLanding[];
+  h: number;
+  tread: number;
+  n: number;
+  rise: number;
+  width: number;
+  /** linea d'asse per la freccia di salita */
+  axis: Vec2[];
+}
+
+/** Geometria derivata di una scala: rampe e pianerottoli in pianta, con le quote */
+export function stairLayout(p: Project, s: StairLike): StairLayout {
+  const { rise, n, h, tread, k1, shape } = stairSteps(p, s);
+  const z0 = byId(p.levels, s.levelId)?.elevation ?? 0;
+  const W = s.width;
+  const d = norm(sub(s.b, s.a));
+  const nl = perp(d);
+  const base = { h, tread, n, rise, width: W };
+  if (shape === 'dritta') {
+    const L = n * tread;
+    return {
+      ...base,
+      flights: [{ a: s.a, d, n: nl, len: L, steps: n, base: z0, first: 0 }],
+      landings: [],
+      axis: [s.a, add(s.a, mul(d, L))],
+    };
+  }
+  const sg = s.turn === 'destra' ? -1 : 1;
+  const side = mul(nl, sg); // verso della seconda rampa
+  const L1 = (k1 - 1) * tread;
+  const k2 = n - k1;
+  const f1: StairFlight = { a: s.a, d, n: nl, len: L1, steps: k1 - 1, base: z0, first: 0 };
+  const zl = z0 + k1 * h;
+  const b = add(s.a, mul(d, L1)); // bordo del pianerottolo sull'asse
+  const P = (along: number, lat: number) => add(add(s.a, mul(d, along)), mul(side, lat));
+  if (shape === 'L') {
+    // pianerottolo quadrato; la seconda rampa parte dal suo lato
+    const landing = [P(L1, -W / 2), P(L1 + W, -W / 2), P(L1 + W, W / 2), P(L1, W / 2)];
+    const a2 = P(L1 + W / 2, W / 2);
+    const f2: StairFlight = { a: a2, d: side, n: perp(side), len: k2 * tread, steps: k2, base: zl, first: k1 };
+    const c = P(L1 + W / 2, 0);
+    return { ...base, flights: [f1, f2], landings: [{ poly: landing, z: zl, step: k1 - 1 }], axis: [s.a, c, add(a2, mul(side, k2 * tread))] };
+  }
+  // U: pianerottolo su entrambe le rampe; la seconda torna indietro accanto alla prima
+  const gap = Math.max(0, s.gap ?? 0.1);
+  const off = W + gap;
+  const landing = [P(L1, -W / 2), P(L1 + W, -W / 2), P(L1 + W, off + W / 2), P(L1, off + W / 2)];
+  const a2 = P(L1, off);
+  const back = mul(d, -1);
+  const f2: StairFlight = { a: a2, d: back, n: perp(back), len: k2 * tread, steps: k2, base: zl, first: k1 };
+  const c1 = P(L1 + W / 2, 0);
+  const c2 = P(L1 + W / 2, off);
+  void b;
+  return { ...base, flights: [f1, f2], landings: [{ poly: landing, z: zl, step: k1 - 1 }], axis: [s.a, c1, c2, add(a2, mul(back, k2 * tread))] };
+}
+
+/** Rettangolo in pianta di una rampa (o di un suo tratto [s0, s1]) */
+export function flightQuad(f: StairFlight, width: number, s0 = 0, s1 = f.len): Vec2[] {
+  const m = mul(f.n, width / 2);
+  const A = add(f.a, mul(f.d, s0));
+  const B = add(f.a, mul(f.d, s1));
+  return [add(A, m), add(B, m), sub(B, m), sub(A, m)];
+}
+
+/** Ingombro in pianta di una scala: rampe e pianerottoli */
+export function stairFootprints(p: Project, s: StairLike): Vec2[][] {
+  const lay = stairLayout(p, s);
+  return [...lay.flights.map((f) => flightQuad(f, lay.width)), ...lay.landings.map((l) => l.poly)];
+}
+
+/**
+ * Unione di rettangoli allineati a una terna (u, v): restituisce un unico contorno se l'unione è
+ * connessa e senza buchi, altrimenti null.
+ */
+function unionAligned(rects: Vec2[][], o: Vec2, u: Vec2, v: Vec2): Vec2[] | null {
+  const loc = (q: Vec2) => ({ x: dot(sub(q, o), u), y: dot(sub(q, o), v) });
+  const boxes = rects.map((r) => {
+    const l = r.map(loc);
+    return { x0: Math.min(...l.map((q) => q.x)), x1: Math.max(...l.map((q) => q.x)), y0: Math.min(...l.map((q) => q.y)), y1: Math.max(...l.map((q) => q.y)) };
+  });
+  const uniq = (a: number[]) => [...new Set(a.map((x) => +x.toFixed(5)))].sort((p, q) => p - q);
+  const xs = uniq(boxes.flatMap((b) => [b.x0, b.x1]));
+  const ys = uniq(boxes.flatMap((b) => [b.y0, b.y1]));
+  const inside = (i: number, j: number) => {
+    if (i < 0 || j < 0 || i >= xs.length - 1 || j >= ys.length - 1) return false;
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    const cy = (ys[j] + ys[j + 1]) / 2;
+    return boxes.some((b) => cx > b.x0 && cx < b.x1 && cy > b.y0 && cy < b.y1);
+  };
+  // lati di confine orientati in senso antiorario
+  const edges: [string, string][] = [];
+  const key = (i: number, j: number) => `${i},${j}`;
+  for (let i = 0; i < xs.length - 1; i++)
+    for (let j = 0; j < ys.length - 1; j++) {
+      if (!inside(i, j)) continue;
+      if (!inside(i, j - 1)) edges.push([key(i, j), key(i + 1, j)]);
+      if (!inside(i + 1, j)) edges.push([key(i + 1, j), key(i + 1, j + 1)]);
+      if (!inside(i, j + 1)) edges.push([key(i + 1, j + 1), key(i, j + 1)]);
+      if (!inside(i - 1, j)) edges.push([key(i, j + 1), key(i, j)]);
+    }
+  if (!edges.length) return null;
+  const next = new Map<string, string>();
+  for (const [a, b] of edges) {
+    if (next.has(a)) return null; // contorno che si tocca in un vertice: si rinuncia
+    next.set(a, b);
+  }
+  const start = edges[0][0];
+  const loop: string[] = [start];
+  let cur = next.get(start)!;
+  while (cur !== start) {
+    loop.push(cur);
+    cur = next.get(cur)!;
+    if (!cur || loop.length > edges.length) return null;
+  }
+  if (loop.length !== edges.length) return null; // più contorni
+  const pts = loop.map((k) => {
+    const [i, j] = k.split(',').map(Number);
+    return { x: xs[i], y: ys[j] };
+  });
+  // vertici allineati
+  const out = pts.filter((q, i) => {
+    const a = pts[(i - 1 + pts.length) % pts.length];
+    const b = pts[(i + 1) % pts.length];
+    return Math.abs((q.x - a.x) * (b.y - q.y) - (q.y - a.y) * (b.x - q.x)) > 1e-9;
+  });
+  return out.map((q) => add(o, add(mul(u, q.x), mul(v, q.y))));
+}
+
+/** Parti della scala sotto cui l'altezza libera manca: rettangoli in pianta */
+export function stairHoleParts(p: Project, s: StairLike & { headroom?: number }, underside: number): Vec2[][] {
+  const lay = stairLayout(p, s);
+  const H = (s as { headroom?: number }).headroom ?? DEFAULT_HEADROOM;
+  const lim = underside - H;
+  const parts: Vec2[][] = [];
+  for (const f of lay.flights) {
+    // piano del gradino j: base + (j+1)·h; serve il foro dal primo gradino che supera il limite
+    const j0 = Math.max(0, Math.ceil((lim - f.base) / lay.h - 1 - 1e-9));
+    if (j0 >= f.steps) continue;
+    parts.push(flightQuad(f, lay.width, j0 * lay.tread, f.len));
+  }
+  for (const l of lay.landings) if (l.z > lim) parts.push(l.poly);
+  return parts;
+}
+
+/** Foro scala (contorno unico se possibile) per un solaio di intradosso dato */
+export function stairHole(p: Project, s: StairLike & { headroom?: number }, underside: number): Vec2[][] {
+  const parts = stairHoleParts(p, s, underside);
+  if (parts.length < 2) return parts;
+  const d = norm(sub(s.b, s.a));
+  const u = unionAligned(parts, s.a, d, perp(d));
+  return u ? [u] : parts;
 }
