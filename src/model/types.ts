@@ -83,6 +83,7 @@ export type HatchKind =
   | 'massetto'
   | 'pietra'
   | 'impermeabile'
+  | 'acciaio'
   | 'terreno'
   | 'vuoto';
 

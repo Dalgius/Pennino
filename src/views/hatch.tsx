@@ -16,6 +16,7 @@ export const HATCH_LABEL: Record<HatchKind, string> = {
   massetto: 'Massetto · punteggiato',
   pietra: 'Pietra, gres · grigio medio',
   impermeabile: 'Guaina · nero pieno',
+  acciaio: 'Acciaio · nero pieno',
   terreno: 'Terreno, vegetale',
   vuoto: 'Vuoto, intercapedine',
 };
@@ -24,6 +25,7 @@ export const HATCH_KINDS = Object.keys(HATCH_LABEL) as HatchKind[];
 
 const RULES: [RegExp, HatchKind][] = [
   [/impermeab|guaina|bitum|barriera/, 'impermeabile'],
+  [/acciaio|lamiera|profilat/, 'acciaio'],
   [/vespaio|igloo|ventilaz|intercapedine|camera d.aria/, 'vuoto'],
   [/vegetaz|substrato|terreno|terra\b|ghiaia/, 'terreno'],
   [/isolant|eps|xps|lana|fibra|poliuret|sughero|anticalpestio/, 'isolante'],
@@ -43,6 +45,15 @@ export function hatchOf(l: Pick<WallLayer, 'name' | 'role'> & { hatch?: HatchKin
   return l.role === 'isolante' ? 'isolante' : l.role === 'finitura' ? 'intonaco' : l.role === 'struttura' ? 'laterizio' : 'vuoto';
 }
 
+/** Campitura di un elemento strutturale (pilastro, trave) dal nome e dal materiale della tipologia */
+export function structHatch(t?: { name?: string; material?: string }): HatchKind {
+  const s = `${t?.name ?? ''} ${t?.material ?? ''}`.toLowerCase();
+  if (/acciaio|ferro|metall|\bs\d{3}\b|\bhe[abm]\b|\bipe\b|\bupn\b/.test(s)) return 'acciaio';
+  if (/legno|lamellare|\bgl\d|\bc\d{2}\b(?!\/)|abete|larice|rovere/.test(s)) return 'legno';
+  if (/muratura|mattoni|lateriz/.test(s)) return 'laterizio';
+  return 'calcestruzzo'; // c.a., C25/30, C30/37…
+}
+
 /** Campitura che rappresenta il muro intero alle scale piccole: quella dello strato portante */
 export function mainHatch(layers: (Pick<WallLayer, 'name' | 'role' | 'thickness'> & { hatch?: HatchKind })[]): HatchKind {
   const pool = layers.filter((l) => l.role === 'struttura');
@@ -55,6 +66,7 @@ const SOLID: Partial<Record<HatchKind, string>> = {
   intonaco: '#dadada',
   pietra: '#b4b4b4',
   impermeabile: '#1b1b1b',
+  acciaio: '#1b1b1b',
 };
 
 const INK = 'var(--hatch-ink, #1b1b1b)';

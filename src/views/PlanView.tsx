@@ -5,7 +5,7 @@
 import type { Opening, OpeningType, Project, Stair, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
 import { RoofSymbols } from './SiteView';
-import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
+import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
@@ -149,11 +149,15 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
             key={c.id}
             points={pts(columnQuad(c, byId(p.catalog.column, c.typeId)))}
             className="pv-column"
-            style={mm > 0.25 ? undefined : { fill: hatchFill(hp, 'calcestruzzo') }}
+            style={mm > 0.25 ? undefined : { fill: hatchFill(hp, structHatch(byId(p.catalog.column, c.typeId))) }}
             strokeWidth={0.35 * mm}
           />
         );
       })}
+
+      {/* pilastri annegati nei muri: le finiture del muro passano davanti al pilastro */}
+      {mm < 0.08 &&
+        walls.map((w) => <WallCoversOverColumns key={`wc${w.id}`} project={p} wall={w} columns={columns} mm={mm} center={center} hp={hp} />)}
 
       {beams.map((b) => {
         if (b.kind !== 'beam') return null;
@@ -485,6 +489,77 @@ function cornerCut(p: Project, w: Wall, g: WallGeom, end: 'a' | 'b', center: Vec
     const s = (r.x * go.d.y - r.y * go.d.x) / den;
     return s;
   };
+}
+
+/**
+ * Rivestimenti di un muro (finiture, cappotto) davanti ai pilastri annegati: il pilastro interrompe
+ * la struttura del muro, i rivestimenti gli passano davanti; dove il pilastro sporge dalla faccia
+ * resta in vista il suo contorno.
+ */
+function WallCoversOverColumns({
+  project: p,
+  wall: w,
+  columns,
+  mm,
+  center,
+  hp,
+}: {
+  project: Project;
+  wall: Wall;
+  columns: Project['elements'];
+  mm: number;
+  center: Vec2;
+  hp: string;
+}) {
+  const t = byId(p.catalog.wall, w.typeId);
+  if (!t || t.layers.length < 2) return null;
+  const g = wallGeom(p, w, center);
+  const bands = layerBands(g, t.layers);
+  const out: React.ReactNode[] = [];
+  const at = (sv: number, o: number) => add(add(w.a, mul(g.d, sv)), mul(g.n, o));
+  const spans = openingSpans(p, w);
+  for (const c of columns) {
+    if (c.kind !== 'column') continue;
+    const q = columnQuad(c, byId(p.catalog.column, c.typeId));
+    const ss = q.map((v) => dot(sub(v, w.a), g.d));
+    const os = q.map((v) => dot(sub(v, w.a), g.n));
+    const oMin = Math.min(...os);
+    const oMax = Math.max(...os);
+    const lo = Math.max(0, Math.min(...ss));
+    const hi = Math.min(g.L, Math.max(...ss));
+    if (hi - lo < 1e-3 || oMax < -g.half + 1e-3 || oMin > g.half - 1e-3) continue;
+    const outPlus = oMax > g.half + 1e-3; // il pilastro sporge dalla faccia +n
+    const outMinus = oMin < -g.half - 1e-3;
+    const covered = (side: number) => (side > 0 ? !outPlus : !outMinus);
+    // solo dove il muro è pieno (non nelle aperture)
+    let segs: [number, number][] = [[lo, hi]];
+    for (const sp of spans)
+      segs = segs.flatMap(([x, y]) => (sp.end <= x || sp.start >= y ? [[x, y] as [number, number]] : ([[x, sp.start], [sp.end, y]] as [number, number][]).filter(([u, v]) => v - u > 1e-4)));
+    segs.forEach(([s0, s1], si) => {
+      const key = `${c.id}-${si}`;
+      bands.forEach((b, j) => {
+        if (inCore(t.layers, j) || !covered(Math.sign((b.o0 + b.o1) / 2))) return;
+        const fill = hatchFill(hp, hatchOf(t.layers[j]));
+        const poly = [at(s0, b.o0), at(s1, b.o0), at(s1, b.o1), at(s0, b.o1)];
+        out.push(<polygon key={`${key}b${j}`} points={pts(poly)} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />);
+      });
+      // linee tra gli strati e facce, dove il rivestimento copre il pilastro
+      bands.slice(0, -1).forEach((b, j) => {
+        const cover = !inCore(t.layers, j) || !inCore(t.layers, j + 1);
+        if (!cover || !covered(Math.sign(b.o1))) return;
+        const P = at(s0, b.o1);
+        const Q = at(s1, b.o1);
+        out.push(<line key={`${key}l${j}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-layer-line" strokeWidth={0.1 * mm} />);
+      });
+      for (const o of [g.half, -g.half]) {
+        if (!covered(Math.sign(o))) continue;
+        const P = at(s0, o);
+        const Q = at(s1, o);
+        out.push(<line key={`${key}f${o}`} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} className="pv-wall-line" strokeWidth={0.35 * mm} />);
+      }
+    });
+  }
+  return out.length ? <g>{out}</g> : null;
 }
 
 /** Spessore dei rivestimenti (finiture e isolanti esterni al nucleo) sul lato σ di un muro (dalla faccia fino al primo strato non di finitura) */

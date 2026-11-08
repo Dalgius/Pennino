@@ -6,7 +6,7 @@ import type { Project, SectionLine, Vec2, Wall } from '../model/types';
 import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
-import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
+import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { ElevationView, type ViewFrame } from './ElevationView';
 
 export function sectionFrame(s: SectionLine): ViewFrame {
@@ -71,7 +71,24 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
   const cuts: React.ReactNode[] = [];
   // ordine di disegno: muri, poi solai (la loro struttura entra nei muri), poi il resto
   const wallCuts: React.ReactNode[] = [];
-  const slabCuts: React.ReactNode[] = [];
+  const slabCuts: React.ReactNode[] = []; // struttura dei solai
+  const structCuts: React.ReactNode[] = []; // pilastri e travi
+  const finishCuts: React.ReactNode[] = []; // finiture dei solai, sopra la struttura
+  // ingombri tagliati di pilastri e travi: interrompono le finiture d'intradosso dei solai
+  const structSpans: { u0: number; u1: number; z0: number; z1: number }[] = [];
+  for (const e of p.elements) {
+    const lv = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
+    if (!lv) continue;
+    if (e.kind === 'column')
+      cutIntervals(columnQuad(e, byId(p.catalog.column, e.typeId)), f).forEach(([u0, u1]) => structSpans.push({ u0, u1, z0: lv.elevation, z1: lv.elevation + lv.height }));
+    else if (e.kind === 'beam') {
+      const bt = byId(p.catalog.beam, e.typeId);
+      const top = lv.elevation + lv.height;
+      cutIntervals(wallSegmentQuad(e as unknown as Wall, bt?.width ?? 0.3, 0, dist(e.a, e.b)), f).forEach(([u0, u1]) =>
+        structSpans.push({ u0, u1, z0: top - (bt?.height ?? 0.4), z1: top }),
+      );
+    }
+  }
   const wallSpans: { u0: number; u1: number; z0: number; z1: number; c0: number; c1: number }[] = [];
   /** rivestimenti esterni dei muri che risalgono a coprire il bordo di una copertura senza sporto */
   const edgeCovers: { u0: number; u1: number }[] = [];
@@ -261,16 +278,19 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       // strati dall'alto: la struttura entra nei muri, le finiture si fermano al loro filo
       const tot = st.layers.reduce((a, l) => a + l.thickness, 0) || th;
       const k = th / tot;
+      const lastCoreS = st.layers.reduce((q, l, i) => (l.role === 'struttura' ? i : q), -1);
       let zt = z0;
       st.layers.forEach((l, j) => {
         const zb = zt - l.thickness * k;
         const core = layerInCore(st.layers!, j);
         ivs.forEach(([u0, u1], i) => {
           let segs: [number, number][] = [[u0, u1]];
-          if (!core)
-            for (const w of wallSpans)
-              if (w.z1 > zb + 1e-4 && w.z0 < zt - 1e-4)
-                segs = segs.flatMap(([a, b]) => (w.u1 <= a || w.u0 >= b ? [[a, b] as [number, number]] : ([[a, w.u0], [w.u1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+          // finiture: si fermano al filo dei muri; quelle d'intradosso anche sotto pilastri e travi
+          const stops = core ? [] : [...wallSpans, ...(lastCoreS >= 0 && j > lastCoreS ? structSpans : [])];
+          for (const w of stops)
+            if (w.z1 > zb + 1e-4 && w.z0 < zt - 1e-4)
+              segs = segs.flatMap(([a, b]) => (w.u1 <= a || w.u0 >= b ? [[a, b] as [number, number]] : ([[a, w.u0], [w.u1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+          const into = core ? slabCuts : finishCuts;
           segs.forEach(([a, b], m) => {
             const q: [number, number][] = [
               [a, zb],
@@ -278,19 +298,30 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
               [b, zt],
               [a, zt],
             ];
-            band(`${e.id}l${j}-${i}-${m}`, q, hatchFill(hp, hatchOf(l)), slabCuts);
-            slabCuts.push(<polygon key={`${e.id}o${j}-${i}-${m}`} points={polyPts(q)} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
+            band(`${e.id}l${j}-${i}-${m}`, q, hatchFill(hp, hatchOf(l)), into);
+            into.push(<polygon key={`${e.id}o${j}-${i}-${m}`} points={polyPts(q)} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
           });
         });
         zt = zb;
       });
-    } else if (e.kind === 'column') {
-      cutIntervals(columnQuad(e, byId(p.catalog.column, e.typeId)), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0, z0 + lvl.height));
-    } else if (e.kind === 'beam') {
-      const t = byId(p.catalog.beam, e.typeId);
-      const q = wallSegmentQuad(e as unknown as Wall, t?.width ?? 0.3, 0, dist(e.a, e.b));
-      const top = z0 + lvl.height;
-      cutIntervals(q, f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, top - (t?.height ?? 0.4), top));
+    } else if (e.kind === 'column' || e.kind === 'beam') {
+      // pilastri e travi: retino del materiale, tra la struttura dei solai e le loro finiture
+      const ct = e.kind === 'column' ? byId(p.catalog.column, e.typeId) : byId(p.catalog.beam, e.typeId);
+      const bt = e.kind === 'beam' ? byId(p.catalog.beam, e.typeId) : undefined;
+      const quad = e.kind === 'column' ? columnQuad(e, byId(p.catalog.column, e.typeId)) : wallSegmentQuad(e as unknown as Wall, bt?.width ?? 0.3, 0, dist(e.a, e.b));
+      const zA = e.kind === 'column' ? z0 : z0 + lvl.height - (bt?.height ?? 0.4);
+      const zB = z0 + lvl.height;
+      cutIntervals(quad, f).forEach(([u0, u1], i) => {
+        const q: [number, number][] = [
+          [u0, zA],
+          [u1, zA],
+          [u1, zB],
+          [u0, zB],
+        ];
+        if (!layered) return structCuts.push(<polygon key={`${e.id}${i}`} points={polyPts(q)} className="sc-cut" strokeWidth={sw} />);
+        band(`${e.id}${i}h`, q, hatchFill(hp, structHatch(ct)), structCuts);
+        outlineOf(`${e.id}${i}o`, q, structCuts);
+      });
     } else if (e.kind === 'stair') {
       const lay = stairLayout(p, e);
       lay.flights.forEach((fl, k) => {
@@ -496,6 +527,8 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       <line x1={ext.min} y1={Z(gl)} x2={ext.max} y2={Z(gl)} className="ev-ground" strokeWidth={0.7 * mm} />
       {wallCuts}
       {slabCuts}
+      {structCuts}
+      {finishCuts}
       {cuts}
     </g>
   );
