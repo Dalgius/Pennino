@@ -990,7 +990,8 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
         <g className="pv-sel" strokeWidth={sw}>
           {e.kind === 'slab' ? (
             // il foro scala resta vuoto anche nella selezione
-            <path d={[e.points, ...slabHoles(p, e)].map((r) => `M${pts(r).replace(/ /g, ' L')} Z`).join(' ')} fillRule="evenodd" />
+            // ingombro reale (bordo a filo interno, esterno o a distanza), fori scala esclusi
+            <path d={[slabOutline(p, e), ...slabHoles(p, e)].map((r) => `M${pts(r).replace(/ /g, ' L')} Z`).join(' ')} fillRule="evenodd" />
           ) : (
             // copertura: tutto l'ingombro, sporto compreso
             <polygon points={pts(roofOutline(roofWithEave(p, e)))} />

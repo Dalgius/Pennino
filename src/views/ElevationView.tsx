@@ -97,6 +97,38 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
   const items: { depth: number; node: React.ReactNode }[] = [];
   const ext = extents ?? elevationExtents(p, frame);
 
+  // facce dei muri: i giunti orizzontali tra muri sovrapposti sullo stesso piano non si disegnano
+  const faces = new Map<string, { u0: number; u1: number; z0: number; z1: number; d: number; flatTop: boolean }>();
+  for (const e of p.elements) {
+    if (e.kind !== 'wall') continue;
+    const lv = byId(p.levels, e.levelId);
+    if (!lv) continue;
+    const th = wallThickness(byId(p.catalog.wall, e.typeId));
+    const q = wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2);
+    const us = q.map(U);
+    const z1 = lv.elevation + wallHeight(p, e);
+    faces.set(e.id, {
+      u0: Math.min(...us),
+      u1: Math.max(...us),
+      z0: lv.elevation,
+      z1,
+      d: Math.min(...q.map(D)),
+      flatTop: !wallTopProfile(p, e, z1, -th / 2, wallLength(e) + th / 2),
+    });
+  }
+  /** tratti di un bordo orizzontale (quota z) di una faccia non coperti da una faccia contigua sopra o sotto */
+  const openEdge = (id: string, z: number, side: 'sotto' | 'sopra', a: number, b: number) => {
+    const me = faces.get(id)!;
+    let segs: [number, number][] = [[Math.min(a, b), Math.max(a, b)]];
+    for (const [oid, o] of faces) {
+      if (oid === id || Math.abs(o.d - me.d) > 0.05) continue;
+      const touches = side === 'sotto' ? o.flatTop && Math.abs(o.z1 - z) < 0.01 : Math.abs(o.z0 - z) < 0.01;
+      if (!touches) continue;
+      segs = segs.flatMap(([x, y]) => (o.u1 <= x || o.u0 >= y ? [[x, y] as [number, number]] : ([[x, o.u0], [o.u1, y]] as [number, number][]).filter(([m, n]) => n - m > 1e-4)));
+    }
+    return segs;
+  };
+
   for (const e of p.elements) {
     // nelle sezioni si vede solo ciò che sta oltre il piano, entro la profondità di vista
     const ds = e.kind === 'opening' ? [] : elementPoints(e).map(D);
@@ -105,6 +137,15 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
     const lvl = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
     if (!lvl) continue;
     if (e.kind === 'wall') {
+      // muro interamente nascosto da un muro più vicino: non si disegna (niente residui di linee)
+      const me = faces.get(e.id);
+      if (
+        me &&
+        [...faces].some(
+          ([oid, o]) => oid !== e.id && o.d < me.d - 0.01 && o.u0 <= me.u0 + 1e-3 && o.u1 >= me.u1 - 1e-3 && o.z0 <= me.z0 + 1e-3 && o.z1 >= me.z1 - 1e-3,
+        )
+      )
+        continue;
       const th = wallThickness(byId(p.catalog.wall, e.typeId));
       const quad = wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2);
       const us = quad.map(U);
@@ -169,21 +210,50 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       // timpano: la sommità del muro segue l'intradosso delle falde
       const L = wallLength(e);
       const prof = wallTopProfile(p, e, z1, -th / 2, L + th / 2);
-      let outer = `M${u0},${Z(z0)} L${u1},${Z(z0)} L${u1},${Z(z1)} L${u0},${Z(z1)} Z`;
+      // contorno: fianchi e sommità sempre; base e sommità piana solo dove non c'è un muro contiguo
+      const sw = 0.25 * mm;
+      const lines: React.ReactNode[] = [];
+      const hLine = (a: number, b: number, z: number, key: string) => <line key={key} x1={a} y1={Z(z)} x2={b} y2={Z(z)} className="ev-wall-line" strokeWidth={sw} />;
+      const bottom = openEdge(e.id, z0, 'sotto', u0, u1);
+      bottom.forEach(([a, b], i) => lines.push(hLine(a, b, z0, `b${i}`)));
+      // con un muro contiguo sotto, la campitura scende di 2 cm: niente fessura sul giunto
+      const covered = bottom.reduce((t, [a, b]) => t + b - a, 0) < u1 - u0 - 1e-3;
+      const zf = covered ? z0 - Math.max(0.02, 0.6 * mm) : z0;
+      let outer = `M${u0},${Z(zf)} L${u1},${Z(zf)} L${u1},${Z(z1)} L${u0},${Z(z1)} Z`;
       if (prof && facing) {
         const at = (sv: number) => U({ x: e.a.x + ((e.b.x - e.a.x) * sv) / L, y: e.a.y + ((e.b.y - e.a.y) * sv) / L });
         const first = at(prof[0].s);
         const last = at(prof[prof.length - 1].s);
-        outer = `M${first},${Z(z0)} L${last},${Z(z0)} ` + [...prof].reverse().map((q) => `L${at(q.s)},${Z(q.z)}`).join(' ') + ' Z';
+        outer = `M${first},${Z(zf)} L${last},${Z(zf)} ` + [...prof].reverse().map((q) => `L${at(q.s)},${Z(q.z)}`).join(' ') + ' Z';
       } else if (prof) {
         const zmax = Math.max(...prof.map((q) => q.z));
-        outer = `M${u0},${Z(z0)} L${u1},${Z(z0)} L${u1},${Z(zmax)} L${u0},${Z(zmax)} Z`;
+        outer = `M${u0},${Z(zf)} L${u1},${Z(zf)} L${u1},${Z(zmax)} L${u0},${Z(zmax)} Z`;
+      }
+      if (prof && facing) {
+        const at = (sv: number) => U({ x: e.a.x + ((e.b.x - e.a.x) * sv) / L, y: e.a.y + ((e.b.y - e.a.y) * sv) / L });
+        const top = prof.map((q) => `${at(q.s)},${Z(q.z)}`);
+        lines.push(
+          <polyline
+            key="t"
+            points={[`${at(prof[0].s)},${Z(zf)}`, ...top, `${at(prof[prof.length - 1].s)},${Z(zf)}`].join(' ')}
+            className="ev-wall-line"
+            strokeWidth={sw}
+            fill="none"
+          />,
+        );
+      } else {
+        const zt = prof ? Math.max(...prof.map((q) => q.z)) : z1;
+        lines.push(<line key="l" x1={u0} y1={Z(zf)} x2={u0} y2={Z(zt)} className="ev-wall-line" strokeWidth={sw} />);
+        lines.push(<line key="r" x1={u1} y1={Z(zf)} x2={u1} y2={Z(zt)} className="ev-wall-line" strokeWidth={sw} />);
+        if (prof) lines.push(hLine(u0, u1, zt, 't'));
+        else openEdge(e.id, zt, 'sopra', u0, u1).forEach(([a, b], i) => lines.push(hLine(a, b, zt, `t${i}`)));
       }
       items.push({
         depth: Math.min(...quad.map(D)),
         node: (
           <g key={e.id}>
-            <path d={[outer, ...holes].join(' ')} fillRule="evenodd" className="ev-wall" strokeWidth={0.25 * mm} />
+            <path d={[outer, ...holes].join(' ')} fillRule="evenodd" className="ev-wall" style={{ stroke: "none" }} />
+            {lines}
             {glass}
           </g>
         ),
@@ -193,6 +263,20 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       const outline = slabOutline(p, e);
       const us = outline.map(U);
       const th = t?.thickness ?? 0.3;
+      // solaio interamente dietro un muro più vicino: non si vede
+      {
+        const sd = Math.min(...outline.map(D));
+        const su0 = Math.min(...us);
+        const su1 = Math.max(...us);
+        const sz1 = lvl.elevation;
+        const sz0 = sz1 - th;
+        // coperto dall'unione dei muri più vicini che lo contengono in quota
+        let segs: [number, number][] = [[su0, su1]];
+        for (const o of faces.values())
+          if (o.d < sd - 0.005 && o.z0 <= sz0 + 1e-3 && o.z1 >= sz1 - 1e-3)
+            segs = segs.flatMap(([x, y]) => (o.u1 <= x || o.u0 >= y ? [[x, y] as [number, number]] : ([[x, o.u0], [o.u1, y]] as [number, number][]).filter(([m, n]) => n - m > 1e-3)));
+        if (!segs.length) continue;
+      }
       items.push({
         depth: Math.min(...outline.map(D)) - 0.01,
         node: (

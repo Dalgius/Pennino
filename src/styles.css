@@ -2073,3 +2073,7 @@ select.chip:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.canvas2d .ev-wall-line {
+  fill: none;
+  stroke: var(--ink);
+}

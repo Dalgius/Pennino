@@ -466,6 +466,7 @@ export const SHEET_CSS = `
 .sheet-svg .pv-dimpartial { fill: #555; }
 .sheet-svg .pv-label { fill: #555; }
 .sheet-svg .ev-wall { fill: #f7f5f0; stroke: #111; }
+.sheet-svg .ev-wall-line { fill: none; stroke: #111; }
 .sheet-svg .ev-slab { fill: #cfcfcf; stroke: #111; }
 .sheet-svg .ev-roof { fill: #8d8d8d; stroke: #111; }
 .sheet-svg .ev-glass { fill: #e4e4e4; stroke: #111; }
