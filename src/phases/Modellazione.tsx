@@ -121,7 +121,9 @@ export function Modellazione() {
   const drafting = useStore((s) => s.drafting);
   const setDrafting = useStore((s) => s.setDrafting);
   const ortho = drafting.ortho;
-  const grid = drafting.snapStep;
+  const step = drafting.snapStep;
+  // l'aggancio alla griglia funziona solo con la griglia visibile
+  const grid = drafting.grid ? step : 0;
   const setOrtho = (v: boolean) => setDrafting({ ortho: v });
   const setGrid = (v: number) => setDrafting({ snapStep: v });
   const [ghost, setGhost] = useState(true);
@@ -570,7 +572,13 @@ export function Modellazione() {
           <button className={`chip ${ortho ? 'chip-on' : ''}`} onClick={() => setOrtho(!ortho)} title="F8 · Maiusc per disegno libero">
             Ortogonale
           </button>
-          <select className="chip" value={grid} onChange={(e) => setGrid(parseFloat(e.target.value))} title="Passo di aggancio">
+          <select
+            className="chip"
+            value={step}
+            disabled={!drafting.grid}
+            onChange={(e) => setGrid(parseFloat(e.target.value))}
+            title={drafting.grid ? 'Passo di aggancio alla griglia' : 'Griglia spenta: nessun aggancio alla griglia'}
+          >
             <option value={0.01}>Passo 1 cm</option>
             <option value={0.05}>Passo 5 cm</option>
             <option value={0.1}>Passo 10 cm</option>
