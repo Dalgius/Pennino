@@ -306,8 +306,11 @@ function WallPlan({ project: p, wall: w, mm, center, hp }: { project: Project; w
   const isFinish = (j: number) => (t ? !inCore(t.layers, j) : false);
   const lw = 0.35 * mm;
   const at = (sv: number, o: number) => add(add(w.a, mul(g.d, sv)), mul(g.n, o));
-  const sA = (sv: number | 'inizio', o: number) => (sv === 'inizio' ? startAt(g, o) : sv);
-  const sB = (sv: number | 'fine', o: number) => (sv === 'fine' ? endAt(g, o) : sv);
+  // angoli tra muri: nuclei con nuclei, rivestimenti che girano l'angolo (stesso risultato se il tipo è uguale)
+  const cutA = g.a.kind === 'angolo' ? cornerCut(p, w, g, 'a', center) : null;
+  const cutB = g.b.kind === 'angolo' ? cornerCut(p, w, g, 'b', center) : null;
+  const sA = (sv: number | 'inizio', o: number) => (sv === 'inizio' ? (cutA ? cutA(o) : startAt(g, o)) : sv);
+  const sB = (sv: number | 'fine', o: number) => (sv === 'fine' ? (cutB ? cutB(o) : endAt(g, o)) : sv);
   // innesti a T su questo muro: la faccia si interrompe su tutto il tramezzo, le finiture sulla sua struttura
   const tJ = tJunctions(p, w, g, center);
   // estremi a T di questo muro: la struttura attraversa la finitura del muro ospite
@@ -423,6 +426,63 @@ function inCore(layers: { role: string }[], j: number) {
   let last = first;
   layers.forEach((l, i) => l.role === 'struttura' && (last = i));
   return j >= first && j <= last;
+}
+
+/**
+ * Zone di un muro misurate verso l'esterno dell'angolo (q = σ·o, σ = lato esterno):
+ * [faccia esterna, faccia esterna del nucleo, faccia interna del nucleo, faccia interna].
+ */
+function cornerZones(p: Project, w: Wall, g: WallGeom, sOut: number): number[] {
+  const t = byId(p.catalog.wall, w.typeId);
+  const h = g.half;
+  if (!t || t.layers.length < 2) return [h, h, -h, -h];
+  const lb = layerBands(g, t.layers);
+  const qs = lb.flatMap((b, j) => (inCore(t.layers, j) ? [sOut * b.o0, sOut * b.o1] : []));
+  if (!qs.length) return [h, h, -h, -h];
+  return [h, Math.max(...qs), Math.min(...qs), -h];
+}
+
+/**
+ * Taglio d'angolo per strati: lo scostamento o del muro si accoppia a quello dell'altro muro nella
+ * zona corrispondente (rivestimento esterno, nucleo, rivestimento interno, in proporzione); il taglio
+ * è l'incrocio delle due rette. Restituisce s(o) lungo il muro, oppure null.
+ */
+function cornerCut(p: Project, w: Wall, g: WallGeom, end: 'a' | 'b', center: Vec2): ((o: number) => number) | null {
+  const ec = end === 'a' ? g.a : g.b;
+  const other = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === ec.otherId);
+  if (!other) return null;
+  const P = end === 'a' ? w.a : w.b;
+  const go = wallGeom(p, other, center);
+  const uA = end === 'a' ? g.d : mul(g.d, -1); // dal nodo dentro questo muro
+  const atA = dist(other.a, P) < dist(other.b, P);
+  const uB = atA ? go.d : mul(go.d, -1);
+  if (Math.abs(g.d.x * go.d.y - g.d.y * go.d.x) < 0.05) return null; // quasi allineati
+  const sOutA = dot(g.n, uB) < 0 ? 1 : -1;
+  const sOutB = dot(go.n, uA) < 0 ? 1 : -1;
+  const zA = cornerZones(p, w, g, sOutA);
+  const zB = cornerZones(p, other, go, sOutB);
+  const mapQ = (q: number) => {
+    for (let i = 0; i < 3; i++) {
+      const a0 = zA[i];
+      const a1 = zA[i + 1];
+      if (q <= a0 + 1e-9 && q >= a1 - 1e-9) {
+        const t = Math.abs(a0 - a1) < 1e-9 ? 0 : (a0 - q) / (a0 - a1);
+        return zB[i] + (zB[i + 1] - zB[i]) * t;
+      }
+    }
+    return q > zA[0] ? zB[0] : zB[3];
+  };
+  return (o: number) => {
+    const qB = mapQ(sOutA * o);
+    const oB = sOutB * qB;
+    // incrocio tra la retta a scostamento o di questo muro e quella a scostamento oB dell'altro
+    const p0 = add(w.a, mul(g.n, o));
+    const p1 = add(other.a, mul(go.n, oB));
+    const den = g.d.x * go.d.y - g.d.y * go.d.x;
+    const r = sub(p1, p0);
+    const s = (r.x * go.d.y - r.y * go.d.x) / den;
+    return s;
+  };
 }
 
 /** Spessore dei rivestimenti (finiture e isolanti esterni al nucleo) sul lato σ di un muro (dalla faccia fino al primo strato non di finitura) */
