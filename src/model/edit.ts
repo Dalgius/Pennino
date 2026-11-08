@@ -221,6 +221,24 @@ export function snapSegments(p: Project, levelId: string): SnapSegment[] {
   return out.filter((s) => dist(s.a, s.b) > 1e-6);
 }
 
+/**
+ * Pilastro sotto il cursore (o entro tol dal suo contorno) sui livelli dati: travi e muri
+ * vi si appoggiano sull'asse, cioè al centro del pilastro.
+ */
+export function columnUnder(p: Project, levelIds: string[], q: Vec2, tol: number): Snap | null {
+  let best: { c: Vec2; d: number } | null = null;
+  for (const e of p.elements) {
+    if (e.kind !== 'column' || !levelIds.includes(e.levelId)) continue;
+    const quad = columnQuad(e, byId(p.catalog.column, e.typeId));
+    const inside = pointInPolygon(q, quad);
+    const edge = Math.min(...quad.map((a, i) => projectOnSegment(q, a, quad[(i + 1) % quad.length]).d));
+    if (!inside && edge > tol) continue;
+    const d = dist(q, e.p);
+    if (!best || d < best.d) best = { c: e.p, d };
+  }
+  return best ? { p: best.c, kind: 'estremo' } : null;
+}
+
 /** Intersezione propria tra due segmenti (estremi esclusi entro eps) */
 function segmentIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
   const r = sub(b, a);

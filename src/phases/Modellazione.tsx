@@ -23,7 +23,7 @@ import {
   stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
-import { copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
+import { columnUnder, copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -331,8 +331,11 @@ export function Modellazione() {
     // muri e travi si agganciano agli assi (le giunzioni a T e ad L nascono sull'asse), il resto anche a facce e spigoli
     const axial = tool === 'wall' || tool === 'beam';
     const drawOpts = axial ? { ...snapOpts, candidates: snapOpts.candidates.filter((c) => c.kind !== 'spigolo') } : snapOpts;
-    const snap =
-      tool === 'select' || e.alt
+    // travi e muri sopra un pilastro: l'estremo va al centro del pilastro (piano e sottostante)
+    const onColumn = axial && !e.alt ? columnUnder(project, refLevel ? [lvlId, refLevel] : [lvlId], e.world, tol) : null;
+    const snap = onColumn
+      ? onColumn
+      : tool === 'select' || e.alt
         ? snapPoint(e.world, drawOpts)
         : snapModel(e.world, { ...drawOpts, segments: axial ? segments.filter((g) => !g.face) : segments });
 
@@ -524,7 +527,8 @@ export function Modellazione() {
           from: other,
           ortho: other ? ortho !== e.shift : false,
         };
-        const sp = e.alt ? snapPoint(e.world, hOpts) : snapModel(e.world, hOpts);
+        const onColumn = linear && !e.alt ? columnUnder(o, refLevel ? [el.levelId, refLevel] : [el.levelId], e.world, tol) : null;
+        const sp = onColumn ?? (e.alt ? snapPoint(e.world, hOpts) : snapModel(e.world, hOpts));
         setCursor(sp);
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id)!;
