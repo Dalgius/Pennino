@@ -194,3 +194,47 @@ test('spostando un pilastro con la quota si muovono solo le travi del suo piano'
   assert.ok(near(q.elements.find((e) => e.id === own.id).a.x, col.p.x + 0.5), 'la trave del piano segue');
   assert.ok(near(q.elements.find((e) => e.id === 'trave_p1').a.x, col.p.x), 'la trave dell’altro piano resta ferma');
 });
+
+/** Muro isolato da 5 m con una porta a 3 m, lontano dal resto del modello */
+function freeWall() {
+  const p = sampleProject();
+  const wt = p.elements.find((e) => e.kind === 'wall').typeId;
+  const door = p.catalog.opening.find((t) => near(t.width, 0.8));
+  p.elements.push({ id: 'wx', kind: 'wall', levelId: 'lvl_pt', typeId: wt, a: { x: 20, y: 0 }, b: { x: 25, y: 0 } });
+  p.elements.push({ id: 'ox', kind: 'opening', wallId: 'wx', typeId: door.id, offset: 3, flip: false });
+  return p;
+}
+
+test('accorciando un muro con la quota la porta resta dentro, anche senza i vincoli', () => {
+  const p = freeWall();
+  const chain = computeDimensions(p, 'lvl_pt').find((c) => c.wallId === 'wx' && c.marks.length === 2);
+  assert.equal(dimensionError(p, chain, 0, 1), null);
+  const q = produce(p, (d) => applyDimension(d, chain, 0, 1));
+  const w = q.elements.find((e) => e.id === 'wx');
+  const sp = openingSpans(q, w);
+  assert.ok(near(w.b.x, 21), 'muro da 1 m');
+  assert.equal(sp.length, 1, 'la porta è ancora in pianta');
+  assert.ok(sp[0].start >= -1e-6 && sp[0].end <= 1 + 1e-6 && near(sp[0].end - sp[0].start, 0.8), 'porta intera da 80 cm dentro il muro');
+  // più corto della porta: rifiutato
+  assert.match(dimensionError(p, chain, 0, 0.5) ?? '', /troppo corto/);
+  assert.equal(produce(p, (d) => applyDimension(d, chain, 0, 0.5)), p);
+});
+
+test('muri collineari o quasi paralleli non sono innesti a T', () => {
+  for (const b of [{ x: 27, y: 0 }, { x: 31, y: 0.4 }]) {
+    const p = freeWall();
+    const wt = p.elements.find((e) => e.kind === 'wall').typeId;
+    // parte dentro il muro da 5 m e prosegue oltre
+    p.elements.push({ id: 'wy', kind: 'wall', levelId: 'lvl_pt', typeId: wt, a: { x: 23, y: 0 }, b });
+    const chains = computeDimensions(p, 'lvl_pt').filter((c) => c.wallId === 'wx');
+    for (const c of chains) {
+      assert.ok(!c.marks.some((m) => m.ref.k === 'giunto'), `nessun giunto (${JSON.stringify(b)})`);
+      for (const m of c.marks) assert.ok(m.s > -0.5 && m.s < 5.5, `segni dentro il muro: ${m.s}`);
+    }
+  }
+  // un innesto vero resta
+  const p = freeWall();
+  p.elements.push({ id: 'wz', kind: 'wall', levelId: 'lvl_pt', typeId: p.elements.find((e) => e.kind === 'wall').typeId, a: { x: 21.5, y: 0 }, b: { x: 21.5, y: 3 } });
+  const c = computeDimensions(p, 'lvl_pt').find((x) => x.wallId === 'wx' && x.row === 1 && x.marks.length > 2);
+  assert.ok(c.marks.some((m) => m.ref.k === 'giunto' && m.ref.wallId === 'wz'), 'il tramezzo perpendicolare è un giunto');
+});

@@ -45,6 +45,9 @@ export function isExteriorWall(p: Project, w: Wall) {
 }
 
 /** Muri che si innestano a T sull'asse del muro g, con la loro posizione s */
+/** Seno minimo dell'angolo tra due muri perché uno si innesti a T nell'altro (circa 15°) */
+const MIN_T_SIN = 0.26;
+
 function junctions(p: Project, g: WallGeom, walls: Wall[]) {
   const out: { wall: Wall; s: number; half: number }[] = [];
   for (const o of walls) {
@@ -53,8 +56,15 @@ function junctions(p: Project, g: WallGeom, walls: Wall[]) {
       const pr = projectOnSegment(P, g.wall.a, g.wall.b);
       if (pr.d < 0.02 && pr.t > 1e-3 && pr.t < 1 - 1e-3) {
         const dO = norm(sub(o.b, o.a));
-        const sin = Math.abs(dot(dO, g.n)) || 1;
-        out.push({ wall: o, s: pr.t * g.L, half: wallThickness(byId(p.catalog.wall, o.typeId)) / 2 / sin });
+        const sin = Math.abs(dot(dO, g.n));
+        // un muro collineare (sovrapposto) o quasi parallelo non è un innesto a T
+        if (sin < MIN_T_SIN) continue;
+        const h = wallThickness(byId(p.catalog.wall, o.typeId)) / 2 / sin;
+        // l'innesto non va oltre le estremità del muro
+        const lo = Math.max(0, pr.t * g.L - h);
+        const hi = Math.min(g.L, pr.t * g.L + h);
+        if (hi - lo < 1e-3) continue;
+        out.push({ wall: o, s: (lo + hi) / 2, half: (hi - lo) / 2 });
       }
     }
   }
@@ -359,11 +369,58 @@ export function dimensionError(p: Project, chain: DimChain, k: number, value: nu
   return openingError(p, chain, k, value);
 }
 
+/** Tratto libero del muro (tra i tagli delle giunzioni d'estremità), in ascissa lungo il muro */
+function freeSpan(g: WallGeom) {
+  return {
+    s0: Math.max(startAt(g, g.half), startAt(g, -g.half), 0),
+    s1: Math.min(endAt(g, g.half), endAt(g, -g.half), g.L),
+  };
+}
+
+/** Allungando o accorciando un muro le sue aperture devono restarci dentro */
+function lengthError(p: Project, chain: DimChain, cur: number, value: number): string | null {
+  const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
+  if (!host) return null;
+  const g = wallGeom(p, host);
+  const { s0, s1 } = freeSpan(g);
+  const cuts = s0 + (g.L - s1);
+  const need = openingSpans(p, host).reduce((t, x) => t + x.type.width, 0);
+  const minL = Math.max(cuts + need, 0.05);
+  const newL = g.L + (value - cur) * dot(chain.dir, g.d);
+  if (newL >= minL - 1e-6) return null;
+  const vMin = cur + (minL - g.L) / (dot(chain.dir, g.d) || 1);
+  return need > 0
+    ? `Il muro diventerebbe troppo corto per le sue aperture: misura minima ${fmt(vMin)} m.`
+    : `Il muro diventerebbe troppo corto: misura minima ${fmt(vMin)} m.`;
+}
+
+/** Riporta le aperture del muro dentro il suo tratto libero, senza sovrapporle, nell'ordine in cui sono */
+function refitOpenings(d: Project, host: Wall) {
+  const g = wallGeom(d, host);
+  const { s0, s1 } = freeSpan(g);
+  const ops = d.elements
+    .filter((e): e is Extract<Project['elements'][number], { kind: 'opening' }> => e.kind === 'opening' && e.wallId === host.id)
+    .map((o) => ({ o, w: byId(d.catalog.opening, o.typeId)?.width ?? 0.8 }))
+    .sort((x, y) => x.o.offset - y.o.offset);
+  let limit = s1;
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const { o, w } = ops[i];
+    o.offset = Math.min(o.offset, limit - w / 2);
+    limit = o.offset - w / 2;
+  }
+  let from = s0;
+  for (const { o, w } of ops) {
+    o.offset = Math.max(o.offset, from + w / 2);
+    from = o.offset + w / 2;
+  }
+}
+
 function openingError(p: Project, chain: DimChain, k: number, value: number): string | null {
   const a = chain.marks[k];
   const b = chain.marks[k + 1];
   if (!a || !b) return null;
   const ref = b.ref;
+  if (ref.k === 'fine') return lengthError(p, chain, b.s - a.s, value);
   if (ref.k !== 'apertura' || ref.edge !== 0) return null;
   const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
   const sp = host && openingSpans(p, host).find((x) => x.opening.id === ref.id);
@@ -457,5 +514,6 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
       if (Math.abs(dot(cd, chain.dir)) < 0.98) translateWall(d, corner, shift, new Set([host.id]));
       else setWallEnd(d, corner, dist(corner.a, b0) < 0.02 ? 'a' : 'b', host.b);
     }
+    refitOpenings(d, host);
   }
 }
