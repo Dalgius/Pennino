@@ -914,7 +914,7 @@ function DimChains({
             {c.marks.slice(0, -1).map((m, k) => {
               const len = c.marks[k + 1].s - m.s;
               if (len < 0.005) return null;
-              const label = len.toFixed(2);
+              const label = (Math.round(len * 100 + 1e-6) / 100).toFixed(2); // arrotondamento coerente (2,385 → 2,39 sempre)
               const mid = (m.s + c.marks[k + 1].s) / 2;
               const w = label.length * charW;
               const segPaper = len;

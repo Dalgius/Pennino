@@ -123,9 +123,20 @@ function freeEdgeChains(p: Project, levelId: string, walls: Wall[]): DimChain[] 
       free.forEach(([t0, t1], fi) => {
       if (t1 - t0 < 0.3) return;
       const nOut = { x: d.y * sign, y: -d.x * sign };
+      // estremi: dove il tratto parte da un muro, la quota parte dal suo filo esterno (punto fisso)
+      const faceAt = (t: number, toward: 1 | -1) => {
+        const J = add(a, mul(d, t));
+        const host = [...walls, ...below].find((w) => {
+          const wd = norm(sub(w.b, w.a));
+          return Math.abs(dot(wd, d)) < 0.05 && projectOnSegment(J, w.a, w.b).d < 0.02;
+        });
+        return host ? t + toward * (wallThickness(byId(p.catalog.wall, host.typeId)) / 2) : null;
+      };
+      const f0 = faceAt(t0, 1);
+      const f1 = faceAt(t1, -1);
       const marks: DimMark[] = [
-        { s: t0, ref: t0 < 1e-6 ? { k: 'vertice', slabId: s.id, index: i } : { k: 'punto' } },
-        { s: t1, ref: t1 > L - 1e-6 ? { k: 'vertice', slabId: s.id, index: j } : { k: 'punto' } },
+        f0 !== null ? { s: f0, ref: { k: 'punto' } } : { s: t0, ref: t0 < 1e-6 ? { k: 'vertice', slabId: s.id, index: i } : { k: 'punto' } },
+        f1 !== null ? { s: f1, ref: { k: 'punto' } } : { s: t1, ref: t1 > L - 1e-6 ? { k: 'vertice', slabId: s.id, index: j } : { k: 'punto' } },
       ];
       // pilastri a ridosso del bordo
       for (const c of columns) {
@@ -143,7 +154,12 @@ function freeEdgeChains(p: Project, levelId: string, walls: Wall[]): DimChain[] 
       marks.sort((x, y) => x.s - y.s);
       // segni coincidenti (pilastro a filo dello spigolo): si tiene il vertice
       const clean = marks.filter((m, k) => k === 0 || Math.abs(m.s - marks[k - 1].s) > 1e-3 || m.ref.k !== 'pilastro');
-      out.push({ id: `${s.id}:e${i}${fi ? '-' + fi : ''}`, wallId: s.id, origin: a, dir: d, out: nOut, row: 1, marks: clean, endFixed: false });
+      const id = `${s.id}:e${i}${fi ? '-' + fi : ''}`;
+      if (clean[0].ref.k === 'vertice' && clean[clean.length - 1].ref.k === 'punto') {
+        // il vertice libero va in fondo alla catena (la quota sposta l'ultimo segno): si rovescia il verso
+        const rev = clean.map((m) => ({ s: L - m.s, ref: m.ref })).reverse();
+        out.push({ id, wallId: s.id, origin: b, dir: mul(d, -1), out: nOut, row: 1, marks: rev, endFixed: false });
+      } else out.push({ id, wallId: s.id, origin: a, dir: d, out: nOut, row: 1, marks: clean, endFixed: false });
       });
     });
   }

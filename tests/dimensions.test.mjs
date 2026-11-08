@@ -138,7 +138,7 @@ test('pilastro isolato quotato e spostabile; lato del balcone che sporge oltre i
   const col = p.elements.find((e) => e.id === 'cIso');
   assert.ok(near(col.p.x - 0.15 - 0.215, 2.0), `pilastro a 2,00 dalla faccia del muro (x=${col.p.x})`);
   const west = computeDimensions(p, 'lvl_p1').find((c) => c.marks.some((m) => m.ref.k === 'punto') && c.marks.some((m) => m.ref.k === 'vertice'));
-  assert.ok(west && near(west.marks[1].s - west.marks[0].s, 2.6), 'sporgenza del balcone 2,60');
+  assert.ok(west && near(west.marks[1].s - west.marks[0].s, 2.6 - 0.215), 'sporgenza del balcone dal filo esterno del muro: 2,385');
 });
 
 test.after(() => server.close());
