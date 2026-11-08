@@ -2059,3 +2059,7 @@ input.brand-project:focus {
   fill: none;
   stroke: var(--ink-2);
 }
+.canvas2d .pv-slab-above {
+  fill: none;
+  stroke: var(--ink-2);
+}

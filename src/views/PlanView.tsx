@@ -90,6 +90,16 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       <HatchDefs prefix={hp} u={mm} />
       {ghostLevelId && lvl?.kind !== 'copertura' && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
 
+      {/* solai del piano superiore (balconi, pensiline): tratteggiati, sotto i muri */}
+      {lvl?.kind !== 'copertura' &&
+        (() => {
+          const up = levelAbove(p, levelId);
+          if (!up || up.kind === 'copertura') return null;
+          return els
+            .filter((e) => e.kind === 'slab' && e.levelId === up.id)
+            .map((e) => e.kind === 'slab' && <polygon key={`up${e.id}`} points={pts(slabOutline(p, e))} className="pv-slab-above" strokeWidth={0.18 * mm} strokeDasharray={`${2.5 * mm} ${1.2 * mm}`} />);
+        })()}
+
       {slabs.map(
         (s) =>
           s.kind === 'slab' && (
