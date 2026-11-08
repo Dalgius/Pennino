@@ -129,4 +129,16 @@ test('bordi liberi dei solai quotati: pilastri e balcone modificabili dalle quot
   assert.ok(near(pts[1].x, 5.8) && near(pts[2].x, 5.8), 'vertici del lato perpendicolare spostati insieme');
 });
 
+test('pilastro isolato quotato e spostabile; lato del balcone che sporge oltre il muro quotato', () => {
+  let p = sampleProject();
+  p.elements.push({ id: 'cIso', kind: 'column', levelId: 'lvl_pt', typeId: 'ct_30', p: { x: 3, y: 4 } });
+  const cx = computeDimensions(p, 'lvl_pt').find((c) => c.id === 'cIso:x');
+  assert.ok(cx && computeDimensions(p, 'lvl_pt').some((c) => c.id === 'cIso:y'), 'quote in x e y');
+  p = apply(p, (d) => applyDimension(d, cx, 0, 2.0));
+  const col = p.elements.find((e) => e.id === 'cIso');
+  assert.ok(near(col.p.x - 0.15 - 0.215, 2.0), `pilastro a 2,00 dalla faccia del muro (x=${col.p.x})`);
+  const west = computeDimensions(p, 'lvl_p1').find((c) => c.marks.some((m) => m.ref.k === 'punto') && c.marks.some((m) => m.ref.k === 'vertice'));
+  assert.ok(west && near(west.marks[1].s - west.marks[0].s, 2.6), 'sporgenza del balcone 2,60');
+});
+
 test.after(() => server.close());
