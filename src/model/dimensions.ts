@@ -347,7 +347,55 @@ function translateWall(d: Project, w: Wall, delta: Vec2, skip: Set<string>) {
   }
 }
 
+const fmt = (v: number) => v.toFixed(2).replace('.', ',');
+
+/**
+ * Controlla una nuova misura prima di applicarla. Restituisce il motivo del rifiuto, o null se va bene.
+ * Un'apertura deve restare intera nel tratto libero del muro (tra le facce dei muri d'angolo),
+ * senza sovrapporsi ad altre aperture o ai muri innestati a T.
+ */
+export function dimensionError(p: Project, chain: DimChain, k: number, value: number): string | null {
+  if (!(value > 0) || !Number.isFinite(value)) return 'La misura deve essere un numero maggiore di zero.';
+  return openingError(p, chain, k, value);
+}
+
+function openingError(p: Project, chain: DimChain, k: number, value: number): string | null {
+  const a = chain.marks[k];
+  const b = chain.marks[k + 1];
+  if (!a || !b) return null;
+  const ref = b.ref;
+  if (ref.k !== 'apertura' || ref.edge !== 0) return null;
+  const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
+  const sp = host && openingSpans(p, host).find((x) => x.opening.id === ref.id);
+  if (!host || !sp) return null;
+  const g = wallGeom(p, host);
+  // ostacoli lungo il muro: altre aperture e muri innestati
+  const walls = p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === host.levelId);
+  const obstacles: [number, number][] = [
+    ...openingSpans(p, host)
+      .filter((x) => x.opening.id !== ref.id)
+      .map((x) => [x.start, x.end] as [number, number]),
+    ...junctions(p, g, walls).map((j) => [j.s - j.half, j.s + j.half] as [number, number]),
+  ];
+  let lo = Math.max(startAt(g, g.half), startAt(g, -g.half), 0);
+  let hi = Math.min(endAt(g, g.half), endAt(g, -g.half), g.L);
+  for (const [o0, o1] of obstacles) {
+    if (o1 <= sp.start + 1e-6) lo = Math.max(lo, o1);
+    else if (o0 >= sp.end - 1e-6) hi = Math.min(hi, o0);
+  }
+  const width = sp.type.width;
+  const cur = b.s - a.s;
+  const vMin = cur + (lo - sp.start);
+  const vMax = cur + (hi - width - sp.start);
+  if (value < vMin - 1e-4 || value > vMax + 1e-4)
+    return vMax < vMin
+      ? 'L’apertura non ha spazio per spostarsi: modifica annullata.'
+      : `L’apertura uscirebbe dal tratto libero del muro o si sovrapporrebbe ad altri elementi: misura ammessa da ${fmt(Math.max(0, vMin))} a ${fmt(vMax)} m.`;
+  return null;
+}
+
 export function applyDimension(d: Project, chain: DimChain, k: number, value: number) {
+  if (openingError(d, chain, k, value)) return;
   const cur = chain.marks[k + 1].s - chain.marks[k].s;
   const delta = value - cur;
   if (Math.abs(delta) < 1e-6) return;
@@ -377,7 +425,7 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
     c.p = add(c.p, shift);
     // le travi appoggiate sul pilastro lo seguono
     for (const b of d.elements)
-      if (b.kind === 'beam') {
+      if (b.kind === 'beam' && b.levelId === c.levelId) {
         if (dist(b.a, old) < 0.02) b.a = add(b.a, shift);
         if (dist(b.b, old) < 0.02) b.b = add(b.b, shift);
       }

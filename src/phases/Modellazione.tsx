@@ -33,7 +33,7 @@ import { Icon } from '../ui/icons';
 import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
 import { SectionMark, SectionView, sectionLength } from '../views/SectionView';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
-import { applyDimension } from '../model/dimensions';
+import { applyDimension, dimensionError } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section';
@@ -150,7 +150,11 @@ export function Modellazione() {
   };
   const commitDim = () => {
     const v = parseFloat(dimText.replace(',', '.'));
-    if (dimEdit && v > 0) edit((d) => applyDimension(d, dimEdit.chain, dimEdit.k, v));
+    if (dimEdit) {
+      const why = dimensionError(project, dimEdit.chain, dimEdit.k, v);
+      if (why) setNotice(why);
+      else edit((d) => applyDimension(d, dimEdit.chain, dimEdit.k, v));
+    }
     setDimEdit(null);
   };
 

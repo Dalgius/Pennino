@@ -8,7 +8,7 @@ import { produce } from 'immer';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
 const { followWalls, takeRefusal } = await server.ssrLoadModule('/src/model/constraints.ts');
-const { computeDimensions, applyDimension } = await server.ssrLoadModule('/src/model/dimensions.ts');
+const { computeDimensions, applyDimension, dimensionError } = await server.ssrLoadModule('/src/model/dimensions.ts');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 const { openingSpans } = await server.ssrLoadModule('/src/model/geometry.ts');
 
@@ -160,4 +160,37 @@ test('portico: la quota dal muro al pilastro sul lato letto al contrario sposta 
   const q = apply(p, (d) => applyDimension(d, chain, 0, seg(chain, 0) - 0.5));
   const moved = q.elements.find((e) => e.id === col.id);
   assert.ok(near(moved.p.y, -3.15 + 0.5), 'il pilastro si avvicina al muro di 50 cm');
+});
+
+test('una quota non porta un’apertura fuori dal muro né sopra un’altra', () => {
+  const p = sampleProject();
+  for (const lv of ['lvl_pt', L1])
+    for (const ch of computeDimensions(p, lv))
+      ch.marks.forEach((m, k) => {
+        if (k === 0 || m.ref.k !== 'apertura' || m.ref.edge !== 0) return;
+        assert.ok(dimensionError(p, ch, k - 1, 100), `100 m rifiutati su ${ch.id}`);
+        const q = apply(p, (d) => applyDimension(d, ch, k - 1, 100));
+        assert.equal(q, p, 'modello invariato');
+        // la misura attuale resta ammessa
+        assert.equal(dimensionError(p, ch, k - 1, m.s - ch.marks[k - 1].s), null);
+      });
+  // una piccola variazione resta possibile
+  const ch = computeDimensions(p, L1).find((c) => c.marks.some((m) => m.ref.k === 'apertura'));
+  const k = ch.marks.findIndex((m) => m.ref.k === 'apertura') - 1;
+  const v = ch.marks[k + 1].s - ch.marks[k].s;
+  assert.equal(dimensionError(p, ch, k, v - 0.05), null);
+});
+
+test('spostando un pilastro con la quota si muovono solo le travi del suo piano', () => {
+  const p = sampleProject();
+  const L0 = 'lvl_pt';
+  const col = p.elements.find((e) => e.kind === 'column' && e.levelId === L0);
+  const own = p.elements.find((e) => e.kind === 'beam' && e.levelId === L0 && (near(e.a.x, col.p.x) && near(e.a.y, col.p.y)));
+  // trave di un altro piano con un estremo sulla stessa verticale
+  p.elements.push({ id: 'trave_p1', kind: 'beam', levelId: L1, typeId: own.typeId, a: { ...col.p }, b: { x: col.p.x, y: 4 } });
+  const chain = { id: 'x', wallId: col.id, origin: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, out: { x: 0, y: 1 }, row: 1, endFixed: false,
+    marks: [{ s: 0, ref: { k: 'punto' } }, { s: 1, ref: { k: 'pilastro', id: col.id, edge: 0 } }] };
+  const q = produce(p, (d) => applyDimension(d, chain, 0, 1.5));
+  assert.ok(near(q.elements.find((e) => e.id === own.id).a.x, col.p.x + 0.5), 'la trave del piano segue');
+  assert.ok(near(q.elements.find((e) => e.id === 'trave_p1').a.x, col.p.x), 'la trave dell’altro piano resta ferma');
 });
