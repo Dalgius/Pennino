@@ -996,6 +996,12 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
             // copertura: tutto l'ingombro, sporto compreso
             <polygon points={pts(roofOutline(roofWithEave(p, e)))} />
           )}
+          {/* maniglie dei lati: trascinandole il lato si sposta parallelo */}
+          {e.points.map((q, i) => {
+            const r = e.points[(i + 1) % e.points.length];
+            const m = { x: (q.x + r.x) / 2, y: (q.y + r.y) / 2 };
+            return <rect key={`m${i}`} x={m.x - 0.9 * mm} y={-m.y - 0.9 * mm} width={1.8 * mm} height={1.8 * mm} className="pv-handle" />;
+          })}
           {e.points.map((q, i) => (
             <circle key={i} cx={q.x} cy={-q.y} r={1.2 * mm} className="pv-handle" />
           ))}

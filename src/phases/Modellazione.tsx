@@ -3,6 +3,7 @@ import { useStore } from '../model/store';
 import type { BuildingElement, Project, Vec2 } from '../model/types';
 import {
   add,
+  dot,
   bbox,
   byId,
   convexHull,
@@ -68,7 +69,7 @@ const SECTION_TOOL: ToolDef = { id: 'section', label: 'Sezione', key: 'X', icon:
 type ViewMode = 'pianta' | 'prospetti' | 'sezioni' | '3d' | 'affiancate';
 
 interface Drag {
-  kind: 'move' | 'handle' | 'opening' | 'sezione' | 'sezione-estremo';
+  kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo';
   id: string;
   handle?: number;
   start: Vec2;
@@ -364,6 +365,15 @@ export function Modellazione() {
           drag.current = { kind: 'handle', id, handle: hi, start: e.world, orig: project, moved: false };
           return;
         }
+        // solai e coperture: maniglie a metà dei lati per spostare un lato parallelamente
+        if (el.kind === 'slab' || el.kind === 'roof') {
+          const n = el.points.length;
+          const li = el.points.findIndex((q, i) => dist(mul(add(q, el.points[(i + 1) % n]), 0.5), e.world) < tol);
+          if (li >= 0) {
+            drag.current = { kind: 'lato', id, handle: li, start: e.world, orig: project, moved: false };
+            return;
+          }
+        }
       }
       // tracce di sezione: estremi e linea
       for (const sec of project.sections ?? []) {
@@ -452,10 +462,32 @@ export function Modellazione() {
         });
         return;
       }
+      if (dr.kind === 'lato') {
+        // lato di un solaio o di una copertura: si sposta parallelo a sé stesso (perpendicolarmente)
+        const el = o.elements.find((x) => x.id === dr.id);
+        if (!el || (el.kind !== 'slab' && el.kind !== 'roof')) return;
+        const n = el.points.length;
+        const i = dr.handle!;
+        const j = (i + 1) % n;
+        const dE = norm(sub(el.points[j], el.points[i]));
+        const nn = { x: -dE.y, y: dE.x };
+        let off = dot(sub(e.world, dr.start), nn);
+        if (grid > 0) off = Math.round(off / grid) * grid;
+        setCursor({ p: e.world, kind: 'libero' });
+        editLive((d) => {
+          const x = d.elements.find((q) => q.id === dr.id);
+          if (!x || (x.kind !== 'slab' && x.kind !== 'roof')) return;
+          x.points[i] = add(el.points[i], mul(nn, off));
+          x.points[j] = add(el.points[j], mul(nn, off));
+        });
+        return;
+      }
       if (dr.kind === 'handle') {
         const el = o.elements.find((x) => x.id === dr.id)!;
         const orig = getHandles(el)[dr.handle!];
-        const other = el.kind === 'wall' || el.kind === 'beam' || el.kind === 'stair' ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : undefined;
+        const linear = el.kind === 'wall' || el.kind === 'beam' || el.kind === 'stair';
+        // segmenti: ortogonale rispetto all'altro estremo; poligoni (solai, coperture): rispetto alla posizione di partenza
+        const other = linear ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : el.kind === 'slab' || el.kind === 'roof' ? orig : undefined;
         const hOpts = {
           candidates: candidates.filter((c) => dist(c.p, orig) > 1e-6),
           // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
