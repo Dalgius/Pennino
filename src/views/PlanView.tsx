@@ -90,6 +90,10 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
       <HatchDefs prefix={hp} u={mm} />
       {ghostLevelId && lvl?.kind !== 'copertura' && <GhostWalls project={p} levelId={ghostLevelId} mm={mm} />}
 
+      {/* pilastri e travi del piano sottostante: in vista dove nessun solaio li copre,
+          tratteggiati sotto il solaio quando è attivo il sottostante */}
+      {lvl?.kind !== 'copertura' && below && <BelowStructure project={p} levelId={levelId} belowId={below.id} mm={mm} hp={hp} showHidden={!!ghostLevelId} />}
+
       {/* solai del piano superiore (balconi, pensiline): tratteggiati, sotto i muri */}
       {lvl?.kind !== 'copertura' &&
         (() => {
@@ -220,6 +224,51 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
           <path d="M0,0 L10,5 L0,10 z" className="pv-arrowhead" />
         </marker>
       </defs>
+    </g>
+  );
+}
+
+/** Pilastri e travi del livello sottostante visti dall'alto, mascherati dai solai di questo livello */
+function BelowStructure({ project: p, levelId, belowId, mm, hp, showHidden }: { project: Project; levelId: string; belowId: string; mm: number; hp: string; showHidden: boolean }) {
+  const quads: Vec2[][] = [];
+  for (const e of p.elements) {
+    if (!('levelId' in e) || e.levelId !== belowId) continue;
+    if (e.kind === 'column') quads.push(columnQuad(e, byId(p.catalog.column, e.typeId)));
+    else if (e.kind === 'beam') quads.push(wallSegmentQuad(e as unknown as Wall, byId(p.catalog.beam, e.typeId)?.width ?? 0.3, 0, dist(e.a, e.b)));
+  }
+  if (!quads.length) return null;
+  const slabs = p.elements.filter((e) => e.kind === 'slab' && e.levelId === levelId);
+  const path = (r: Vec2[]) => `M${pts(r).replace(/ /g, ' L')} Z`;
+  const covered = slabs.map((s) => (s.kind === 'slab' ? [slabOutline(p, s), ...slabHoles(p, s)].map(path).join(' ') : '')).join(' ');
+  const all = quads.flat();
+  const bb = bbox(all);
+  const big = { x: bb.minX - 5, y: -(bb.maxY + 5), w: bb.w + 10, h: bb.h + 10 };
+  const vis = `${hp}-below-vis`;
+  const hid = `${hp}-below-hid`;
+  return (
+    <g className="pv-below">
+      <defs>
+        {/* visibile: fuori dai solai (e nei fori scala) */}
+        <mask id={vis} maskUnits="userSpaceOnUse" x={big.x} y={big.y} width={big.w} height={big.h}>
+          <rect x={big.x} y={big.y} width={big.w} height={big.h} fill="#fff" />
+          {covered && <path d={covered} fillRule="evenodd" fill="#000" />}
+        </mask>
+        <mask id={hid} maskUnits="userSpaceOnUse" x={big.x} y={big.y} width={big.w} height={big.h}>
+          {covered && <path d={covered} fillRule="evenodd" fill="#fff" />}
+        </mask>
+      </defs>
+      <g mask={`url(#${vis})`}>
+        {quads.map((q, i) => (
+          <polygon key={`v${i}`} points={pts(q)} className="pv-below-line" strokeWidth={0.18 * mm} />
+        ))}
+      </g>
+      {showHidden && (
+        <g mask={`url(#${hid})`}>
+          {quads.map((q, i) => (
+            <polygon key={`h${i}`} points={pts(q)} className="pv-below-line" strokeWidth={0.15 * mm} strokeDasharray={`${1.5 * mm} ${1 * mm}`} />
+          ))}
+        </g>
+      )}
     </g>
   );
 }

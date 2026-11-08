@@ -437,6 +437,7 @@ export const SHEET_CSS = `
 .sheet-svg .pv-slab { fill: #f2f2f2; stroke: #888; }
 .sheet-svg .pv-slab-hole { fill: none; stroke: #111; }
 .sheet-svg .pv-slab-above { fill: none; stroke: #555; }
+.sheet-svg .pv-below-line { fill: none; stroke: #444; }
 .sheet-svg .pv-wall { fill: #1a1a1a; }
 .sheet-svg .pv-layer { stroke: #111; }
 .sheet-svg .pv-wall-outline { fill: none; stroke: #111; }
