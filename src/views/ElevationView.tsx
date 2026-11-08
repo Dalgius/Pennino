@@ -1,9 +1,10 @@
 // Prospetto ortogonale generato dal modello: muri, aperture, solai, copertura e quote dei livelli.
 
-import type { Project, Vec2 } from '../model/types';
+import type { Project, Vec2, Wall } from '../model/types';
 import {
   bbox,
   byId,
+  columnQuad,
   dot,
   fmtLevel,
   norm,
@@ -207,21 +208,23 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         ),
       });
     } else if (e.kind === 'column') {
-      const t = byId(p.catalog.column, e.typeId);
-      const w = Math.abs(u.x) > 0.5 ? t?.width ?? 0.3 : t?.depth ?? 0.3;
+      // ingombro reale del pilastro, come in pianta
+      const q = columnQuad(e, byId(p.catalog.column, e.typeId));
+      const us = q.map(U);
       items.push({
-        depth: D(e.p),
-        node: <rect key={e.id} x={U(e.p) - w / 2} y={Z(lvl.elevation + lvl.height)} width={w} height={lvl.height} className="ev-wall" strokeWidth={0.25 * mm} />,
+        depth: Math.min(...q.map(D)),
+        node: <rect key={e.id} x={Math.min(...us)} y={Z(lvl.elevation + lvl.height)} width={Math.max(...us) - Math.min(...us)} height={lvl.height} className="ev-wall" strokeWidth={0.25 * mm} />,
       });
     } else if (e.kind === 'beam') {
       const t = byId(p.catalog.beam, e.typeId);
       const h = t?.height ?? 0.4;
       const top = lvl.elevation + lvl.height;
-      const a = U(e.a);
-      const b = U(e.b);
+      // ingombro reale della trave (larghezza compresa), centrato sull'asse come in pianta
+      const q = wallSegmentQuad(e as unknown as Wall, t?.width ?? 0.3, 0, Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y));
+      const us = q.map(U);
       items.push({
-        depth: Math.min(D(e.a), D(e.b)),
-        node: <rect key={e.id} x={Math.min(a, b)} y={Z(top)} width={Math.abs(b - a) || t?.width || 0.3} height={h} className="ev-wall" strokeWidth={0.25 * mm} />,
+        depth: Math.min(...q.map(D)),
+        node: <rect key={e.id} x={Math.min(...us)} y={Z(top)} width={Math.max(...us) - Math.min(...us)} height={h} className="ev-wall" strokeWidth={0.25 * mm} />,
       });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
