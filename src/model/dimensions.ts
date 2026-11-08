@@ -157,7 +157,10 @@ function freeEdgeChains(p: Project, levelId: string, walls: Wall[]): DimChain[] 
       const id = `${s.id}:e${i}${fi ? '-' + fi : ''}`;
       if (clean[0].ref.k === 'vertice' && clean[clean.length - 1].ref.k === 'punto') {
         // il vertice libero va in fondo alla catena (la quota sposta l'ultimo segno): si rovescia il verso
-        const rev = clean.map((m) => ({ s: L - m.s, ref: m.ref })).reverse();
+        // nel verso opposto le facce del pilastro si scambiano: edge 0 resta la faccia che si incontra per prima
+        const rev = clean
+          .map((m) => ({ s: L - m.s, ref: m.ref.k === 'pilastro' ? { ...m.ref, edge: (1 - m.ref.edge) as 0 | 1 } : m.ref }))
+          .reverse();
         out.push({ id, wallId: s.id, origin: b, dir: mul(d, -1), out: nOut, row: 1, marks: rev, endFixed: false });
       } else out.push({ id, wallId: s.id, origin: a, dir: d, out: nOut, row: 1, marks: clean, endFixed: false });
       });

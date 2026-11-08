@@ -142,3 +142,22 @@ test('pilastro isolato quotato e spostabile; lato del balcone che sporge oltre i
 });
 
 test.after(() => server.close());
+
+test('portico: la quota dal muro al pilastro sul lato letto al contrario sposta il pilastro', () => {
+  const p = sampleProject();
+  const L0 = 'lvl_pt';
+  const sl = p.elements.find((e) => e.kind === 'slab' && e.levelId === L0 && e.points.some((q) => q.y < 0));
+  sl.points = [{ x: 0, y: -4 }, { x: 6.2, y: -4 }, { x: 6.2, y: 0 }, { x: 0, y: 0 }];
+  const col = p.elements.filter((e) => e.kind === 'column' && e.levelId === L0).find((c) => c.p.x > 3);
+  col.p = { x: 6.05, y: -3.15 };
+  // lato est: dal vertice (6.2,-4) al muro, la catena parte dal filo del muro
+  const chain = computeDimensions(p, L0).find((c) => c.id === `${sl.id}:e1`);
+  assert.ok(chain, 'catena sul lato est');
+  const seg = (c, k) => c.marks[k + 1].s - c.marks[k].s;
+  assert.equal(chain.marks[1].ref.k, 'pilastro');
+  assert.equal(chain.marks[1].ref.edge, 0, 'la prima faccia incontrata è il bordo che sposta il pilastro');
+  assert.ok(near(seg(chain, 1), 0.3), 'larghezza del pilastro in mezzo');
+  const q = apply(p, (d) => applyDimension(d, chain, 0, seg(chain, 0) - 0.5));
+  const moved = q.elements.find((e) => e.id === col.id);
+  assert.ok(near(moved.p.y, -3.15 + 0.5), 'il pilastro si avvicina al muro di 50 cm');
+});
