@@ -22,7 +22,7 @@ import {
   stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
-import { deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
+import { copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -127,6 +127,9 @@ export function Modellazione() {
   const setOrtho = (v: boolean) => setDrafting({ ortho: v });
   const setGrid = (v: number) => setDrafting({ snapStep: v });
   const [ghost, setGhost] = useState(true);
+  // appunti per copiare elementi tra i livelli (Ctrl+C / Ctrl+V)
+  const clipboard = useRef<string[]>([]);
+  const setNotice = useStore((st) => st.setNotice);
   const [flipNext, setFlipNext] = useState(false);
   const [mirrorNext, setMirrorNext] = useState(false);
   // forma delle nuove scale
@@ -192,8 +195,16 @@ export function Modellazione() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lvlId]);
 
-  const candidates = useMemo(() => snapPoints(project, lvlId), [project, lvlId]);
-  const segments = useMemo(() => snapSegments(project, lvlId), [project, lvlId]);
+  // con il sottostante attivo si aggancia anche agli elementi del piano inferiore
+  const refLevel = ghost && below && level?.kind !== 'copertura' ? below.id : null;
+  const candidates = useMemo(
+    () => [...snapPoints(project, lvlId), ...(refLevel ? snapPoints(project, refLevel) : [])],
+    [project, lvlId, refLevel],
+  );
+  const segments = useMemo(
+    () => [...snapSegments(project, lvlId), ...(refLevel ? snapSegments(project, refLevel) : [])],
+    [project, lvlId, refLevel],
+  );
 
   // ───────── Creazione elementi ─────────
 
@@ -496,6 +507,26 @@ export function Modellazione() {
         e.preventDefault();
         changeTool('select');
         select('modello', elementsInRect(project, lvlId, { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }, false));
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedIds.length) {
+        // copia la selezione (si incolla su qualsiasi livello, nella stessa posizione)
+        clipboard.current = selectedIds.filter((id) => project.elements.some((x) => x.id === id && x.kind !== 'opening'));
+        setNotice(`${clipboard.current.length} elementi copiati: Ctrl+V per incollarli sul livello attivo.`);
+        e.preventDefault();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clipboard.current.length) {
+        e.preventDefault();
+        const src = clipboard.current.filter((id) => project.elements.some((x) => x.id === id));
+        if (!src.length) return;
+        let made: string[] = [];
+        edit((d) => {
+          made = copyElementsToLevel(d, src, lvlId);
+        });
+        changeTool('select');
+        select('modello', made);
+        setNotice(`${made.length} elementi incollati su «${level?.name ?? ''}».`);
         return;
       }
       if (e.ctrlKey || e.metaKey) return;

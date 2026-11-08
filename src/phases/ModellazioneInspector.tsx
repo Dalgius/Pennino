@@ -27,7 +27,7 @@ import {
   wallLength,
   wallThickness,
 } from '../model/geometry';
-import { deleteElements } from '../model/edit';
+import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { leavesOf } from '../model/openings';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
@@ -69,6 +69,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
           ))}
         </div>
         <p className="note">Trascina per spostarli insieme · Maiusc + clic o riquadro per aggiungere · Canc per eliminare.</p>
+        <CopyToLevel ids={ids} />
         <button className="btn btn-danger btn-block" onClick={remove}>
           <Icon name="trash" size={14} /> Elimina selezione
         </button>
@@ -371,6 +372,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
         );
       })()}
 
+      {e.kind !== 'opening' && <CopyToLevel ids={ids} />}
       <div className="insp-actions">
         <button className="btn btn-danger" onClick={remove}>
           <Icon name="trash" size={14} /> Elimina
@@ -602,6 +604,46 @@ function PackageEditor({
         </>
       )}
     </>
+  );
+}
+
+/** Copia degli elementi selezionati su un altro livello, nella stessa posizione (porte e finestre comprese) */
+function CopyToLevel({ ids }: { ids: string[] }) {
+  const project = useStore((s) => s.project);
+  const edit = useStore((s) => s.edit);
+  const select = useStore((s) => s.select);
+  const setActiveLevel = useStore((s) => s.setActiveLevel);
+  const setNotice = useStore((s) => s.setNotice);
+  const levels = sortedLevels(project);
+  const first = project.elements.find((e) => e.id === ids[0]);
+  const from = first && 'levelId' in first ? first.levelId : undefined;
+  const others = levels.filter((l) => l.id !== from);
+  // destinazione proposta: il livello sopra quello di partenza (non le coperture), altrimenti il primo disponibile
+  const idx = levels.findIndex((l) => l.id === from);
+  const above = levels.slice(idx + 1).find((l) => l.kind !== 'copertura');
+  const [to, setTo] = useState(above?.id ?? others[0]?.id ?? '');
+  if (!others.length) return null;
+  const target = others.find((l) => l.id === to) ?? others[0];
+  const copy = () => {
+    let made: string[] = [];
+    edit((d) => {
+      made = copyElementsToLevel(d, ids, target.id);
+    });
+    setActiveLevel(target.id);
+    select('modello', made);
+    setNotice(`${made.length} elementi copiati su «${target.name}».`);
+  };
+  return (
+    <div className="copy-level">
+      <div className="subhead">Copia su un altro livello</div>
+      <div className="type-row">
+        <SelectField label="Livello di destinazione" value={target.id} options={others.map((l) => ({ value: l.id, label: l.name }))} onChange={setTo} />
+      </div>
+      <button className="btn btn-block" onClick={copy}>
+        Copia nella stessa posizione
+      </button>
+      <p className="note">Anche con Ctrl+C sul livello di partenza e Ctrl+V sul livello di arrivo.</p>
+    </div>
   );
 }
 

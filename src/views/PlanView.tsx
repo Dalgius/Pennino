@@ -828,7 +828,22 @@ function GhostWalls({ project: p, levelId, mm }: { project: Project; levelId: st
     <g className="pv-ghost" strokeWidth={0.18 * mm}>
       {p.elements.map((e) => {
         if (e.kind !== 'wall' || e.levelId !== levelId) return null;
-        return <polygon key={e.id} points={pts(wallOutline(wallGeom(p, e)))} />;
+        // solo le facce e gli estremi liberi: niente linee dei giunti
+        const g = wallGeom(p, e);
+        const at = (sv: number, o: number) => add(add(e.a, mul(g.d, sv)), mul(g.n, o));
+        const segs: [Vec2, Vec2][] = [
+          [at(startAt(g, g.half), g.half), at(endAt(g, g.half), g.half)],
+          [at(startAt(g, -g.half), -g.half), at(endAt(g, -g.half), -g.half)],
+        ];
+        if (g.a.kind === 'libero') segs.push([at(startAt(g, g.half), g.half), at(startAt(g, -g.half), -g.half)]);
+        if (g.b.kind === 'libero') segs.push([at(endAt(g, g.half), g.half), at(endAt(g, -g.half), -g.half)]);
+        return (
+          <g key={e.id}>
+            {segs.map(([P, Q], i) => (
+              <line key={i} x1={P.x} y1={-P.y} x2={Q.x} y2={-Q.y} />
+            ))}
+          </g>
+        );
       })}
     </g>
   );

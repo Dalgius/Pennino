@@ -6,6 +6,7 @@ import {
   bbox,
   roofBase,
   roofEave,
+  uid,
   levelAbove,
   slabHoles,
   stairFootprints,
@@ -493,6 +494,35 @@ export function siteItemsInRect(
       hit = corners.some((c, j) => segmentsCross(a, b, c, corners[(j + 1) % 4]));
     }
     if (hit) out.push(it.id);
+  }
+  return out;
+}
+
+/**
+ * Copia gli elementi indicati sul livello di destinazione, nella stessa posizione in pianta.
+ * Le aperture dei muri copiati vengono copiate con loro. Restituisce gli id dei nuovi elementi.
+ */
+export function copyElementsToLevel(d: Project, ids: string[], levelId: string): string[] {
+  const set = new Set(ids);
+  const src = d.elements.filter((e) => set.has(e.id) && e.kind !== 'opening');
+  const wallMap = new Map<string, string>();
+  const out: string[] = [];
+  const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+  for (const e of src) {
+    const c = clone(e) as typeof e;
+    c.id = uid(e.id.split('_')[0] || 'e');
+    if ('levelId' in c) (c as { levelId: string }).levelId = levelId;
+    if (e.kind === 'wall') wallMap.set(e.id, c.id);
+    d.elements.push(c);
+    out.push(c.id);
+  }
+  // aperture dei muri copiati
+  for (const e of [...d.elements]) {
+    if (e.kind !== 'opening' || !wallMap.has(e.wallId)) continue;
+    const c = clone(e);
+    c.id = uid('o');
+    c.wallId = wallMap.get(e.wallId)!;
+    d.elements.push(c);
   }
   return out;
 }

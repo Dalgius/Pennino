@@ -1005,7 +1005,8 @@ button.chip:hover {
 .canvas2d .pv-label {
   fill: var(--text-3);
 }
-.canvas2d .pv-ghost polygon {
+.canvas2d .pv-ghost polygon,
+.canvas2d .pv-ghost line {
   fill: none;
   stroke: var(--ink-2);
   stroke-opacity: 0.55;
