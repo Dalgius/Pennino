@@ -33,7 +33,7 @@ export function useSiteEditor(o: Options) {
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const ortho = useStore((s) => s.drafting.ortho);
   // l'aggancio alla griglia funziona solo con la griglia visibile
-  const gridStep = useStore((s) => (s.drafting.grid ? 0.1 : 0));
+  const gridStep = useStore((s) => (s.drafting.grid ? s.drafting.snapStep : 0));
   const setDrafting = useStore((s) => s.setDrafting);
   const setOrtho = (v: boolean) => setDrafting({ ortho: v });
   const drag = useRef<{ id: string; ids: string[]; handle: number | null; start: Vec2; orig: Project; moved: boolean } | null>(null);

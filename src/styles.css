@@ -2077,3 +2077,12 @@ select.chip:disabled {
   fill: none;
   stroke: var(--ink);
 }
+.chip-split {
+  display: inline-flex;
+}
+.chip-split > .chip + .chip {
+  border-left: none;
+}
+.chip-split select.chip {
+  padding-right: 4px;
+}

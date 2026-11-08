@@ -125,7 +125,6 @@ export function Modellazione() {
   // l'aggancio alla griglia funziona solo con la griglia visibile
   const grid = drafting.grid ? step : 0;
   const setOrtho = (v: boolean) => setDrafting({ ortho: v });
-  const setGrid = (v: number) => setDrafting({ snapStep: v });
   const [ghost, setGhost] = useState(true);
   // appunti per copiare elementi tra i livelli (Ctrl+C / Ctrl+V)
   const clipboard = useRef<string[]>([]);
@@ -597,18 +596,6 @@ export function Modellazione() {
       ortho
       tools={
         <>
-          <select
-            className="chip"
-            value={step}
-            disabled={!drafting.grid}
-            onChange={(e) => setGrid(parseFloat(e.target.value))}
-            title={drafting.grid ? 'Passo di aggancio alla griglia' : 'Griglia spenta: nessun aggancio alla griglia'}
-          >
-            <option value={0.01}>Passo 1 cm</option>
-            <option value={0.05}>Passo 5 cm</option>
-            <option value={0.1}>Passo 10 cm</option>
-            <option value={0.5}>Passo 50 cm</option>
-          </select>
           {below && (
             <button className={`chip ${ghost ? 'chip-on' : ''}`} onClick={() => setGhost(!ghost)} title="Mostra in trasparenza il livello inferiore e agganciati ai suoi elementi">
               Sottostante: {below.name}

@@ -44,6 +44,7 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
   const fitted = useRef(false);
   const showGrid = useStore((s) => s.drafting.grid);
   const orthoOn = useStore((s) => s.drafting.ortho);
+  const snapStep = useStore((s) => s.drafting.snapStep);
   const setDrafting = useStore((s) => s.setDrafting);
 
   const fit = useCallback(() => {
@@ -207,13 +208,25 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
           ≈ 1:{ratio}
         </span>
         {grid && (
-          <button
-            className={`chip ${showGrid ? 'chip-on' : ''}`}
-            onClick={() => setDrafting({ grid: !showGrid })}
-            title="Mostra o nascondi la griglia (G con Ctrl)"
-          >
-            Griglia{g ? <span className="mono">{g.step < 1 ? `${Math.round(g.step * 100)} cm` : `${g.step} m`}</span> : null}
-          </button>
+          // comando diviso: a sinistra accende la griglia, a destra il passo di aggancio (attivo con la griglia)
+          <span className={`chip-split ${showGrid ? 'on' : ''}`}>
+            <button className={`chip ${showGrid ? 'chip-on' : ''}`} onClick={() => setDrafting({ grid: !showGrid })} title="Griglia e aggancio alla griglia">
+              Griglia
+            </button>
+            <select
+              className={`chip ${showGrid ? 'chip-on' : ''}`}
+              value={snapStep}
+              disabled={!showGrid}
+              onChange={(e) => setDrafting({ snapStep: parseFloat(e.target.value) })}
+              title={showGrid ? 'Passo di aggancio alla griglia' : 'Griglia spenta: nessun aggancio alla griglia'}
+            >
+              <option value={0.01}>1 cm</option>
+              <option value={0.05}>5 cm</option>
+              <option value={0.1}>10 cm</option>
+              <option value={0.5}>50 cm</option>
+              <option value={1}>1 m</option>
+            </select>
+          </span>
         )}
         {ortho && (
           <button className={`chip ${orthoOn ? 'chip-on' : ''}`} onClick={() => setDrafting({ ortho: !orthoOn })} title="F8 · Maiusc per disegnare e spostare liberamente">
