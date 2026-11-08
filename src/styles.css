@@ -2050,3 +2050,12 @@ input.brand-project:focus {
 .layer-card.strata-cover {
   border-left: 3px solid transparent;
 }
+.canvas2d .sc-outline {
+  fill: none;
+  stroke: var(--ink);
+}
+.canvas2d .sc-layer-line,
+.canvas2d .sc-layer-outline {
+  fill: none;
+  stroke: var(--ink-2);
+}

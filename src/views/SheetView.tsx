@@ -474,6 +474,8 @@ export const SHEET_CSS = `
 .sheet-svg .ev-sill { fill: #fff; stroke: #111; }
 .sheet-svg .sc-cut { fill: #111; stroke: #111; }
 .sheet-svg .sc-view { fill: #fff; stroke: #444; }
+.sheet-svg .sc-outline { fill: none; stroke: #111; }
+.sheet-svg .sc-layer-line, .sheet-svg .sc-layer-outline { fill: none; stroke: #444; }
 .sheet-svg .sc-earth { fill: #ddd; }
 .sheet-svg .sc-fixture rect { fill: #fff; stroke: #111; }
 .sheet-svg .sc-glass { stroke: #111; }

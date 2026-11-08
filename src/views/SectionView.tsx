@@ -5,7 +5,8 @@
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
 import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
-import { wallGeom, wallOutline } from '../model/walls';
+import { layerBands, wallGeom, wallOutline } from '../model/walls';
+import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
 import { ElevationView, type ViewFrame } from './ElevationView';
 
 export function sectionFrame(s: SectionLine): ViewFrame {
@@ -38,6 +39,15 @@ function cutIntervals(poly: Vec2[], f: ViewFrame): [number, number][] {
   return out;
 }
 
+/** Nucleo strutturale: dal primo all'ultimo strato «struttura» (senza strati strutturali, tutto) */
+function layerInCore(layers: { role: string }[], j: number) {
+  const first = layers.findIndex((l) => l.role === 'struttura');
+  if (first < 0) return true;
+  let last = first;
+  layers.forEach((l, i) => l.role === 'struttura' && (last = i));
+  return j >= first && j <= last;
+}
+
 /** Quota dell'intradosso del profilo di una rampa all'ascissa x */
 function profileBottom(prof: Vec2[], x: number) {
   let z = Infinity;
@@ -59,11 +69,25 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
   const D = (q: Vec2) => dot(sub(q, f.origin), f.depth);
   const U = (q: Vec2) => dot(sub(q, f.origin), f.u);
   const cuts: React.ReactNode[] = [];
+  // ordine di disegno: muri, poi solai (la loro struttura entra nei muri), poi il resto
+  const wallCuts: React.ReactNode[] = [];
+  const slabCuts: React.ReactNode[] = [];
+  const wallSpans: { u0: number; u1: number; z0: number; z1: number }[] = [];
   const sw = 0.35 * mm;
+  const hp = useHatchPrefix();
+  const layered = mm < 0.08; // a scala ≥ 1:50 si vedono gli strati
+  const polyPts = (q: [number, number][]) => q.map(([u, z]) => `${u},${Z(z)}`).join(' ');
+  /** strato tagliato con il suo retino */
+  const band = (key: string, q: [number, number][], fill: string, into: React.ReactNode[]) =>
+    into.push(<polygon key={key} points={polyPts(q)} fill={fill} stroke={fill} strokeWidth={0.06 * mm} />);
+  const outlineOf = (key: string, q: [number, number][], into: React.ReactNode[]) =>
+    into.push(<polygon key={key} points={polyPts(q)} className="sc-outline" strokeWidth={sw} />);
   const rect = (key: string, u0: number, u1: number, z0: number, z1: number, cls = 'sc-cut') =>
     cuts.push(<rect key={key} x={Math.min(u0, u1)} y={Z(Math.max(z0, z1))} width={Math.abs(u1 - u0)} height={Math.abs(z1 - z0)} className={cls} strokeWidth={sw} />);
 
-  for (const e of p.elements) {
+  // prima i muri: i solai ne usano l'ingombro per fermare le finiture
+  const ordered = [...p.elements.filter((x) => x.kind === 'wall'), ...p.elements.filter((x) => x.kind !== 'wall')];
+  for (const e of ordered) {
     const lvl = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
     if (!lvl) continue;
     const z0 = lvl.elevation;
@@ -85,23 +109,54 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       }
       // sotto le falde il muro sale fino all'intradosso della copertura (timpano)
       const topAt = (uu: number) => roofUndersideAt(p, add(f.origin, mul(f.u, uu)), z0 + H) ?? z0 + H;
-      ivs.forEach(([u0, u1], i) => {
-        if (!hit) {
-          const t0 = topAt(u0);
-          const t1 = topAt(u1);
-          if (Math.abs(t0 - z0 - H) < 1e-3 && Math.abs(t1 - z0 - H) < 1e-3) return rect(`${e.id}${i}`, u0, u1, z0, z0 + H);
-          cuts.push(
-            <polygon key={`${e.id}${i}`} points={`${u0},${Z(z0)} ${u1},${Z(z0)} ${u1},${Z(t1)} ${u0},${Z(t0)}`} className="sc-cut" strokeWidth={sw} />,
-          );
-          return;
+      // strati: lo scostamento o dall'asse cade in u = uX + o·k lungo la sezione
+      const t = byId(p.catalog.wall, e.typeId);
+      const cn = dot(f.u, g.n);
+      let layerMap: ((o: number) => number) | null = null;
+      if (layered && t && t.layers.length > 0 && Math.abs(cn) > 0.2) {
+        const den = f.u.x * g.d.y - f.u.y * g.d.x;
+        if (Math.abs(den) > 1e-9) {
+          const r = sub(e.a, f.origin);
+          const uX = (r.x * g.d.y - r.y * g.d.x) / den; // incrocio della traccia con l'asse del muro
+          layerMap = (o: number) => uX + o / cn;
         }
+      }
+      const piece = (key: string, u0: number, u1: number, zb: number, zt0: number, zt1: number) => {
+        const topLin = (u: number) => (Math.abs(u1 - u0) < 1e-9 ? zt0 : zt0 + ((zt1 - zt0) * (u - u0)) / (u1 - u0));
+        const quad = (a: number, b: number): [number, number][] => [
+          [a, zb],
+          [b, zb],
+          [b, topLin(b)],
+          [a, topLin(a)],
+        ];
+        wallSpans.push({ u0: Math.min(u0, u1), u1: Math.max(u0, u1), z0: zb, z1: Math.max(zt0, zt1) });
+        if (!layerMap || !t) {
+          if (layered && t) band(`${key}h`, quad(u0, u1), hatchFill(hp, mainHatch(t.layers)), wallCuts);
+          else return wallCuts.push(<polygon key={key} points={polyPts(quad(u0, u1))} className="sc-cut" strokeWidth={sw} />);
+          return outlineOf(`${key}o`, quad(u0, u1), wallCuts);
+        }
+        const lo = Math.min(u0, u1);
+        const hi = Math.max(u0, u1);
+        const bands = layerBands(g, t.layers);
+        bands.forEach((bd, j) => {
+          const a = Math.max(lo, Math.min(layerMap!(bd.o0), layerMap!(bd.o1)));
+          const b = Math.min(hi, Math.max(layerMap!(bd.o0), layerMap!(bd.o1)));
+          if (b - a > 1e-4) band(`${key}l${j}`, quad(a, b), hatchFill(hp, hatchOf(t.layers[j])), wallCuts);
+        });
+        bands.slice(0, -1).forEach((bd, j) => {
+          const u = layerMap!(bd.o1);
+          if (u > lo + 1e-4 && u < hi - 1e-4)
+            wallCuts.push(<line key={`${key}s${j}`} x1={u} y1={Z(zb)} x2={u} y2={Z(topLin(u))} className="sc-layer-line" strokeWidth={0.1 * mm} />);
+        });
+        outlineOf(`${key}o`, quad(u0, u1), wallCuts);
+      };
+      ivs.forEach(([u0, u1], i) => {
+        if (!hit) return piece(`${e.id}${i}`, u0, u1, z0, topAt(u0), topAt(u1));
         const h0 = z0 + hit.type.sill;
         const h1 = Math.min(z0 + H, h0 + hit.type.height);
-        if (h0 > z0 + 1e-3) rect(`${e.id}${i}b`, u0, u1, z0, h0);
+        if (h0 > z0 + 1e-3) piece(`${e.id}${i}b`, u0, u1, z0, h0, h0);
         // sopra l'architrave il muro arriva fino alla copertura
-        cuts.push(
-          <polygon key={`${e.id}${i}t`} points={`${u0},${Z(h1)} ${u1},${Z(h1)} ${u1},${Z(topAt(u1))} ${u0},${Z(topAt(u0))}`} className="sc-cut" strokeWidth={sw} />,
-        );
+        piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1));
       });
       if (hit && X) {
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale
@@ -137,7 +192,37 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       for (const h of slabHoles(p, e))
         for (const [h0, h1] of cutIntervals(h, f))
           ivs = ivs.flatMap(([a, b]) => (h1 <= a || h0 >= b ? [[a, b] as [number, number]] : ([[a, h0], [h1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
-      ivs.forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0 - th, z0));
+      const st = byId(p.catalog.slab, e.typeId);
+      if (!layered || !st?.layers?.length) {
+        ivs.forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0 - th, z0));
+        continue;
+      }
+      // strati dall'alto: la struttura entra nei muri, le finiture si fermano al loro filo
+      const tot = st.layers.reduce((a, l) => a + l.thickness, 0) || th;
+      const k = th / tot;
+      let zt = z0;
+      st.layers.forEach((l, j) => {
+        const zb = zt - l.thickness * k;
+        const core = layerInCore(st.layers!, j);
+        ivs.forEach(([u0, u1], i) => {
+          let segs: [number, number][] = [[u0, u1]];
+          if (!core)
+            for (const w of wallSpans)
+              if (w.z1 > zb + 1e-4 && w.z0 < zt - 1e-4)
+                segs = segs.flatMap(([a, b]) => (w.u1 <= a || w.u0 >= b ? [[a, b] as [number, number]] : ([[a, w.u0], [w.u1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+          segs.forEach(([a, b], m) => {
+            const q: [number, number][] = [
+              [a, zb],
+              [b, zb],
+              [b, zt],
+              [a, zt],
+            ];
+            band(`${e.id}l${j}-${i}-${m}`, q, hatchFill(hp, hatchOf(l)), slabCuts);
+            slabCuts.push(<polygon key={`${e.id}o${j}-${i}-${m}`} points={polyPts(q)} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
+          });
+        });
+        zt = zb;
+      });
     } else if (e.kind === 'column') {
       cutIntervals(columnQuad(e, byId(p.catalog.column, e.typeId)), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, z0, z0 + lvl.height));
     } else if (e.kind === 'beam') {
@@ -172,8 +257,26 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;
       const base = z0 + lvl.height;
+      const rl = layered && t?.layers?.length ? t.layers : null;
+      const tot = rl ? rl.reduce((a, l) => a + l.thickness, 0) || th : th;
+      /** strati della copertura tra il profilo inferiore zb(u) e quello superiore zb(u) + th, dall'alto */
+      const roofBands = (key: string, us: number[], zbot: (u: number) => number) => {
+        let c = 0;
+        rl!.forEach((l, j) => {
+          const c1 = c + (l.thickness * th) / tot;
+          const top = us.map((u): [number, number] => [u, zbot(u) + th - c]);
+          const bot = [...us].reverse().map((u): [number, number] => [u, zbot(u) + th - c1]);
+          band(`${key}l${j}`, [...top, ...bot], hatchFill(hp, hatchOf(l)), cuts);
+          cuts.push(<polygon key={`${key}o${j}`} points={polyPts([...top, ...bot])} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
+          c = c1;
+        });
+        const outer: [number, number][] = [...us.map((u): [number, number] => [u, zbot(u)]), ...[...us].reverse().map((u): [number, number] => [u, zbot(u) + th])];
+        outlineOf(`${key}O`, outer, cuts);
+      };
       if (e.shape === 'piana') {
-        cutIntervals(roofOutline(roofWithEave(p, e)), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, base, base + th));
+        cutIntervals(roofOutline(roofWithEave(p, e)), f).forEach(([u0, u1], i) =>
+          rl ? roofBands(`${e.id}${i}`, [u0, u1], () => base) : rect(`${e.id}${i}`, u0, u1, base, base + th),
+        );
         continue;
       }
       const b = bbox(e.points);
@@ -205,6 +308,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
           const ur = u0 - c0 / du;
           if (ur > u0 && ur < u1) us.splice(1, 0, ur);
         }
+        if (rl) return roofBands(`${e.id}${i}`, us, zb);
         const bottom = us.map((uu) => `${uu},${Z(zb(uu))}`);
         const top = [...us].reverse().map((uu) => `${uu},${Z(zb(uu) + th)}`);
         cuts.push(<polygon key={`${e.id}${i}`} points={[...bottom, ...top].join(' ')} className="sc-cut" strokeWidth={sw} />);
@@ -288,10 +392,13 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
   return (
     <g className="section">
       <ElevationView project={p} direction={f} mm={mm} textScale={textScale} extents={ext} />
+      <HatchDefs prefix={hp} u={mm} />
       {views.map((v) => v.node)}
       {/* terreno sezionato */}
       <rect x={ext.min} y={Z(gl)} width={ext.max - ext.min} height={0.8} className="sc-earth" />
       <line x1={ext.min} y1={Z(gl)} x2={ext.max} y2={Z(gl)} className="ev-ground" strokeWidth={0.7 * mm} />
+      {wallCuts}
+      {slabCuts}
       {cuts}
     </g>
   );
