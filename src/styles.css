@@ -2067,3 +2067,8 @@ input.brand-project:focus {
   fill: none;
   stroke: var(--ink-2);
 }
+.chip:disabled,
+select.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
