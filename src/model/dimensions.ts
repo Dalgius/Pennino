@@ -5,13 +5,17 @@
 // Scrivendo una nuova misura si sposta l'elemento all'estremità destra del segmento.
 
 import type { Project, Vec2, Wall } from './types';
-import { add, byId, dist, dot, mul, norm, openingSpans, projectOnSegment, sub, wallThickness } from './geometry';
+import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, projectOnSegment, sub, wallThickness } from './geometry';
 import { endAt, faceOffset, levelCenter, startAt, wallGeom, type WallGeom } from './walls';
 
 export type MarkRef =
   | { k: 'inizio' | 'fine'; wallId: string }
   | { k: 'apertura'; id: string; edge: 0 | 1 }
-  | { k: 'giunto'; wallId: string; face: 0 | 1 };
+  | { k: 'giunto'; wallId: string; face: 0 | 1 }
+  /** vertice di un solaio (catene sui bordi liberi) */
+  | { k: 'vertice'; slabId: string; index: number }
+  /** faccia di un pilastro lungo la catena */
+  | { k: 'pilastro'; id: string; edge: 0 | 1 };
 
 export interface DimMark {
   s: number;
@@ -81,7 +85,74 @@ export function computeDimensions(p: Project, levelId: string): DimChain[] {
     if (inner.length) chains.push({ ...base, id: `${w.id}:1`, row: 1, marks: [start, ...inner, end] });
     chains.push({ ...base, id: `${w.id}:2`, row: inner.length ? 2 : 1, marks: [start, end] });
   }
-  return dropDuplicates(p, walls, chains);
+  return [...dropDuplicates(p, walls, chains), ...freeEdgeChains(p, levelId, walls)];
+}
+
+/** Il lato a→b giace sull'asse di un muro (anche solo in parte)? */
+function edgeOnSomeWall(a: Vec2, b: Vec2, walls: Wall[]) {
+  const ed = norm(sub(b, a));
+  const L = dist(a, b);
+  return walls.some((w) => {
+    const wd = norm(sub(w.b, w.a));
+    if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01) return false;
+    const off = (q: Vec2) => Math.abs((q.x - w.a.x) * wd.y - (q.y - w.a.y) * wd.x);
+    if (off(a) > 0.02 || off(b) > 0.02) return false;
+    const t = (q: Vec2) => dot(sub(q, a), ed);
+    return Math.min(L, Math.max(t(w.a), t(w.b))) - Math.max(0, Math.min(t(w.a), t(w.b))) > 0.05;
+  });
+}
+
+/**
+ * Catene sui bordi liberi dei solai del livello (balconi, pensiline, pavimentazioni esterne):
+ * lunghezza del bordo e pilastri vicini, sul lato esterno del solaio.
+ */
+function freeEdgeChains(p: Project, levelId: string, walls: Wall[]): DimChain[] {
+  const out: DimChain[] = [];
+  const below = (() => {
+    const lv = p.levels.find((l) => l.id === levelId);
+    const lower = p.levels.filter((l) => lv && l.elevation < lv.elevation - 1e-6).sort((a, b) => b.elevation - a.elevation)[0];
+    return lower ? p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === lower.id) : [];
+  })();
+  const columns = p.elements.filter((e) => e.kind === 'column' && e.levelId === levelId);
+  for (const s of p.elements) {
+    if (s.kind !== 'slab' || s.levelId !== levelId || s.points.length < 3) continue;
+    const pts = s.points;
+    let area2 = 0;
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      area2 += a.x * b.y - b.x * a.y;
+    });
+    const sign = area2 >= 0 ? 1 : -1;
+    pts.forEach((a, i) => {
+      const j = (i + 1) % pts.length;
+      const b = pts[j];
+      const L = dist(a, b);
+      if (L < 0.3 || edgeOnSomeWall(a, b, walls) || edgeOnSomeWall(a, b, below)) return;
+      const d = norm(sub(b, a));
+      const nOut = { x: d.y * sign, y: -d.x * sign };
+      const marks: DimMark[] = [
+        { s: 0, ref: { k: 'vertice', slabId: s.id, index: i } },
+        { s: L, ref: { k: 'vertice', slabId: s.id, index: j } },
+      ];
+      // pilastri a ridosso del bordo
+      for (const c of columns) {
+        if (c.kind !== 'column') continue;
+        const q = columnQuad(c, byId(p.catalog.column, c.typeId));
+        const off = q.map((v) => dot(sub(v, a), nOut));
+        if (Math.min(...off) > 0.05 || Math.max(...off) < -0.8) continue;
+        const ss = q.map((v) => dot(sub(v, a), d));
+        const s0 = Math.min(...ss);
+        const s1 = Math.max(...ss);
+        if (s1 < -0.05 || s0 > L + 0.05) continue;
+        marks.push({ s: Math.max(0, s0), ref: { k: 'pilastro', id: c.id, edge: 0 } }, { s: Math.min(L, s1), ref: { k: 'pilastro', id: c.id, edge: 1 } });
+      }
+      marks.sort((x, y) => x.s - y.s);
+      // segni coincidenti (pilastro a filo dello spigolo): si tiene il vertice
+      const clean = marks.filter((m, k) => k === 0 || Math.abs(m.s - marks[k - 1].s) > 1e-3 || m.ref.k !== 'pilastro');
+      out.push({ id: `${s.id}:e${i}`, wallId: s.id, origin: a, dir: d, out: nOut, row: 1, marks: clean, endFixed: false });
+    });
+  }
+  return out;
 }
 
 /**
@@ -92,7 +163,7 @@ const TOL_SPAN = 0.3;
 
 function dropDuplicates(p: Project, walls: Wall[], chains: DimChain[]): DimChain[] {
   const byWall = new Map(walls.map((w) => [w.id, w]));
-  const single = (c: DimChain) => c.marks.length === 2 && !isExteriorWall(p, byWall.get(c.wallId)!);
+  const single = (c: DimChain) => c.marks.length === 2 && byWall.has(c.wallId) && !isExteriorWall(p, byWall.get(c.wallId)!);
   const kept = chains.filter((c) => !single(c));
   const along = (c: DimChain, ref: DimChain, s: number) => dot(sub(add(c.origin, mul(c.dir, s)), ref.origin), ref.dir);
   const dup = (c: DimChain) => {
@@ -131,6 +202,8 @@ export function segmentEdit(chain: DimChain, k: number): string | null {
   const b = chain.marks[k + 1]?.ref;
   if (!a || !b) return null;
   if (b.k === 'apertura' && b.edge === 0) return 'sposta l’apertura';
+  if (b.k === 'vertice') return 'sposta il bordo del solaio';
+  if (b.k === 'pilastro' && b.edge === 0) return 'sposta il pilastro';
   if (b.k === 'giunto' && b.face === 0) return 'sposta il muro';
   if (b.k === 'fine' && !chain.endFixed) return 'allunga o accorcia il muro';
   return null; // larghezza di un’apertura o spessore di un muro: si cambiano dalla tipologia
@@ -185,9 +258,39 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
   const delta = value - cur;
   if (Math.abs(delta) < 1e-6) return;
   const ref = chain.marks[k + 1].ref;
+  const shift = mul(chain.dir, delta);
+  if (ref.k === 'vertice') {
+    // il vertice si sposta lungo la catena; i vertici dei lati perpendicolari lo seguono (forma conservata)
+    const s = d.elements.find((e) => e.id === ref.slabId);
+    if (!s || s.kind !== 'slab') return;
+    const n = s.points.length;
+    const moved = new Set<number>([ref.index]);
+    for (const step of [1, -1]) {
+      const nb = (ref.index + step + n) % n;
+      const e = norm(sub(s.points[nb], s.points[ref.index]));
+      if (Math.abs(dot(e, chain.dir)) < 0.02 && !(nb === (ref.index - step + n) % n)) moved.add(nb);
+    }
+    // non spostare l'altro estremo della catena
+    const startIdx = chain.marks[k].ref.k === 'vertice' ? (chain.marks[k].ref as { index: number }).index : -1;
+    moved.delete(startIdx);
+    for (const i of moved) s.points[i] = add(s.points[i], shift);
+    return;
+  }
+  if (ref.k === 'pilastro' && ref.edge === 0) {
+    const c = d.elements.find((e) => e.id === ref.id);
+    if (!c || c.kind !== 'column') return;
+    const old = c.p;
+    c.p = add(c.p, shift);
+    // le travi appoggiate sul pilastro lo seguono
+    for (const b of d.elements)
+      if (b.kind === 'beam') {
+        if (dist(b.a, old) < 0.02) b.a = add(b.a, shift);
+        if (dist(b.b, old) < 0.02) b.b = add(b.b, shift);
+      }
+    return;
+  }
   const host = d.elements.find((e) => e.id === chain.wallId);
   if (!host || host.kind !== 'wall') return;
-  const shift = mul(chain.dir, delta);
 
   if (ref.k === 'apertura' && ref.edge === 0) {
     const o = d.elements.find((e) => e.id === ref.id);

@@ -109,4 +109,24 @@ test('spostare l’estremo iniziale mantiene la posizione assoluta della porta',
   assert.ok(near(11 - doorOf(q).offset, x));
 });
 
+test('bordi liberi dei solai quotati: pilastri e balcone modificabili dalle quote', () => {
+  let p = sampleProject();
+  const chains = computeDimensions(p, 'lvl_pt').filter((c) => c.id.includes(':e'));
+  const withCols = chains.find((c) => c.marks.some((m) => m.ref.k === 'pilastro'));
+  assert.ok(withCols, 'catena con i pilastri sul bordo della pavimentazione');
+  const k = withCols.marks.findIndex((m, i) => i > 0 && m.ref.k === 'pilastro' && m.ref.edge === 0) - 1;
+  const cur = withCols.marks[k + 1].s - withCols.marks[k].s;
+  const col = withCols.marks[k + 1].ref.id;
+  const before = p.elements.find((e) => e.id === col).p.x;
+  p = apply(p, (d) => applyDimension(d, withCols, k, cur + 0.5));
+  assert.ok(near(Math.abs(p.elements.find((e) => e.id === col).p.x - before), 0.5), 'pilastro spostato di 50 cm');
+  // balcone del piano primo: accorciato di 40 cm, resta rettangolare
+  const bal = computeDimensions(p, 'lvl_p1').find((c) => c.id.endsWith(':e0'));
+  assert.ok(bal, 'bordo del balcone quotato');
+  const n = bal.marks.length;
+  p = apply(p, (d) => applyDimension(d, bal, n - 2, bal.marks[n - 1].s - bal.marks[n - 2].s - 0.4));
+  const pts = p.elements.find((e) => e.kind === 'slab' && e.levelId === 'lvl_p1').points;
+  assert.ok(near(pts[1].x, 5.8) && near(pts[2].x, 5.8), 'vertici del lato perpendicolare spostati insieme');
+});
+
 test.after(() => server.close());
