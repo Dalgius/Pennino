@@ -105,6 +105,10 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
     if (!lv) continue;
     const th = wallThickness(byId(p.catalog.wall, e.typeId));
     const q = wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2);
+    // nelle sezioni contano solo i muri oltre il piano (stesso filtro del disegno)
+    const dq = q.map(D);
+    if (frame.near !== undefined && Math.max(...dq) < frame.near) continue;
+    if (frame.far !== undefined && Math.min(...dq) > frame.far) continue;
     const us = q.map(U);
     const z1 = lv.elevation + wallHeight(p, e);
     faces.set(e.id, {
