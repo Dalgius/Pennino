@@ -962,7 +962,9 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
   const sw = 0.5 * mm;
   // la scala si evidenzia anche al piano di arrivo
   const arrives = e.kind === 'stair' && levelAbove(p, e.levelId)?.id === levelId;
-  if ('levelId' in e && e.levelId !== levelId && !arrives) return null;
+  // pilastri e travi del piano sotto si evidenziano anche dal piano superiore, dove si vedono
+  const struct = (e.kind === 'column' || e.kind === 'beam') && levelAbove(p, e.levelId)?.id === levelId;
+  if ('levelId' in e && e.levelId !== levelId && !arrives && !struct) return null;
   switch (e.kind) {
     case 'wall': {
       return (

@@ -204,14 +204,27 @@ export function Modellazione() {
 
   // con il sottostante attivo si aggancia anche agli elementi del piano inferiore
   const refLevel = ghost && below && level?.kind !== 'copertura' ? below.id : null;
+  // pilastri e travi del piano sotto si vedono sempre in pianta: ci si aggancia anche senza il sottostante
+  const structLevel = below && level?.kind !== 'copertura' ? below.id : null;
+  const belowStruct = useMemo(
+    () => new Set(project.elements.filter((e) => (e.kind === 'column' || e.kind === 'beam') && e.levelId === structLevel).map((e) => e.id)),
+    [project, structLevel],
+  );
   const candidates = useMemo(
-    () => [...snapPoints(project, lvlId), ...(refLevel ? snapPoints(project, refLevel) : [])],
-    [project, lvlId, refLevel],
+    () => [
+      ...snapPoints(project, lvlId),
+      ...(refLevel ? snapPoints(project, refLevel) : structLevel ? snapPoints(project, structLevel).filter((c) => c.id && belowStruct.has(c.id)) : []),
+    ],
+    [project, lvlId, refLevel, structLevel, belowStruct],
   );
   const segments = useMemo(
-    () => [...snapSegments(project, lvlId), ...(refLevel ? snapSegments(project, refLevel) : [])],
-    [project, lvlId, refLevel],
+    () => [
+      ...snapSegments(project, lvlId),
+      ...(refLevel ? snapSegments(project, refLevel) : structLevel ? snapSegments(project, structLevel).filter((g) => belowStruct.has(g.id)) : []),
+    ],
+    [project, lvlId, refLevel, structLevel, belowStruct],
   );
+  const columnLevels = (own: string) => [own, ...(structLevel && structLevel !== own ? [structLevel] : [])];
 
   // ───────── Creazione elementi ─────────
 
@@ -330,14 +343,15 @@ export function Modellazione() {
     // Alt sospende l'aggancio agli oggetti (resta griglia/ortogonale)
     // muri e travi si agganciano agli assi (le giunzioni a T e ad L nascono sull'asse), il resto anche a facce e spigoli
     const axial = tool === 'wall' || tool === 'beam';
+    // travi e muri: assi, più i lati dei pilastri (ci si attesta sul bordo del pilastro, restando sull'asse)
     const drawOpts = axial ? { ...snapOpts, candidates: snapOpts.candidates.filter((c) => c.kind !== 'spigolo') } : snapOpts;
     // travi e muri sopra un pilastro: l'estremo va al centro del pilastro (piano e sottostante)
-    const onColumn = axial && !e.alt ? columnUnder(project, refLevel ? [lvlId, refLevel] : [lvlId], e.world, tol) : null;
+    const onColumn = axial && !e.alt ? columnUnder(project, columnLevels(lvlId), e.world) : null;
     const snap = onColumn
       ? onColumn
       : tool === 'select' || e.alt
         ? snapPoint(e.world, drawOpts)
-        : snapModel(e.world, { ...drawOpts, segments: axial ? segments.filter((g) => !g.face) : segments });
+        : snapModel(e.world, { ...drawOpts, segments: axial ? segments.filter((g) => !g.face || g.column) : segments });
 
     if (tool === 'select') return handleSelect(e, snap, tol);
 
@@ -521,13 +535,13 @@ export function Modellazione() {
           // estremi di muri e travi: solo assi (giunzioni); vertici di solai e coperture: anche facce e spigoli
           candidates: (dr.cands ?? candidates).filter((c) => dist(c.p, orig) > 1e-6 && !(linear && c.kind === 'spigolo')),
           // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
-          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && !(linear && g.face) && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
+          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && !(linear && g.face && !g.column) && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
           tol,
           grid,
           from: other,
           ortho: other ? ortho !== e.shift : false,
         };
-        const onColumn = linear && !e.alt ? columnUnder(o, refLevel ? [el.levelId, refLevel] : [el.levelId], e.world, tol) : null;
+        const onColumn = linear && !e.alt ? columnUnder(o, columnLevels(el.levelId), e.world) : null;
         const sp = onColumn ?? (e.alt ? snapPoint(e.world, hOpts) : snapModel(e.world, hOpts));
         setCursor(sp);
         editLive((d) => {

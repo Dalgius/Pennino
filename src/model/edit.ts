@@ -8,6 +8,7 @@ import {
   roofEave,
   uid,
   levelAbove,
+  sortedLevels,
   slabHoles,
   stairFootprints,
   byId,
@@ -62,6 +63,13 @@ function stairArrivesAt(p: Project, e: { levelId: string }, levelId: string) {
 }
 
 /** Elemento del modello sotto il puntatore sul livello indicato */
+/** Livello sotto levelId (se esiste): la sua struttura arriva al piano e si vede in pianta */
+export function structureBelow(p: Project, levelId: string): string | null {
+  const lv = sortedLevels(p);
+  const i = lv.findIndex((l) => l.id === levelId);
+  return i > 0 ? lv[i - 1].id : null;
+}
+
 export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number): string | null {
   const walls = p.elements.filter((e) => e.kind === 'wall' && e.levelId === levelId);
   // Aperture
@@ -104,6 +112,16 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
       if (!underSlab) return e.id;
     }
   }
+  // pilastri e travi del piano sottostante si vedono (e si prendono) anche dal piano superiore
+  const lower = structureBelow(p, levelId);
+  if (lower)
+    for (const e of p.elements) {
+      if (e.kind === 'column' && e.levelId === lower) {
+        const q = columnQuad(e, byId(p.catalog.column, e.typeId));
+        if (pointInPolygon(w, q) || distToPolyline(w, q, true) < tol) return e.id;
+      }
+      if (e.kind === 'beam' && e.levelId === lower && projectOnSegment(w, e.a, e.b).d < (byId(p.catalog.beam, e.typeId)?.width ?? 0.3) / 2 + tol) return e.id;
+    }
   for (const e of p.elements) {
     if (e.kind === 'roof' && e.levelId === levelId && distToPolyline(w, e.points, true) < tol * 2) return e.id;
   }
@@ -165,7 +183,7 @@ export interface Snap {
 }
 
 /** Punto agganciabile; id = elemento da cui viene (per escluderlo quando lo si trascina) */
-export type SnapCandidate = { p: Vec2; kind: SnapKind; id?: string };
+export type SnapCandidate = { p: Vec2; kind: SnapKind; id?: string; column?: boolean };
 
 /** Segmento agganciabile: asse di muri e travi (con la loro mezza larghezza) o lato di solai e coperture */
 export interface SnapSegment {
@@ -176,6 +194,8 @@ export interface SnapSegment {
   kind: 'muro' | 'bordo';
   /** faccia di un muro, di una trave o lato di un pilastro (non un asse) */
   face?: boolean;
+  /** lato di un pilastro: anche travi e muri vi si attestano */
+  column?: boolean;
 }
 
 /** Facce e spigoli in pianta di muri, travi e pilastri del livello */
@@ -199,10 +219,11 @@ function faceGeometry(p: Project, levelId: string) {
       closed = true;
     }
     if (!poly) continue;
-    poly.forEach((q) => corners.push({ p: q, kind: 'spigolo', id: e.id }));
+    const column = e.kind === 'column';
+    poly.forEach((q) => corners.push({ p: q, kind: 'spigolo', id: e.id, column }));
     // muri e travi: le due facce lunghe (le testate sono tagli di giunzione); pilastri: tutti i lati
     const edges: [Vec2, Vec2][] = closed ? poly.map((q, i) => [q, poly![(i + 1) % poly!.length]]) : [[poly[0], poly[1]], [poly[2], poly[3]]];
-    for (const [a, b] of edges) if (dist(a, b) > 1e-6) segs.push({ id: e.id, a, b, half: 0, kind: 'bordo', face: true });
+    for (const [a, b] of edges) if (dist(a, b) > 1e-6) segs.push({ id: e.id, a, b, half: 0, kind: 'bordo', face: true, column });
   }
   return { segs, corners };
 }
@@ -222,17 +243,16 @@ export function snapSegments(p: Project, levelId: string): SnapSegment[] {
 }
 
 /**
- * Pilastro sotto il cursore (o entro tol dal suo contorno) sui livelli dati: travi e muri
+ * Pilastro sotto il cursore sui livelli dati: travi e muri
  * vi si appoggiano sull'asse, cioè al centro del pilastro.
  */
-export function columnUnder(p: Project, levelIds: string[], q: Vec2, tol: number): Snap | null {
+export function columnUnder(p: Project, levelIds: string[], q: Vec2): Snap | null {
   let best: { c: Vec2; d: number } | null = null;
   for (const e of p.elements) {
     if (e.kind !== 'column' || !levelIds.includes(e.levelId)) continue;
     const quad = columnQuad(e, byId(p.catalog.column, e.typeId));
-    const inside = pointInPolygon(q, quad);
-    const edge = Math.min(...quad.map((a, i) => projectOnSegment(q, a, quad[(i + 1) % quad.length]).d));
-    if (!inside && edge > tol) continue;
+    // dentro il pilastro: centro; vicino al contorno da fuori valgono lati e spigoli
+    if (!pointInPolygon(q, quad)) continue;
     const d = dist(q, e.p);
     if (!best || d < best.d) best = { c: e.p, d };
   }
