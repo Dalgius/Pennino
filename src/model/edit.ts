@@ -22,6 +22,7 @@ import {
   wallThickness,
 } from './geometry';
 import { VEHICLE_SIZE } from '../views/SiteView';
+import { wallGeom, wallOutline } from './walls';
 
 type Editable = BuildingElement | SiteItem | ContextItem;
 
@@ -156,14 +157,15 @@ export function hitTestSite(items: (SiteItem | ContextItem)[], w: Vec2, tol: num
   return null;
 }
 
-export type SnapKind = 'estremo' | 'medio' | 'intersezione' | 'perpendicolare' | 'muro' | 'bordo' | 'griglia' | 'libero';
+export type SnapKind = 'estremo' | 'spigolo' | 'medio' | 'intersezione' | 'perpendicolare' | 'muro' | 'bordo' | 'griglia' | 'libero';
 
 export interface Snap {
   p: Vec2;
   kind: SnapKind;
 }
 
-export type SnapCandidate = { p: Vec2; kind: SnapKind };
+/** Punto agganciabile; id = elemento da cui viene (per escluderlo quando lo si trascina) */
+export type SnapCandidate = { p: Vec2; kind: SnapKind; id?: string };
 
 /** Segmento agganciabile: asse di muri e travi (con la loro mezza larghezza) o lato di solai e coperture */
 export interface SnapSegment {
@@ -172,6 +174,37 @@ export interface SnapSegment {
   b: Vec2;
   half: number;
   kind: 'muro' | 'bordo';
+  /** faccia di un muro, di una trave o lato di un pilastro (non un asse) */
+  face?: boolean;
+}
+
+/** Facce e spigoli in pianta di muri, travi e pilastri del livello */
+function faceGeometry(p: Project, levelId: string) {
+  const segs: SnapSegment[] = [];
+  const corners: SnapCandidate[] = [];
+  for (const e of p.elements) {
+    if (!('levelId' in e) || e.levelId !== levelId) continue;
+    let poly: Vec2[] | null = null;
+    let closed = false;
+    if (e.kind === 'wall') poly = wallOutline(wallGeom(p, e));
+    else if (e.kind === 'beam') {
+      const h = (byId(p.catalog.beam, e.typeId)?.width ?? 0.3) / 2;
+      const d = sub(e.b, e.a);
+      const L = Math.hypot(d.x, d.y);
+      if (L < 1e-6) continue;
+      const n = { x: (-d.y / L) * h, y: (d.x / L) * h };
+      poly = [add(e.a, n), add(e.b, n), sub(e.b, n), sub(e.a, n)];
+    } else if (e.kind === 'column') {
+      poly = columnQuad(e, byId(p.catalog.column, e.typeId));
+      closed = true;
+    }
+    if (!poly) continue;
+    poly.forEach((q) => corners.push({ p: q, kind: 'spigolo', id: e.id }));
+    // muri e travi: le due facce lunghe (le testate sono tagli di giunzione); pilastri: tutti i lati
+    const edges: [Vec2, Vec2][] = closed ? poly.map((q, i) => [q, poly![(i + 1) % poly!.length]]) : [[poly[0], poly[1]], [poly[2], poly[3]]];
+    for (const [a, b] of edges) if (dist(a, b) > 1e-6) segs.push({ id: e.id, a, b, half: 0, kind: 'bordo', face: true });
+  }
+  return { segs, corners };
 }
 
 /** Assi e lati del livello agganciabili */
@@ -184,6 +217,7 @@ export function snapSegments(p: Project, levelId: string): SnapSegment[] {
     else if (e.kind === 'slab' || e.kind === 'roof')
       e.points.forEach((q, i) => out.push({ id: e.id, a: q, b: e.points[(i + 1) % e.points.length], half: 0, kind: 'bordo' }));
   }
+  out.push(...faceGeometry(p, levelId).segs);
   return out.filter((s) => dist(s.a, s.b) > 1e-6);
 }
 
@@ -206,11 +240,12 @@ export function snapPoints(p: Project, levelId: string): SnapCandidate[] {
   for (const e of p.elements) {
     if (!('levelId' in e) || e.levelId !== levelId) continue;
     if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') {
-      out.push({ p: e.a, kind: 'estremo' }, { p: e.b, kind: 'estremo' });
-      out.push({ p: { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 }, kind: 'medio' });
-    } else if (e.kind === 'slab' || e.kind === 'roof') e.points.forEach((q) => out.push({ p: q, kind: 'estremo' }));
-    else if (e.kind === 'column') out.push({ p: e.p, kind: 'estremo' });
+      out.push({ p: e.a, kind: 'estremo', id: e.id }, { p: e.b, kind: 'estremo', id: e.id });
+      out.push({ p: { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 }, kind: 'medio', id: e.id });
+    } else if (e.kind === 'slab' || e.kind === 'roof') e.points.forEach((q) => out.push({ p: q, kind: 'estremo', id: e.id }));
+    else if (e.kind === 'column') out.push({ p: e.p, kind: 'estremo', id: e.id });
   }
+  out.push(...faceGeometry(p, levelId).corners);
   // incroci tra assi di muri e travi
   const segs = snapSegments(p, levelId).filter((s) => s.kind === 'muro');
   for (let i = 0; i < segs.length; i++)
@@ -246,7 +281,7 @@ export function snapModel(
     }
     return best;
   };
-  const strong = pick(['estremo', 'intersezione']);
+  const strong = pick(['estremo', 'intersezione', 'spigolo']);
   if (strong) return strong;
   const mid = pick(['medio']);
   if (mid) return mid;
@@ -257,10 +292,12 @@ export function snapModel(
   for (const s of opts.segments) {
     const pr = projectOnSegment(raw, s.a, s.b);
     const reach = s.half + tol;
-    if (pr.d < reach && pr.d - s.half < sd) {
+    // vicino a una faccia vince la faccia; dentro lo spessore, lontano dalle facce, l'asse
+    const score = s.face ? pr.d - tol : pr.d - s.half;
+    if (pr.d < reach && score < sd) {
       // il segmento appena disegnato da "from" non è un ospite utile
       if (from && projectOnSegment(from, s.a, s.b).d < 1e-6) continue;
-      sd = pr.d - s.half;
+      sd = score;
       seg = s;
     }
   }

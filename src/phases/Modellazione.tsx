@@ -328,7 +328,13 @@ export function Modellazione() {
       ortho: ortho !== e.shift,
     };
     // Alt sospende l'aggancio agli oggetti (resta griglia/ortogonale)
-    const snap = tool === 'select' || e.alt ? snapPoint(e.world, snapOpts) : snapModel(e.world, { ...snapOpts, segments });
+    // muri e travi si agganciano agli assi (le giunzioni a T e ad L nascono sull'asse), il resto anche a facce e spigoli
+    const axial = tool === 'wall' || tool === 'beam';
+    const drawOpts = axial ? { ...snapOpts, candidates: snapOpts.candidates.filter((c) => c.kind !== 'spigolo') } : snapOpts;
+    const snap =
+      tool === 'select' || e.alt
+        ? snapPoint(e.world, drawOpts)
+        : snapModel(e.world, { ...drawOpts, segments: axial ? segments.filter((g) => !g.face) : segments });
 
     if (tool === 'select') return handleSelect(e, snap, tol);
 
@@ -509,9 +515,10 @@ export function Modellazione() {
         // segmenti: ortogonale rispetto all'altro estremo; poligoni (solai, coperture): rispetto alla posizione di partenza
         const other = linear ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : el.kind === 'slab' || el.kind === 'roof' ? orig : undefined;
         const hOpts = {
-          candidates: (dr.cands ?? candidates).filter((c) => dist(c.p, orig) > 1e-6),
+          // estremi di muri e travi: solo assi (giunzioni); vertici di solai e coperture: anche facce e spigoli
+          candidates: (dr.cands ?? candidates).filter((c) => dist(c.p, orig) > 1e-6 && !(linear && c.kind === 'spigolo')),
           // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
-          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
+          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && !(linear && g.face) && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
           tol,
           grid,
           from: other,
@@ -528,7 +535,17 @@ export function Modellazione() {
       }
       // spostamento dell'elemento (o della selezione)
       // in ortogonale lo spostamento segue solo l'asse prevalente (Maiusc lo libera)
-      const raw = sub(snap.p, dr.start);
+      // agganci fissati a inizio trascinamento, senza gli elementi che si muovono
+      const movingIds = selectedIds.includes(dr.id) ? selectedIds : [dr.id];
+      const ms = e.alt
+        ? snap
+        : snapPoint(e.world, {
+            candidates: (dr.cands ?? candidates).filter((c) => !c.id || !movingIds.includes(c.id)),
+            tol,
+            grid: e.zoom > 120 ? Math.min(grid, 0.01) : grid,
+            ortho: false,
+          });
+      const raw = sub(ms.p, dr.start);
       const delta = ortho !== e.shift ? (Math.abs(raw.x) >= Math.abs(raw.y) ? { x: raw.x, y: 0 } : { x: 0, y: raw.y }) : raw;
       const ids = selectedIds.includes(dr.id) ? selectedIds : [dr.id];
       editLive((d) => {
@@ -1062,6 +1079,7 @@ const SNAP_LABEL: Partial<Record<Snap['kind'], string>> = {
   perpendicolare: 'Perpendicolare',
   muro: 'Su muro',
   bordo: 'Su bordo',
+  spigolo: 'Spigolo',
 };
 
 /** Simbolo dell'aggancio attivo, con etichetta */
@@ -1075,6 +1093,7 @@ function SnapMarker({ p, kind, mm }: { p: Vec2; kind: Snap['kind']; mm: number }
   let mark;
   switch (kind) {
     case 'estremo':
+    case 'spigolo':
       mark = <rect x={x - r} y={y - r} width={2 * r} height={2 * r} className="snap-mark" strokeWidth={sw} />;
       break;
     case 'medio':
