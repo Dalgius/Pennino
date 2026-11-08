@@ -285,6 +285,8 @@ export function snapModel(
           const q = { x: from.x + dir.x * t, y: from.y + dir.y * t };
           if (ok(q)) return { p: q, kind: seg.kind };
         }
+        // in ortogonale niente proiezioni oblique: il punto deve restare sulla direzione ortogonale
+        return snapPoint(raw, opts);
       }
       // piede della perpendicolare da "from"
       const t = (from.x - seg.a.x) * u.x + (from.y - seg.a.y) * u.y;
@@ -319,10 +321,19 @@ export function snapPoint(
   if (opts.from && opts.ortho) {
     const d = sub(raw, opts.from);
     q = Math.abs(d.x) >= Math.abs(d.y) ? { x: raw.x, y: opts.from.y } : { x: opts.from.x, y: raw.y };
-    // aggancio ortogonale ai punti notevoli allineati
+    // aggancio ortogonale ai punti notevoli allineati: solo molto vicino (altrimenti il moto va a scatti)
+    const at = opts.tol * 0.35;
+    let bx = at;
+    let by = at;
     for (const c of opts.candidates) {
-      if (Math.abs(d.x) >= Math.abs(d.y) && Math.abs(c.p.x - q.x) < opts.tol) q = { x: c.p.x, y: q.y };
-      if (Math.abs(d.x) < Math.abs(d.y) && Math.abs(c.p.y - q.y) < opts.tol) q = { x: q.x, y: c.p.y };
+      if (Math.abs(d.x) >= Math.abs(d.y) && Math.abs(c.p.x - raw.x) < bx) {
+        bx = Math.abs(c.p.x - raw.x);
+        q = { x: c.p.x, y: q.y };
+      }
+      if (Math.abs(d.x) < Math.abs(d.y) && Math.abs(c.p.y - raw.y) < by) {
+        by = Math.abs(c.p.y - raw.y);
+        q = { x: q.x, y: c.p.y };
+      }
     }
   }
   if (opts.grid > 0) {

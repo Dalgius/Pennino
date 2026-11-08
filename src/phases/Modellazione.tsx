@@ -23,7 +23,7 @@ import {
   stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
-import { copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap } from '../model/edit';
+import { copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -75,6 +75,9 @@ interface Drag {
   start: Vec2;
   orig: Project;
   moved: boolean;
+  /** punti e lati di aggancio fissati all'inizio del trascinamento (senza l'elemento che si muove) */
+  cands?: SnapCandidate[];
+  segs?: SnapSegment[];
 }
 
 export function Modellazione() {
@@ -428,6 +431,8 @@ export function Modellazione() {
         if (dist(e.world, dr.start) < tol * 0.5) return;
         checkpoint();
         dr.moved = true;
+        dr.cands = candidates;
+        dr.segs = segments;
       }
       const o = dr.orig;
       if (dr.kind === 'opening') {
@@ -472,8 +477,19 @@ export function Modellazione() {
         const dE = norm(sub(el.points[j], el.points[i]));
         const nn = { x: -dE.y, y: dE.x };
         let off = dot(sub(e.world, dr.start), nn);
-        if (grid > 0) off = Math.round(off / grid) * grid;
-        setCursor({ p: e.world, kind: 'libero' });
+        // agganci agli oggetti (piano e sottostante): il lato passa per il punto agganciato
+        const sp = e.alt
+          ? null
+          : snapModel(e.world, {
+              candidates: (dr.cands ?? candidates).filter((c) => !el.points.some((q) => dist(q, c.p) < 1e-6)),
+              segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id),
+              tol,
+              grid: 0,
+              ortho: false,
+            });
+        if (sp && sp.kind !== 'libero' && sp.kind !== 'griglia') off = dot(sub(sp.p, el.points[i]), nn);
+        else if (grid > 0) off = Math.round(off / grid) * grid;
+        setCursor(sp && sp.kind !== 'libero' && sp.kind !== 'griglia' ? sp : { p: e.world, kind: 'libero' });
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id);
           if (!x || (x.kind !== 'slab' && x.kind !== 'roof')) return;
@@ -489,9 +505,9 @@ export function Modellazione() {
         // segmenti: ortogonale rispetto all'altro estremo; poligoni (solai, coperture): rispetto alla posizione di partenza
         const other = linear ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : el.kind === 'slab' || el.kind === 'roof' ? orig : undefined;
         const hOpts = {
-          candidates: candidates.filter((c) => dist(c.p, orig) > 1e-6),
+          candidates: (dr.cands ?? candidates).filter((c) => dist(c.p, orig) > 1e-6),
           // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
-          segments: segments.filter((g) => g.id !== dr.id && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
+          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
           tol,
           grid,
           from: other,
