@@ -112,7 +112,9 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       u1: Math.max(...us),
       z0: lv.elevation,
       z1,
-      d: Math.min(...q.map(D)),
+      // muro in facciata: profondità della faccia vista; muro visto di taglio: profondità media,
+      // così sta dietro la facciata anche se ne tocca lo spigolo
+      d: Math.abs(dot(norm(sub(e.b, e.a)), u)) > 0.7 ? Math.min(...q.map(D)) : q.map(D).reduce((t, x) => t + x, 0) / q.length,
       flatTop: !wallTopProfile(p, e, z1, -th / 2, wallLength(e) + th / 2),
     });
   }
@@ -249,7 +251,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         else openEdge(e.id, zt, 'sopra', u0, u1).forEach(([a, b], i) => lines.push(hLine(a, b, zt, `t${i}`)));
       }
       items.push({
-        depth: Math.min(...quad.map(D)),
+        depth: faces.get(e.id)?.d ?? Math.min(...quad.map(D)),
         node: (
           <g key={e.id}>
             <path d={[outer, ...holes].join(' ')} fillRule="evenodd" className="ev-wall" style={{ stroke: "none" }} />
