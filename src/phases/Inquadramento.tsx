@@ -291,6 +291,7 @@ export function Inquadramento() {
               bounds={bounds}
               onPointer={rasterMode ? onRasterPointer : editor.onPointer}
               cursor={rasterMode === 'sposta' ? 'move' : tool === 'select' && !rasterMode ? 'default' : 'crosshair'}
+              ortho
               hud={
                 rasterMode && activeRaster ? (
                   <div className="canvas-hud-top raster-hud">

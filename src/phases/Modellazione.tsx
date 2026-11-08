@@ -594,15 +594,9 @@ export function Modellazione() {
       bounds={bounds}
       onPointer={onPointer}
       cursor={tool === 'select' ? 'default' : 'crosshair'}
-      hud={
-        <div className="canvas-hud-top">
-          <span className="chip">
-            <b>{level?.name}</b>
-            <span className="mono">{fmtLevel(level?.elevation ?? 0)}</span>
-          </span>
-          <button className={`chip ${ortho ? 'chip-on' : ''}`} onClick={() => setOrtho(!ortho)} title="F8 · Maiusc per disegno libero">
-            Ortogonale
-          </button>
+      ortho
+      tools={
+        <>
           <select
             className="chip"
             value={step}
@@ -616,11 +610,11 @@ export function Modellazione() {
             <option value={0.5}>Passo 50 cm</option>
           </select>
           {below && (
-            <button className={`chip ${ghost ? 'chip-on' : ''}`} onClick={() => setGhost(!ghost)} title="Mostra in trasparenza il livello inferiore">
+            <button className={`chip ${ghost ? 'chip-on' : ''}`} onClick={() => setGhost(!ghost)} title="Mostra in trasparenza il livello inferiore e agganciati ai suoi elementi">
               Sottostante: {below.name}
             </button>
           )}
-        </div>
+        </>
       }
     >
       {(z) => {

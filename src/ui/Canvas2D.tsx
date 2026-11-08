@@ -27,11 +27,15 @@ interface Props {
   children: (zoom: number) => ReactNode;
   /** Elementi HTML sovrapposti (HUD) */
   hud?: ReactNode;
+  /** Mostra il comando Ortogonale (comune a tutte le fasi, F8) nella barra in basso */
+  ortho?: boolean;
+  /** Comandi aggiuntivi nella barra in basso, dopo Griglia */
+  tools?: ReactNode;
   className?: string;
 }
 
 /** Tavolo da disegno: pan con tasto centrale/destro o spazio, zoom con la rotella */
-export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, children, hud, className }: Props) {
+export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, children, hud, ortho, tools, className }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ tx: 0, ty: 0, z: 30 });
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -39,6 +43,7 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
   const space = useRef(false);
   const fitted = useRef(false);
   const showGrid = useStore((s) => s.drafting.grid);
+  const orthoOn = useStore((s) => s.drafting.ortho);
   const setDrafting = useStore((s) => s.setDrafting);
 
   const fit = useCallback(() => {
@@ -210,6 +215,12 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
             Griglia{g ? <span className="mono">{g.step < 1 ? `${Math.round(g.step * 100)} cm` : `${g.step} m`}</span> : null}
           </button>
         )}
+        {ortho && (
+          <button className={`chip ${orthoOn ? 'chip-on' : ''}`} onClick={() => setDrafting({ ortho: !orthoOn })} title="F8 · Maiusc per disegnare e spostare liberamente">
+            Ortogonale
+          </button>
+        )}
+        {tools}
       </div>
       <div data-hud style={{ display: 'contents' }}>
         {hud}

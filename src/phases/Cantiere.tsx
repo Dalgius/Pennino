@@ -134,11 +134,10 @@ export function Cantiere() {
             <span className="chip chip-live">● Contesto da 01 · Edificio da 02</span>
           </div>
           <div className="stage-bar-right">
-            <button className={`tab ${editor.ortho ? 'on' : ''}`} onClick={() => editor.setOrtho(!editor.ortho)}>Ortogonale</button>
           </div>
         </div>
         <div className="stage-body">
-          <Canvas2D bounds={bounds} onPointer={editor.onPointer} cursor={tool === 'select' ? 'default' : 'crosshair'}>
+          <Canvas2D bounds={bounds} onPointer={editor.onPointer} cursor={tool === 'select' ? 'default' : 'crosshair'} ortho>
             {(z) => {
               const mm = 3 / z;
               return (
