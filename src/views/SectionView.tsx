@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, useHatchPrefix } from './hatch';
@@ -72,7 +72,26 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
   // ordine di disegno: muri, poi solai (la loro struttura entra nei muri), poi il resto
   const wallCuts: React.ReactNode[] = [];
   const slabCuts: React.ReactNode[] = [];
-  const wallSpans: { u0: number; u1: number; z0: number; z1: number }[] = [];
+  const wallSpans: { u0: number; u1: number; z0: number; z1: number; c0: number; c1: number }[] = [];
+  /** rivestimenti esterni dei muri che risalgono a coprire il bordo di una copertura senza sporto */
+  const edgeCovers: { u0: number; u1: number }[] = [];
+  /** copertura sopra il punto della traccia, impostata alla quota zTop: spessore e finiture d'intradosso */
+  const roofOver = (u: number, zTop: number) => {
+    const X = add(f.origin, mul(f.u, u));
+    const under = roofUndersideAt(p, X, zTop);
+    if (under === null) return null;
+    for (const r of p.elements) {
+      if (r.kind !== 'roof' || Math.abs(roofBase(p, r) - zTop) > 0.05) continue;
+      const rt = byId(p.catalog.roof, r.typeId);
+      const th = rt?.thickness ?? 0.3;
+      const ls = rt?.layers ?? [];
+      const tot = ls.reduce((a, l) => a + l.thickness, 0) || th;
+      const last = ls.reduce((k, l, i) => (l.role === 'struttura' ? i : k), -1);
+      const bottom = last >= 0 ? ls.slice(last + 1).reduce((a, l) => a + (l.thickness * th) / tot, 0) : 0;
+      return { under, th, bottom };
+    }
+    return null;
+  };
   const sw = 0.35 * mm;
   const hp = useHatchPrefix();
   const layered = mm < 0.08; // a scala ≥ 1:50 si vedono gli strati
@@ -121,7 +140,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
           layerMap = (o: number) => uX + o / cn;
         }
       }
-      const piece = (key: string, u0: number, u1: number, zb: number, zt0: number, zt1: number) => {
+      const piece = (key: string, u0: number, u1: number, zb: number, zt0: number, zt1: number, underRoof = false) => {
         const topLin = (u: number) => (Math.abs(u1 - u0) < 1e-9 ? zt0 : zt0 + ((zt1 - zt0) * (u - u0)) / (u1 - u0));
         const quad = (a: number, b: number): [number, number][] => [
           [a, zb],
@@ -129,8 +148,8 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
           [b, topLin(b)],
           [a, topLin(a)],
         ];
-        wallSpans.push({ u0: Math.min(u0, u1), u1: Math.max(u0, u1), z0: zb, z1: Math.max(zt0, zt1) });
         if (!layerMap || !t) {
+          wallSpans.push({ u0: Math.min(u0, u1), u1: Math.max(u0, u1), z0: zb, z1: Math.max(zt0, zt1), c0: Math.min(u0, u1), c1: Math.max(u0, u1) });
           if (layered && t) band(`${key}h`, quad(u0, u1), hatchFill(hp, mainHatch(t.layers)), wallCuts);
           else return wallCuts.push(<polygon key={key} points={polyPts(quad(u0, u1))} className="sc-cut" strokeWidth={sw} />);
           return outlineOf(`${key}o`, quad(u0, u1), wallCuts);
@@ -138,25 +157,67 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         const lo = Math.min(u0, u1);
         const hi = Math.max(u0, u1);
         const bands = layerBands(g, t.layers);
+        const coreIdx = bands.map((_, j) => j).filter((j) => layerInCore(t.layers, j));
+        const coreUs = coreIdx.flatMap((j) => [layerMap!(bands[j].o0), layerMap!(bands[j].o1)]);
+        const c0 = coreUs.length ? Math.max(lo, Math.min(...coreUs)) : lo;
+        const c1 = coreUs.length ? Math.min(hi, Math.max(...coreUs)) : hi;
+        wallSpans.push({ u0: lo, u1: hi, z0: zb, z1: Math.max(zt0, zt1), c0, c1 });
+        // raccordo con la copertura (solo per il tratto che arriva sotto la copertura)
+        const zTopWall = z0 + H;
+        const atRoof = underRoof;
+        const uOutFace = layerMap(g.extSign * g.half);
+        const outDir = Math.sign(uOutFace - layerMap(0)) || 1;
+        // la copertura sporge oltre la faccia esterna? se no, il rivestimento esterno ne copre il bordo
+        const overhang = atRoof && roofUndersideAt(p, add(f.origin, mul(f.u, uOutFace + outDir * 0.03)), zTopWall) !== null;
+        const extra = (j: number, u: number) => {
+          if (!atRoof) return 0;
+          const r = roofOver(u, zTopWall);
+          if (!r) return 0;
+          if (layerInCore(t.layers, j)) return r.bottom; // la struttura attraversa le finiture d'intradosso
+          const mid = (bands[j].o0 + bands[j].o1) / 2;
+          const exterior = Math.sign(mid) === g.extSign;
+          return exterior && !overhang ? r.th : 0; // il cappotto riveste il bordo della copertura
+        };
+        const pieces: { a: number; b: number; ta: number; tb: number; j: number }[] = [];
         bands.forEach((bd, j) => {
           const a = Math.max(lo, Math.min(layerMap!(bd.o0), layerMap!(bd.o1)));
           const b = Math.min(hi, Math.max(layerMap!(bd.o0), layerMap!(bd.o1)));
-          if (b - a > 1e-4) band(`${key}l${j}`, quad(a, b), hatchFill(hp, hatchOf(t.layers[j])), wallCuts);
+          if (b - a <= 1e-4) return;
+          const ta = topLin(a) + extra(j, a);
+          const tb = topLin(b) + extra(j, b);
+          pieces.push({ a, b, ta, tb, j });
+          if (!layerInCore(t.layers, j) && extra(j, (a + b) / 2) > (roofOver((a + b) / 2, zTopWall)?.bottom ?? 0) + 1e-6) edgeCovers.push({ u0: a, u1: b });
+          band(
+            `${key}l${j}`,
+            [
+              [a, zb],
+              [b, zb],
+              [b, tb],
+              [a, ta],
+            ],
+            hatchFill(hp, hatchOf(t.layers[j])),
+            wallCuts,
+          );
         });
-        bands.slice(0, -1).forEach((bd, j) => {
-          const u = layerMap!(bd.o1);
-          if (u > lo + 1e-4 && u < hi - 1e-4)
-            wallCuts.push(<line key={`${key}s${j}`} x1={u} y1={Z(zb)} x2={u} y2={Z(topLin(u))} className="sc-layer-line" strokeWidth={0.1 * mm} />);
-        });
-        outlineOf(`${key}o`, quad(u0, u1), wallCuts);
+        pieces.sort((x, y) => x.a - y.a);
+        // separazioni tra gli strati, fino al più basso dei due strati adiacenti
+        for (let k = 0; k + 1 < pieces.length; k++) {
+          const u = pieces[k].b;
+          const zt = Math.min(pieces[k].tb, pieces[k + 1].ta);
+          wallCuts.push(<line key={`${key}s${k}`} x1={u} y1={Z(zb)} x2={u} y2={Z(zt)} className="sc-layer-line" strokeWidth={0.1 * mm} />);
+        }
+        // contorno: base, fianchi e sommità a gradini
+        const outline: [number, number][] = [[lo, zb], [hi, zb]];
+        for (let k = pieces.length - 1; k >= 0; k--) outline.push([pieces[k].b, pieces[k].tb], [pieces[k].a, pieces[k].ta]);
+        outlineOf(`${key}o`, outline, wallCuts);
       };
       ivs.forEach(([u0, u1], i) => {
-        if (!hit) return piece(`${e.id}${i}`, u0, u1, z0, topAt(u0), topAt(u1));
+        if (!hit) return piece(`${e.id}${i}`, u0, u1, z0, topAt(u0), topAt(u1), true);
         const h0 = z0 + hit.type.sill;
         const h1 = Math.min(z0 + H, h0 + hit.type.height);
         if (h0 > z0 + 1e-3) piece(`${e.id}${i}b`, u0, u1, z0, h0, h0);
         // sopra l'architrave il muro arriva fino alla copertura
-        piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1));
+        piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1), true);
       });
       if (hit && X) {
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale
@@ -260,18 +321,54 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const rl = layered && t?.layers?.length ? t.layers : null;
       const tot = rl ? rl.reduce((a, l) => a + l.thickness, 0) || th : th;
       /** strati della copertura tra il profilo inferiore zb(u) e quello superiore zb(u) + th, dall'alto */
+      const lastCore = rl ? rl.reduce((k, l, i) => (l.role === 'struttura' ? i : k), -1) : -1;
       const roofBands = (key: string, us: number[], zbot: (u: number) => number) => {
+        // interpolazione del profilo inferiore tra i punti campionati
+        const zAt = (u: number) => {
+          for (let i = 0; i + 1 < us.length; i++)
+            if ((u - us[i]) * (u - us[i + 1]) <= 0) {
+              const t = Math.abs(us[i + 1] - us[i]) < 1e-9 ? 0 : (u - us[i]) / (us[i + 1] - us[i]);
+              return zbot(us[i]) + (zbot(us[i + 1]) - zbot(us[i])) * t;
+            }
+          return zbot(u);
+        };
+        const lo = Math.min(...us);
+        const hi = Math.max(...us);
         let c = 0;
         rl!.forEach((l, j) => {
           const c1 = c + (l.thickness * th) / tot;
-          const top = us.map((u): [number, number] => [u, zbot(u) + th - c]);
-          const bot = [...us].reverse().map((u): [number, number] => [u, zbot(u) + th - c1]);
-          band(`${key}l${j}`, [...top, ...bot], hatchFill(hp, hatchOf(l)), cuts);
-          cuts.push(<polygon key={`${key}o${j}`} points={polyPts([...top, ...bot])} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
+          // finiture d'intradosso (sotto la struttura): si interrompono sopra la struttura dei muri
+          let segs: [number, number][] = [[lo, hi]];
+          // il rivestimento esterno del muro che sale a coprirne il bordo ferma la copertura
+          for (const w of edgeCovers)
+            segs = segs.flatMap(([a, b]) => (w.u1 <= a || w.u0 >= b ? [[a, b] as [number, number]] : ([[a, w.u0], [w.u1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+          if (lastCore >= 0 && j > lastCore)
+            for (const w of wallSpans)
+              if (Math.abs(w.z1 - zAt((w.c0 + w.c1) / 2)) < 0.6)
+                segs = segs.flatMap(([a, b]) => (w.c1 <= a || w.c0 >= b ? [[a, b] as [number, number]] : ([[a, w.c0], [w.c1, b]] as [number, number][]).filter(([x, y]) => y - x > 1e-4)));
+          segs.forEach(([a, b], m) => {
+            const xs = [a, ...us.filter((u) => u > a + 1e-6 && u < b - 1e-6).sort((x, y) => x - y), b];
+            const top = xs.map((u): [number, number] => [u, zAt(u) + th - c]);
+            const bot = [...xs].reverse().map((u): [number, number] => [u, zAt(u) + th - c1]);
+            band(`${key}l${j}-${m}`, [...top, ...bot], hatchFill(hp, hatchOf(l)), cuts);
+            cuts.push(<polygon key={`${key}o${j}-${m}`} points={polyPts([...top, ...bot])} className="sc-layer-outline" strokeWidth={0.1 * mm} />);
+          });
           c = c1;
         });
-        const outer: [number, number][] = [...us.map((u): [number, number] => [u, zbot(u)]), ...[...us].reverse().map((u): [number, number] => [u, zbot(u) + th])];
-        outlineOf(`${key}O`, outer, cuts);
+        // estremi della copertura ristretti dai rivestimenti che ne coprono il bordo
+        let olo = lo;
+        let ohi = hi;
+        for (const w of edgeCovers) {
+          if (w.u0 <= olo + 1e-6 && w.u1 > olo) olo = w.u1;
+          if (w.u1 >= ohi - 1e-6 && w.u0 < ohi) ohi = w.u0;
+        }
+        us = [olo, ...us.filter((u) => u > olo + 1e-6 && u < ohi - 1e-6), ohi];
+        const topLine = [...us].reverse().map((u): [number, number] => [u, zAt(u) + th]);
+        if (lastCore >= 0 && lastCore < rl!.length - 1) {
+          // con finiture d'intradosso il bordo inferiore è già dato dagli strati (interrotti sui muri)
+          const ends: [number, number][] = [[us[us.length - 1], zAt(us[us.length - 1])], ...topLine, [us[0], zAt(us[0])]];
+          cuts.push(<polyline key={`${key}O`} points={polyPts(ends)} className="sc-outline" strokeWidth={sw} />);
+        } else outlineOf(`${key}O`, [...us.map((u): [number, number] => [u, zAt(u)]), ...topLine], cuts);
       };
       if (e.shape === 'piana') {
         cutIntervals(roofOutline(roofWithEave(p, e)), f).forEach(([u0, u1], i) =>
