@@ -330,8 +330,8 @@ export function Modellazione() {
       if (nw && t) {
         const wall = project.elements.find((x) => x.id === nw.id);
         const L = wall && wall.kind === 'wall' ? wallLength(wall) : 0;
-        const g = 0.05;
-        const offset = Math.min(L - t.width / 2, Math.max(t.width / 2, Math.round(nw.offset / g) * g));
+        // posizione lungo il muro: al passo della griglia se accesa, altrimenti libera
+        const offset = Math.min(L - t.width / 2, Math.max(t.width / 2, grid > 0 ? Math.round(nw.offset / grid) * grid : nw.offset));
         setOpeningPreview({ wallId: nw.id, offset });
         if (e.type === 'down' && e.button === 0) {
           const id = uid('o');
@@ -429,7 +429,7 @@ export function Modellazione() {
         const L = wallLength(wall);
         const dir = norm(sub(wall.b, wall.a));
         const s = (e.world.x - wall.a.x) * dir.x + (e.world.y - wall.a.y) * dir.y;
-        const offset = Math.min(L - t.width / 2, Math.max(t.width / 2, Math.round(s / 0.05) * 0.05));
+        const offset = Math.min(L - t.width / 2, Math.max(t.width / 2, grid > 0 ? Math.round(s / grid) * grid : s));
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id);
           if (x && x.kind === 'opening') x.offset = offset;
