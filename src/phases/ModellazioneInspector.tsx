@@ -15,6 +15,7 @@ import {
   openingSpans,
   polygonArea,
   polygonPerimeter,
+  roofEave,
   slabHoles,
   slabNetArea,
   slabOutline,
@@ -362,7 +363,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <NumberField label="Sporto di gronda" unit="m" value={e.overhang} min={0} onChange={(v) => upd((x) => x.kind === 'roof' && (x.overhang = v))} />
             </div>
             <div className="kv-grid">
-              <div><span>Superficie di falda</span><b className="mono">{fmt(roofSurface(e.points, e.shape, e.pitch, e.overhang))} m²</b></div>
+              <div><span>Superficie di falda</span><b className="mono">{fmt(roofSurface(e.points, e.shape, e.pitch, roofEave(project, e)))} m²</b></div>
               <div><span>Pendenza</span><b className="mono">{fmt(Math.tan((e.pitch * Math.PI) / 180) * 100, 0)} %</b></div>
               <div><span>Spessore pacchetto</span><b className="mono">{fmt(t?.thickness ?? 0)} m</b></div>
             </div>

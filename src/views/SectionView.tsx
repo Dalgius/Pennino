@@ -3,7 +3,7 @@
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec } from '../model/openings';
 import { wallGeom, wallOutline } from '../model/walls';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -173,11 +173,11 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const th = t?.thickness ?? 0.3;
       const base = z0 + lvl.height;
       if (e.shape === 'piana') {
-        cutIntervals(roofOutline(e), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, base, base + th));
+        cutIntervals(roofOutline(roofWithEave(p, e)), f).forEach(([u0, u1], i) => rect(`${e.id}${i}`, u0, u1, base, base + th));
         continue;
       }
       const b = bbox(e.points);
-      const o = e.overhang;
+      const o = roofEave(p, e);
       const outline = [
         { x: b.minX - o, y: b.minY - o },
         { x: b.maxX + o, y: b.minY - o },

@@ -5,6 +5,7 @@ import {
   add,
   bbox,
   roofBase,
+  roofEave,
   levelAbove,
   slabHoles,
   stairFootprints,
@@ -114,7 +115,7 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
     const onRoofLevel = here?.kind === 'copertura' && Math.abs(roofBase(p, e) - here.elevation) < 0.01;
     if (e.levelId !== levelId && !onRoofLevel) continue;
     const b = bbox(e.points);
-    const o = e.overhang;
+    const o = roofEave(p, e);
     const inside = e.shape === 'falde' ? w.x >= b.minX - o && w.x <= b.maxX + o && w.y >= b.minY - o && w.y <= b.maxY + o : pointInPolygon(w, e.points);
     if (inside) return e.id;
   }

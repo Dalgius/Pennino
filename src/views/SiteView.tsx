@@ -8,6 +8,8 @@ import {
   byId,
   fmtLevel,
   roofOutline,
+  roofEave,
+  roofWithEave,
   roofRidgeRise,
   centroid,
   fmt,
@@ -207,13 +209,13 @@ export function RoofSymbols({
         const base = (lvl?.elevation ?? 0) + (lvl?.height ?? 0);
         const th = byId(p.catalog.roof, r.typeId)?.thickness ?? 0.3;
         const b = bbox(r.points);
-        const o = r.overhang;
+        const o = roofEave(p, r);
         if (r.shape === 'piana') {
           const c = centroid(r.points);
           return (
             <g key={r.id}>
               {/* bordo con lo sporto e filo dei muri sottostanti */}
-              <polygon points={pts(roofOutline(r))} className="sv-roof" strokeWidth={0.5 * mm} />
+              <polygon points={pts(roofOutline(roofWithEave(p, r)))} className="sv-roof" strokeWidth={0.5 * mm} />
               <polygon points={pts(r.points)} className="sv-roof-inner" strokeWidth={0.13 * mm} />
               {showLabels && (
                 <text x={c.x} y={-c.y} fontSize={2 * mm * ts} textAnchor="middle" className="sv-text">

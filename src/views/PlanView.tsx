@@ -13,6 +13,8 @@ import {
   add,
   roofBase,
   roofOutline,
+  roofEave,
+  roofWithEave,
   slabOutline,
   slabHoles,
   bbox,
@@ -112,8 +114,8 @@ export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, 
         roofs.map((r) => {
         if (r.kind !== 'roof') return null;
         const b = bbox(r.points);
-        const o = r.overhang;
-        const outline = roofOutline(r);
+        const o = roofEave(p, r);
+        const outline = roofOutline(roofWithEave(p, r));
         const alongX = b.w >= b.h;
         return (
           <g key={r.id} className="pv-roof" strokeWidth={med} strokeDasharray={`${3 * mm} ${1.5 * mm}`}>
@@ -841,7 +843,8 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
             // il foro scala resta vuoto anche nella selezione
             <path d={[e.points, ...slabHoles(p, e)].map((r) => `M${pts(r).replace(/ /g, ' L')} Z`).join(' ')} fillRule="evenodd" />
           ) : (
-            <polygon points={pts(e.points)} />
+            // copertura: tutto l'ingombro, sporto compreso
+            <polygon points={pts(roofOutline(roofWithEave(p, e)))} />
           )}
           {e.points.map((q, i) => (
             <circle key={i} cx={q.x} cy={-q.y} r={1.2 * mm} className="pv-handle" />

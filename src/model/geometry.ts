@@ -270,7 +270,7 @@ export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | nul
     if (Math.abs(base - zTop) > 0.05) continue;
     const b = bbox(e.points);
     // l'ingombro comprende lo sporto: i muri sotto la gronda vi rientrano per tutto lo spessore
-    const m = e.overhang + 1e-3;
+    const m = roofEave(p, e) + 1e-3;
     if (X.x < b.minX - m || X.x > b.maxX + m || X.y < b.minY - m || X.y > b.maxY + m) continue;
     let z = base;
     if (e.shape === 'falde') {
@@ -823,4 +823,35 @@ export function flightProfile(p: Project, s: StairLike, lay: StairLayout, i: num
   else out.push({ x: sB, y: f.base });
   void topEnd;
   return out;
+}
+
+/**
+ * Sporto effettivo di una copertura, misurato dall'asse dei muri su cui si disegnano i vertici:
+ * lo sporto impostato vale dal filo esterno dei muri d'appoggio (quelli la cui sommità è
+ * all'imposta della copertura e il cui asse coincide con un lato), a cui si somma mezzo spessore.
+ */
+export function roofEave(p: Project, r: { levelId: string; points: Vec2[]; overhang: number }): number {
+  const base = roofBase(p, r);
+  const pts = r.points;
+  let d = 0;
+  for (const w of p.elements) {
+    if (w.kind !== 'wall') continue;
+    const lvl = byId(p.levels, w.levelId);
+    if (!lvl || Math.abs(lvl.elevation + lvl.height - base) > 0.05) continue;
+    const wd = norm(sub(w.b, w.a));
+    const off = (q: Vec2) => Math.abs((q.x - w.a.x) * wd.y - (q.y - w.a.y) * wd.x);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const ed = norm(sub(b, a));
+      if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01 || off(a) > 0.02 || off(b) > 0.02) continue;
+      d = Math.max(d, wallThickness(byId(p.catalog.wall, w.typeId)) / 2);
+    }
+  }
+  return r.overhang + d;
+}
+
+/** La copertura con lo sporto effettivo (dall'asse dei muri), per i calcoli geometrici */
+export function roofWithEave<T extends { levelId: string; points: Vec2[]; overhang: number }>(p: Project, r: T): T {
+  return { ...r, overhang: roofEave(p, r) };
 }

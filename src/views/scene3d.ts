@@ -14,6 +14,8 @@ import {
   dist,
   openingSpans,
   roofOutline,
+  roofEave,
+  roofWithEave,
   roofRidgeRise,
   sunPosition,
   wallHeight,
@@ -157,9 +159,9 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       const th = t?.thickness ?? 0.3;
       const base = z0 + lvl.height;
       if (e.shape === 'piana' || e.points.length < 3) {
-        root.add(tag(extrudePolygon(roofOutline(e), base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
+        root.add(tag(extrudePolygon(roofOutline(roofWithEave(p, e)), base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
       } else {
-        const roof = gableRoof(e.points, e.pitch, e.overhang, base, th, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide })));
+        const roof = gableRoof(e.points, e.pitch, roofEave(p, e), base, th, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide })));
         roof.traverse((c) => tag(c, e.id));
         root.add(roof);
       }

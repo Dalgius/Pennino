@@ -16,6 +16,7 @@ import {
   polygonPerimeter,
   slabHoles,
   slabNetArea,
+  roofEave,
   slabOutline,
   sortedLevels,
   stairLayout,
@@ -190,7 +191,7 @@ export function computeComputo(p: Project): ComputoLine[] {
       push('SCA.01', base, { length: Ls, f: { m: lay.flights.length > 1 ? `rampe ${lay.flights.map((f) => n2(f.len)).join(' + ')}` : `L ${n2(Ls)}` } });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
-      const A = roofSurface(e.points, e.shape, e.pitch, e.overhang);
+      const A = roofSurface(e.points, e.shape, e.pitch, roofEave(p, e));
       const th = t?.thickness ?? 0.3;
       const mode = wallMode(p, t);
       const fA = e.shape === 'falde' ? `A orizz. con sporto / cos ${e.pitch}°` : 'A con sporto';

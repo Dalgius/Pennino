@@ -9,6 +9,7 @@ import {
   norm,
   openingSpans,
   roofRidgeRise,
+  roofEave,
   slabOutline,
   sortedLevels,
   sub,
@@ -227,7 +228,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       const th = t?.thickness ?? 0.3;
       const base = lvl.elevation + lvl.height;
       const b = bbox(e.points);
-      const o = e.overhang;
+      const o = roofEave(p, e);
       const corners = [
         { x: b.minX - o, y: b.minY - o },
         { x: b.maxX + o, y: b.maxY + o },
