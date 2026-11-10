@@ -23,6 +23,7 @@ import {
   wallThickness,
 } from './geometry';
 import { VEHICLE_SIZE } from '../views/SiteView';
+import { cached } from './cache';
 import { wallGeom, wallOutline } from './walls';
 
 type Editable = BuildingElement | SiteItem | ContextItem;
@@ -200,6 +201,10 @@ export interface SnapSegment {
 
 /** Facce e spigoli in pianta di muri, travi e pilastri del livello */
 function faceGeometry(p: Project, levelId: string) {
+  return cached(p, `faces:${levelId}`, () => faceGeometryRaw(p, levelId));
+}
+
+function faceGeometryRaw(p: Project, levelId: string) {
   const segs: SnapSegment[] = [];
   const corners: SnapCandidate[] = [];
   for (const e of p.elements) {
@@ -230,6 +235,10 @@ function faceGeometry(p: Project, levelId: string) {
 
 /** Assi e lati del livello agganciabili */
 export function snapSegments(p: Project, levelId: string): SnapSegment[] {
+  return cached(p, `snapSegments:${levelId}`, () => snapSegmentsRaw(p, levelId));
+}
+
+function snapSegmentsRaw(p: Project, levelId: string): SnapSegment[] {
   const out: SnapSegment[] = [];
   for (const e of p.elements) {
     if (!('levelId' in e) || e.levelId !== levelId) continue;
@@ -274,6 +283,10 @@ function segmentIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
 
 /** Punti notevoli del livello per l'aggancio */
 export function snapPoints(p: Project, levelId: string): SnapCandidate[] {
+  return cached(p, `snapPoints:${levelId}`, () => snapPointsRaw(p, levelId));
+}
+
+function snapPointsRaw(p: Project, levelId: string): SnapCandidate[] {
   const out: SnapCandidate[] = [];
   for (const e of p.elements) {
     if (!('levelId' in e) || e.levelId !== levelId) continue;
@@ -286,10 +299,13 @@ export function snapPoints(p: Project, levelId: string): SnapCandidate[] {
   out.push(...faceGeometry(p, levelId).corners);
   // incroci tra assi di muri e travi
   const segs = snapSegments(p, levelId).filter((s) => s.kind === 'muro');
+  // estremi già presenti, per non ripeterli come incroci (cella di 0,1 mm)
+  const cell = (q: Vec2) => `${Math.round(q.x * 1e4)},${Math.round(q.y * 1e4)}`;
+  const ends = new Set(out.filter((c) => c.kind === 'estremo').map((c) => cell(c.p)));
   for (let i = 0; i < segs.length; i++)
     for (let j = i + 1; j < segs.length; j++) {
       const x = segmentIntersection(segs[i].a, segs[i].b, segs[j].a, segs[j].b);
-      if (x && !out.some((c) => c.kind === 'estremo' && dist(c.p, x) < 1e-4)) out.push({ p: x, kind: 'intersezione' });
+      if (x && !ends.has(cell(x))) out.push({ p: x, kind: 'intersezione' });
     }
   return out;
 }

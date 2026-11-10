@@ -6,7 +6,8 @@
 // (negativa = il muro si allunga oltre il punto d'asse).
 
 import type { Project, Vec2, Wall } from './types';
-import { add, byId, centroid, dist, dot, mul, norm, perp, projectOnSegment, sub, wallLength, wallThickness } from './geometry';
+import { cached } from './cache';
+import { add, byId, JOIN_TOL, centroid, dist, dot, mul, norm, perp, projectOnSegment, sub, wallLength, wallThickness } from './geometry';
 
 export interface EndCut {
   alpha: number;
@@ -28,7 +29,7 @@ export interface WallGeom {
   b: EndCut;
 }
 
-const TOL = 0.02;
+const TOL = JOIN_TOL;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
 const free: EndCut = { alpha: 0, beta: 0, kind: 'libero' };
 
@@ -41,13 +42,67 @@ function intersect(p: Vec2, u: Vec2, q: Vec2, v: Vec2): Vec2 | null {
 }
 
 function levelWalls(p: Project, levelId: string) {
-  return p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === levelId);
+  return cached(p, `walls:${levelId}`, () => p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === levelId));
+}
+
+// Indice spaziale dei muri di un livello: una griglia di celle con i muri che le attraversano.
+// Serve a trovare i muri vicini a un punto o a un segmento senza scorrerli tutti.
+const CELL = 2;
+const MAX_CELLS = 256;
+
+interface WallIndex {
+  cells: Map<string, number[]>;
+  /** muri troppo lunghi per la griglia: sempre candidati */
+  big: number[];
+  walls: Wall[];
+}
+
+function cellRange(a: Vec2, b: Vec2, pad: number) {
+  return {
+    x0: Math.floor((Math.min(a.x, b.x) - pad) / CELL),
+    x1: Math.floor((Math.max(a.x, b.x) + pad) / CELL),
+    y0: Math.floor((Math.min(a.y, b.y) - pad) / CELL),
+    y1: Math.floor((Math.max(a.y, b.y) + pad) / CELL),
+  };
+}
+
+function wallIndex(p: Project, levelId: string): WallIndex {
+  return cached(p, `wallIndex:${levelId}`, () => {
+    const walls = levelWalls(p, levelId);
+    const cells = new Map<string, number[]>();
+    const big: number[] = [];
+    walls.forEach((w, i) => {
+      const c = cellRange(w.a, w.b, 0);
+      if ((c.x1 - c.x0 + 1) * (c.y1 - c.y0 + 1) > MAX_CELLS) return void big.push(i);
+      for (let x = c.x0; x <= c.x1; x++)
+        for (let y = c.y0; y <= c.y1; y++) {
+          const k = `${x},${y}`;
+          const list = cells.get(k);
+          if (list) list.push(i);
+          else cells.set(k, [i]);
+        }
+    });
+    return { cells, big, walls };
+  });
+}
+
+/** Muri del livello vicini al segmento a→b (o al punto a), nell'ordine in cui sono nel progetto */
+export function wallsNear(p: Project, levelId: string, a: Vec2, b: Vec2 = a, pad = 0.5): Wall[] {
+  const ix = wallIndex(p, levelId);
+  const c = cellRange(a, b, pad);
+  if ((c.x1 - c.x0 + 1) * (c.y1 - c.y0 + 1) > MAX_CELLS) return ix.walls;
+  const hit = new Set<number>(ix.big);
+  for (let x = c.x0; x <= c.x1; x++)
+    for (let y = c.y0; y <= c.y1; y++) for (const i of ix.cells.get(`${x},${y}`) ?? []) hit.add(i);
+  return [...hit].sort((m, n) => m - n).map((i) => ix.walls[i]);
 }
 
 /** Centro dei muri del livello: serve a capire quale lato di un muro guarda fuori */
 export function levelCenter(p: Project, levelId: string): Vec2 {
-  const pts = levelWalls(p, levelId).flatMap((w) => [w.a, w.b]);
-  return pts.length ? centroid(pts) : { x: 0, y: 0 };
+  return cached(p, `center:${levelId}`, () => {
+    const pts = levelWalls(p, levelId).flatMap((w) => [w.a, w.b]);
+    return pts.length ? centroid(pts) : { x: 0, y: 0 };
+  });
 }
 
 export function exteriorSign(p: Project, w: Wall, center = levelCenter(p, w.levelId)): 1 | -1 {
@@ -57,8 +112,9 @@ export function exteriorSign(p: Project, w: Wall, center = levelCenter(p, w.leve
   return (w.flip ? -outward : outward) as 1 | -1;
 }
 
-function endCut(p: Project, w: Wall, end: 'a' | 'b', walls: Wall[]): EndCut {
+function endCut(p: Project, w: Wall, end: 'a' | 'b'): EndCut {
   const P = end === 'a' ? w.a : w.b;
+  const walls = wallsNear(p, w.levelId, P);
   const d = norm(sub(w.b, w.a));
   const n = perp(d);
   const u = end === 'a' ? d : mul(d, -1); // verso l'interno del muro
@@ -113,7 +169,11 @@ function endCut(p: Project, w: Wall, end: 'a' | 'b', walls: Wall[]): EndCut {
 }
 
 export function wallGeom(p: Project, w: Wall, center?: Vec2): WallGeom {
-  const walls = levelWalls(p, w.levelId);
+  // la geometria dipende dagli altri muri del livello: una volta per progetto e per muro
+  return cached(p, `geom:${w.id}:${center ? `${center.x},${center.y}` : ''}`, () => wallGeomRaw(p, w, center));
+}
+
+function wallGeomRaw(p: Project, w: Wall, center?: Vec2): WallGeom {
   const d = norm(sub(w.b, w.a));
   return {
     wall: w,
@@ -122,8 +182,8 @@ export function wallGeom(p: Project, w: Wall, center?: Vec2): WallGeom {
     n: perp(d),
     half: wallThickness(byId(p.catalog.wall, w.typeId)) / 2,
     extSign: exteriorSign(p, w, center),
-    a: endCut(p, w, 'a', walls),
-    b: endCut(p, w, 'b', walls),
+    a: endCut(p, w, 'a'),
+    b: endCut(p, w, 'b'),
   };
 }
 

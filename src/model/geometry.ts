@@ -19,6 +19,12 @@ export const mul = (a: Vec2, k: number): Vec2 => ({ x: a.x * k, y: a.y * k });
 export const dot = (a: Vec2, b: Vec2) => a.x * b.x + a.y * b.y;
 export const len = (a: Vec2) => Math.hypot(a.x, a.y);
 export const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+
+/**
+ * Tolleranza di coincidenza (m): due punti, o un punto e un asse, più vicini di così sono lo stesso
+ * punto. Vale per giunzioni tra muri, appoggi delle travi e bordi dei solai sui muri.
+ */
+export const JOIN_TOL = 0.02;
 export const norm = (a: Vec2): Vec2 => {
   const l = len(a) || 1;
   return { x: a.x / l, y: a.y / l };
@@ -142,7 +148,7 @@ export function openingSpans(p: Project, w: Wall): OpeningSpan[] {
  * (giunzione a L o a T sullo stesso livello).
  */
 export function wallEndExtensions(p: Project, w: Wall): { a: number; b: number } {
-  const tol = 0.02;
+  const tol = JOIN_TOL;
   let ea = 0;
   let eb = 0;
   const dir = norm(sub(w.b, w.a));
@@ -460,7 +466,7 @@ export function slabOutline(
       const wd = norm(sub(w.b, w.a));
       if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01) continue;
       const off = (q: Vec2) => Math.abs((q.x - w.a.x) * wd.y - (q.y - w.a.y) * wd.x);
-      if (off(a) > 0.02 || off(b) > 0.02) continue;
+      if (off(a) > JOIN_TOL || off(b) > JOIN_TOL) continue;
       const t = (q: Vec2) => (q.x - a.x) * ed.x + (q.y - a.y) * ed.y;
       const t0 = Math.min(t(w.a), t(w.b));
       const t1 = Math.max(t(w.a), t(w.b));
@@ -844,7 +850,7 @@ export function roofEave(p: Project, r: { levelId: string; points: Vec2[]; overh
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
       const ed = norm(sub(b, a));
-      if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01 || off(a) > 0.02 || off(b) > 0.02) continue;
+      if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01 || off(a) > JOIN_TOL || off(b) > JOIN_TOL) continue;
       d = Math.max(d, wallThickness(byId(p.catalog.wall, w.typeId)) / 2);
     }
   }

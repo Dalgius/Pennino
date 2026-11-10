@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
 import type { BuildingElement, Project, Vec2 } from '../model/types';
 import {
@@ -67,6 +67,8 @@ function nextSectionName(p: Project) {
 const SECTION_TOOL: ToolDef = { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' };
 
 type ViewMode = 'pianta' | 'prospetti' | 'sezioni' | '3d' | 'affiancate';
+
+const NO_IDS: string[] = [];
 
 interface Drag {
   kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo';
@@ -144,10 +146,11 @@ export function Modellazione() {
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2; add: boolean } | null>(null);
   const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
   const [dimText, setDimText] = useState('');
-  const openDim = (t: DimTarget) => {
+  // stabile tra i render: la pianta memorizzata non si ridisegna al movimento del cursore
+  const openDim = useCallback((t: DimTarget) => {
     setDimEdit(t);
     setDimText(t.value.toFixed(2));
-  };
+  }, []);
   const commitDim = () => {
     const v = parseFloat(dimText.replace(',', '.'));
     if (dimEdit) {
@@ -167,7 +170,7 @@ export function Modellazione() {
   useEffect(() => {
     if (isRoofLevel && ROOF_LEVEL_OFF.includes(tool)) setTool('select');
   }, [isRoofLevel, tool]);
-  const selectedIds = selection.scope === 'modello' ? selection.ids : [];
+  const selectedIds = selection.scope === 'modello' ? selection.ids : NO_IDS;
   const toolDef = [...TOOLS, SECTION_TOOL].find((t) => t.id === tool)!;
 
   // Tipologie di aperture coerenti con lo strumento

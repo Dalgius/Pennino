@@ -5,8 +5,8 @@
 // Scrivendo una nuova misura si sposta l'elemento all'estremità destra del segmento.
 
 import type { Project, Vec2, Wall } from './types';
-import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, projectOnSegment, sub, wallThickness } from './geometry';
-import { endAt, faceOffset, levelCenter, startAt, wallGeom, type WallGeom } from './walls';
+import { add, byId, columnQuad, dist, dot, JOIN_TOL, mul, norm, openingSpans, projectOnSegment, sub, wallThickness } from './geometry';
+import { endAt, faceOffset, levelCenter, startAt, wallGeom, wallsNear, type WallGeom } from './walls';
 
 export type MarkRef =
   | { k: 'inizio' | 'fine'; wallId: string }
@@ -48,13 +48,13 @@ export function isExteriorWall(p: Project, w: Wall) {
 /** Seno minimo dell'angolo tra due muri perché uno si innesti a T nell'altro (circa 15°) */
 const MIN_T_SIN = 0.26;
 
-function junctions(p: Project, g: WallGeom, walls: Wall[]) {
+function junctions(p: Project, g: WallGeom) {
   const out: { wall: Wall; s: number; half: number }[] = [];
-  for (const o of walls) {
+  for (const o of wallsNear(p, g.wall.levelId, g.wall.a, g.wall.b)) {
     if (o.id === g.wall.id) continue;
     for (const P of [o.a, o.b]) {
       const pr = projectOnSegment(P, g.wall.a, g.wall.b);
-      if (pr.d < 0.02 && pr.t > 1e-3 && pr.t < 1 - 1e-3) {
+      if (pr.d < JOIN_TOL && pr.t > 1e-3 && pr.t < 1 - 1e-3) {
         const dO = norm(sub(o.b, o.a));
         const sin = Math.abs(dot(dO, g.n));
         // un muro collineare (sovrapposto) o quasi parallelo non è un innesto a T
@@ -88,7 +88,7 @@ export function computeDimensions(p: Project, levelId: string): DimChain[] {
       inner.push({ s: sp.start, ref: { k: 'apertura', id: sp.opening.id, edge: 0 } });
       inner.push({ s: sp.end, ref: { k: 'apertura', id: sp.opening.id, edge: 1 } });
     }
-    for (const j of junctions(p, g, walls)) {
+    for (const j of junctions(p, g)) {
       inner.push({ s: j.s - j.half, ref: { k: 'giunto', wallId: j.wall.id, face: 0 } });
       inner.push({ s: j.s + j.half, ref: { k: 'giunto', wallId: j.wall.id, face: 1 } });
     }
@@ -138,7 +138,7 @@ function freeEdgeChains(p: Project, levelId: string, walls: Wall[]): DimChain[] 
         const J = add(a, mul(d, t));
         const host = [...walls, ...below].find((w) => {
           const wd = norm(sub(w.b, w.a));
-          return Math.abs(dot(wd, d)) < 0.05 && projectOnSegment(J, w.a, w.b).d < 0.02;
+          return Math.abs(dot(wd, d)) < 0.05 && projectOnSegment(J, w.a, w.b).d < JOIN_TOL;
         });
         return host ? t + toward * (wallThickness(byId(p.catalog.wall, host.typeId)) / 2) : null;
       };
@@ -189,7 +189,7 @@ function freeIntervals(a: Vec2, b: Vec2, walls: Wall[]): [number, number][] {
     const wd = norm(sub(w.b, w.a));
     if (Math.abs(ed.x * wd.y - ed.y * wd.x) > 0.01) continue;
     const off = (q: Vec2) => Math.abs((q.x - w.a.x) * wd.y - (q.y - w.a.y) * wd.x);
-    if (off(a) > 0.02 || off(b) > 0.02) continue;
+    if (off(a) > JOIN_TOL || off(b) > JOIN_TOL) continue;
     const t = (q: Vec2) => dot(sub(q, a), ed);
     const w0 = Math.min(t(w.a), t(w.b));
     const w1 = Math.max(t(w.a), t(w.b));
@@ -329,8 +329,8 @@ function setWallEnd(d: Project, w: Wall, end: 'a' | 'b', P: Vec2) {
 function followEndpoints(d: Project, levelId: string, skip: Set<string>, P: Vec2, delta: Vec2) {
   for (const o of d.elements) {
     if (o.kind !== 'wall' || o.levelId !== levelId || skip.has(o.id)) continue;
-    if (dist(o.a, P) < 0.02) setWallEnd(d, o, 'a', add(o.a, delta));
-    else if (dist(o.b, P) < 0.02) setWallEnd(d, o, 'b', add(o.b, delta));
+    if (dist(o.a, P) < JOIN_TOL) setWallEnd(d, o, 'a', add(o.a, delta));
+    else if (dist(o.b, P) < JOIN_TOL) setWallEnd(d, o, 'b', add(o.b, delta));
   }
 }
 
@@ -352,7 +352,7 @@ function translateWall(d: Project, w: Wall, delta: Vec2, skip: Set<string>) {
     if (o.kind !== 'wall' || s.has(o.id) || o.levelId !== w.levelId) continue;
     for (const end of ['a', 'b'] as const) {
       const pr = projectOnSegment(o[end], a0, b0);
-      if (pr.d < 0.02 && pr.t > 1e-3 && pr.t < 1 - 1e-3) setWallEnd(d, o, end, add(o[end], shiftN));
+      if (pr.d < JOIN_TOL && pr.t > 1e-3 && pr.t < 1 - 1e-3) setWallEnd(d, o, end, add(o[end], shiftN));
     }
   }
 }
@@ -427,12 +427,11 @@ function openingError(p: Project, chain: DimChain, k: number, value: number): st
   if (!host || !sp) return null;
   const g = wallGeom(p, host);
   // ostacoli lungo il muro: altre aperture e muri innestati
-  const walls = p.elements.filter((e): e is Wall => e.kind === 'wall' && e.levelId === host.levelId);
   const obstacles: [number, number][] = [
     ...openingSpans(p, host)
       .filter((x) => x.opening.id !== ref.id)
       .map((x) => [x.start, x.end] as [number, number]),
-    ...junctions(p, g, walls).map((j) => [j.s - j.half, j.s + j.half] as [number, number]),
+    ...junctions(p, g).map((j) => [j.s - j.half, j.s + j.half] as [number, number]),
   ];
   let lo = Math.max(startAt(g, g.half), startAt(g, -g.half), 0);
   let hi = Math.min(endAt(g, g.half), endAt(g, -g.half), g.L);
@@ -483,8 +482,8 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
     // le travi appoggiate sul pilastro lo seguono
     for (const b of d.elements)
       if (b.kind === 'beam' && b.levelId === c.levelId) {
-        if (dist(b.a, old) < 0.02) b.a = add(b.a, shift);
-        if (dist(b.b, old) < 0.02) b.b = add(b.b, shift);
+        if (dist(b.a, old) < JOIN_TOL) b.a = add(b.a, shift);
+        if (dist(b.b, old) < JOIN_TOL) b.b = add(b.b, shift);
       }
     return;
   }
@@ -506,13 +505,13 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
     const b0 = host.b;
     const corner = d.elements.find(
       (e): e is Wall =>
-        e.kind === 'wall' && e.id !== host.id && e.levelId === host.levelId && (dist(e.a, b0) < 0.02 || dist(e.b, b0) < 0.02),
+        e.kind === 'wall' && e.id !== host.id && e.levelId === host.levelId && (dist(e.a, b0) < JOIN_TOL || dist(e.b, b0) < JOIN_TOL),
     );
     host.b = add(host.b, shift);
     if (corner) {
       const cd = norm(sub(corner.b, corner.a));
       if (Math.abs(dot(cd, chain.dir)) < 0.98) translateWall(d, corner, shift, new Set([host.id]));
-      else setWallEnd(d, corner, dist(corner.a, b0) < 0.02 ? 'a' : 'b', host.b);
+      else setWallEnd(d, corner, dist(corner.a, b0) < JOIN_TOL ? 'a' : 'b', host.b);
     }
     refitOpenings(d, host);
   }

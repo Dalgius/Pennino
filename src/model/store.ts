@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { produce } from 'immer';
+import { freeze, produce } from 'immer';
 import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
 import { getImage, putImage } from './images';
@@ -83,7 +83,8 @@ function readTheme(): 'scuro' | 'chiaro' {
   }
 }
 
-const initial = loadInitial();
+// congelato come tutti gli stati successivi: i calcoli derivati si possono memorizzare per progetto
+const initial = freeze(loadInitial(), true);
 
 export const useStore = create<State>((set, get) => ({
   project: initial,
@@ -146,7 +147,7 @@ export const useStore = create<State>((set, get) => ({
   },
   replaceProject: (p) => {
     set({
-      project: p,
+      project: freeze(p, true),
       past: [],
       future: [],
       revision: get().revision + 1,

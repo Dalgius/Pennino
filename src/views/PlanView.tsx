@@ -2,6 +2,7 @@
 // Usata sia dall'editor (fase 02) sia dai fogli di stampa (fase 03): stesso disegno, stessi dati.
 // Coordinate in metri; l'asse Y del modello è ribaltato per l'SVG.
 
+import { memo } from 'react';
 import type { Opening, OpeningType, Project, Stair, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
 import { RoofSymbols } from './SiteView';
@@ -11,6 +12,7 @@ import { fixtureSpec, leafSpans } from '../model/openings';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
+  JOIN_TOL,
   roofBase,
   roofOutline,
   roofEave,
@@ -57,7 +59,13 @@ interface Props {
   activeDim?: string;
 }
 
-export function PlanView({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim }: Props) {
+/**
+ * Pianta di un livello. Memorizzata: si ridisegna solo se cambiano il progetto o le sue proprietà,
+ * non a ogni movimento del cursore nella vista che la contiene.
+ */
+export const PlanView = memo(PlanViewImpl);
+
+function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim }: Props) {
   const ts = textScale;
   const els = p.elements;
   const onLevel = <T extends { levelId: string }>(e: T) => e.levelId === levelId;
@@ -662,7 +670,7 @@ function tJunctions(p: Project, w: Wall, g: WallGeom, center: Vec2) {
       [o.b, o.a],
     ] as const) {
       const pr = projectOnSegment(P, w.a, w.b);
-      if (pr.d > 0.02 || pr.t <= 1e-3 || pr.t >= 1 - 1e-3) continue;
+      if (pr.d > JOIN_TOL || pr.t <= 1e-3 || pr.t >= 1 - 1e-3) continue;
       const dO = norm(sub(Q, P));
       const c = dot(dO, g.n);
       const side = Math.sign(c);

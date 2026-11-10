@@ -7,10 +7,10 @@
 
 import { produce } from 'immer';
 import type { Project, Vec2, Wall } from './types';
-import { add, byId, dot, mul, norm, sortedLevels, sub } from './geometry';
+import { add, byId, JOIN_TOL, dot, mul, norm, sortedLevels, sub } from './geometry';
 import { endAt, startAt, wallGeom } from './walls';
 
-const TOL = 0.02;
+const TOL = JOIN_TOL;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
 
 interface Line {
