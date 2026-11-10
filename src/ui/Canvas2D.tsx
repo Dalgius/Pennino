@@ -32,14 +32,16 @@ interface Props {
   /** Comandi aggiuntivi nella barra in basso, dopo Griglia */
   tools?: ReactNode;
   className?: string;
+  /** Clic destro senza trascinare: menu contestuale (x, y in pixel dentro il tavolo) */
+  onMenu?: (e: { world: Vec2; x: number; y: number; zoom: number }) => void;
 }
 
 /** Tavolo da disegno: pan con tasto centrale/destro o spazio, zoom con la rotella */
-export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, children, hud, ortho, tools, className }: Props) {
+export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, children, hud, ortho, tools, className, onMenu }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ tx: 0, ty: 0, z: 30 });
   const [size, setSize] = useState({ w: 800, h: 600 });
-  const pan = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; tx: number; ty: number; button: number } | null>(null);
   const space = useRef(false);
   const fitted = useRef(false);
   const showGrid = useStore((s) => s.drafting.grid);
@@ -123,7 +125,7 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
     const active = document.activeElement as HTMLElement | null;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) active.blur();
     if (e.button === 1 || e.button === 2 || (e.button === 0 && space.current)) {
-      pan.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+      pan.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, button: e.button };
       (e.target as Element).setPointerCapture?.(e.pointerId);
       e.preventDefault();
       return;
@@ -142,7 +144,13 @@ export function Canvas2D({ bounds, onPointer, cursor = 'default', grid = true, c
   };
   const onUp = (e: React.PointerEvent) => {
     if (pan.current) {
+      const p = pan.current;
       pan.current = null;
+      // tasto destro rilasciato senza aver spostato la vista: menu contestuale
+      if (p.button === 2 && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 4 && onMenu) {
+        const r = ref.current!.getBoundingClientRect();
+        onMenu({ world: toWorld(e), x: e.clientX - r.left, y: e.clientY - r.top, zoom: view.z });
+      }
       return;
     }
     if (fromHud(e)) return;

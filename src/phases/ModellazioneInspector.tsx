@@ -33,9 +33,39 @@ import { leavesOf } from '../model/openings';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { HatchKind, Stair } from '../model/types';
+import type { ElementStatus, HatchKind, Stair } from '../model/types';
+import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
+
+/** Stato degli elementi nelle ristrutturazioni: esistente, da demolire, nuova costruzione */
+function StatusField({ ids }: { ids: string[] }) {
+  const project = useStore((s) => s.project);
+  const edit = useStore((s) => s.edit);
+  const found = project.elements.filter((e) => ids.includes(e.id)).map(statusOf);
+  const same = found.every((x) => x === found[0]);
+  const options = [
+    ...(same ? [] : [{ value: 'misto' as const, label: 'Stati diversi' }]),
+    ...(Object.keys(STATUS_LABEL) as ElementStatus[]).map((v) => ({ value: v, label: STATUS_LABEL[v] })),
+  ];
+  return (
+    <SelectField<ElementStatus | 'misto'>
+      label="Stato"
+      value={same ? found[0] ?? 'nuovo' : 'misto'}
+      options={options}
+      onChange={(v) =>
+        v !== 'misto' &&
+        edit((d) => {
+          for (const x of d.elements)
+            if (ids.includes(x.id)) {
+              if (v === 'nuovo') delete x.status;
+              else x.status = v;
+            }
+        })
+      }
+    />
+  );
+}
 
 export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: CatalogKey, id: string) => void }) {
   const project = useStore((s) => s.project);
@@ -68,6 +98,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             </div>
           ))}
         </div>
+        <StatusField ids={ids} />
         <p className="note">Trascina per spostarli insieme · Maiusc + clic o riquadro per aggiungere · Canc per eliminare.</p>
         <CopyToLevel ids={ids} />
         <button className="btn btn-danger btn-block" onClick={remove}>
@@ -107,6 +138,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
         </div>
         <span className="badge mono">{e.id.slice(-6)}</span>
       </div>
+      <StatusField ids={[e.id]} />
 
       {e.kind === 'wall' && <WallInspector project={project} id={e.id} typeSelect={typeSelect} levelOptions={levelOptions} />}
 

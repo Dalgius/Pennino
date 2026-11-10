@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { BuildingElement, Project, Vec2 } from '../model/types';
+import type { BuildingElement, ElementStatus, Project, Vec2, ViewState } from '../model/types';
 import {
   add,
   bbox,
@@ -22,6 +22,10 @@ import {
   stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
+import { ALL_VISIBLE, deleteExtras, findAnnotation, findRoom, hitExtras, layerOf, layersWith, similarElements, translateExtras, withoutLayers, LAYER_LABEL, type Layers } from '../model/layers';
+import { roomShape } from '../model/rooms';
+import { projectInState, STATUS_LABEL, VIEW_STATE_LABEL } from '../model/states';
+import { AnnotationInspector, ContextMenu, LayersPanel, RoomInspector, type MenuItem } from './ModellazioneExtras';
 import { applyHandle, dragEdge, dragHandle, dragMove, elementLevel, moveJoined, translated } from '../model/dragging';
 import { columnUnder, copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, snapModel, snapPoint, snapPoints, snapSegments, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
@@ -36,7 +40,7 @@ import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector'
 import { applyDimension, dimensionError } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
-export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section';
+export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
 
 type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
 
@@ -67,6 +71,23 @@ function nextSectionName(p: Project) {
 const SECTION_TOOL: ToolDef = { id: 'section', label: 'Sezione', key: 'X', icon: 'section', hint: 'Clic su inizio e fine della traccia di sezione. Si guarda verso sinistra della traccia; nell’ispettore si inverte.' };
 
 type ViewMode = 'pianta' | 'prospetti' | 'sezioni' | '3d' | 'affiancate';
+
+/** Locali e annotazioni: non sono elementi costruttivi */
+const EXTRA_TOOLS: ToolDef[] = [
+  { id: 'room', label: 'Locale', key: 'L', icon: 'area', hint: 'Clic dentro un vano chiuso dai muri: nasce il locale con nome e superficie netta.' },
+  { id: 'quota', label: 'Quota', key: 'Q', icon: 'path', hint: 'Clic sui due punti da quotare. La linea di quota si regola poi nell’ispettore.' },
+  { id: 'testo', label: 'Testo', key: 'E', icon: 'edit', hint: 'Clic dove scrivere. Con Alt: primo clic sul punto da indicare, secondo clic sul testo (linea di richiamo).' },
+  { id: 'altimetrica', label: 'Quota alt.', key: 'H', icon: 'level', hint: 'Clic per inserire la quota altimetrica del piano finito.' },
+];
+const ALL_TOOLS = () => [...TOOLS, SECTION_TOOL, ...EXTRA_TOOLS];
+
+function readLayers(): Layers {
+  try {
+    return { ...ALL_VISIBLE, ...JSON.parse(localStorage.getItem('pennino.layers') || '{}') };
+  } catch {
+    return ALL_VISIBLE;
+  }
+}
 
 const NO_IDS: string[] = [];
 
@@ -132,6 +153,24 @@ export function Modellazione() {
   const grid = drafting.grid ? step : 0;
   const setOrtho = (v: boolean) => setDrafting({ ortho: v });
   const [ghost, setGhost] = useState(true);
+  const [ghostAbove, setGhostAbove] = useState(false);
+  // categorie visibili, bloccate o nascoste (ricordate tra le sessioni) e stato rappresentato
+  const [layers, setLayersState] = useState<Layers>(readLayers);
+  const setLayers = (l: Layers) => {
+    setLayersState(l);
+    try {
+      localStorage.setItem('pennino.layers', JSON.stringify(l));
+    } catch {
+      /* preferenza non salvabile */
+    }
+  };
+  const [viewState, setViewState] = useState<ViewState>('progetto');
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string | null } | null>(null);
+  // ciò che si vede (stato e categorie non nascoste) e ciò che si può prendere (non bloccato)
+  const stateProject = projectInState(project, viewState);
+  const viewProject = withoutLayers(stateProject, layersWith(layers, ['nascosto']));
+  const pickProject = withoutLayers(stateProject, layersWith(layers, ['nascosto', 'bloccato']));
   // appunti per copiare elementi tra i livelli (Ctrl+C / Ctrl+V)
   const clipboard = useRef<string[]>([]);
   const setNotice = useStore((st) => st.setNotice);
@@ -151,6 +190,13 @@ export function Modellazione() {
     setDimEdit(t);
     setDimText(t.value.toFixed(2));
   }, []);
+  const hideDim = useCallback(
+    (chainId: string) => {
+      edit((d) => void (d.hiddenDims = [...new Set([...(d.hiddenDims ?? []), chainId])]));
+      setNotice('Catena di quote nascosta: si ripristina dal pannello Vista.');
+    },
+    [edit, setNotice],
+  );
   const commitDim = () => {
     const v = parseFloat(dimText.replace(',', '.'));
     if (dimEdit) {
@@ -166,12 +212,13 @@ export function Modellazione() {
   const lvlId = level?.id ?? '';
   const below = levels[levels.findIndex((l) => l.id === lvlId) - 1];
   const isRoofLevel = level?.kind === 'copertura';
+  const above = levels[levels.findIndex((l) => l.id === lvlId) + 1];
   // passando al livello delle coperture, uno strumento non disponibile torna a Seleziona
   useEffect(() => {
     if (isRoofLevel && ROOF_LEVEL_OFF.includes(tool)) setTool('select');
   }, [isRoofLevel, tool]);
   const selectedIds = selection.scope === 'modello' ? selection.ids : NO_IDS;
-  const toolDef = [...TOOLS, SECTION_TOOL].find((t) => t.id === tool)!;
+  const toolDef = ALL_TOOLS().find((t) => t.id === tool)!;
 
   // Tipologie di aperture coerenti con lo strumento
   const openingCategory = tool === 'door' ? 'porta' : 'finestra';
@@ -215,27 +262,83 @@ export function Modellazione() {
   );
   const candidates = useMemo(
     () => [
-      ...snapPoints(project, lvlId),
-      ...(refLevel ? snapPoints(project, refLevel) : structLevel ? snapPoints(project, structLevel).filter((c) => c.id && belowStruct.has(c.id)) : []),
+      ...snapPoints(viewProject, lvlId),
+      ...(refLevel ? snapPoints(viewProject, refLevel) : structLevel ? snapPoints(viewProject, structLevel).filter((c) => c.id && belowStruct.has(c.id)) : []),
     ],
-    [project, lvlId, refLevel, structLevel, belowStruct],
+    [viewProject, lvlId, refLevel, structLevel, belowStruct],
   );
   const segments = useMemo(
     () => [
-      ...snapSegments(project, lvlId),
-      ...(refLevel ? snapSegments(project, refLevel) : structLevel ? snapSegments(project, structLevel).filter((g) => belowStruct.has(g.id)) : []),
+      ...snapSegments(viewProject, lvlId),
+      ...(refLevel ? snapSegments(viewProject, refLevel) : structLevel ? snapSegments(viewProject, structLevel).filter((g) => belowStruct.has(g.id)) : []),
     ],
-    [project, lvlId, refLevel, structLevel, belowStruct],
+    [viewProject, lvlId, refLevel, structLevel, belowStruct],
   );
   const columnLevels = (own: string) => [own, ...(structLevel && structLevel !== own ? [structLevel] : [])];
+
+  // ───────── Appunti ─────────
+
+  const copySelection = (ids: string[]) => {
+    // si incolla su qualsiasi livello, nella stessa posizione
+    clipboard.current = ids.filter((id) => project.elements.some((x) => x.id === id && x.kind !== 'opening'));
+    setNotice(`${clipboard.current.length} elementi copiati: Ctrl+V per incollarli sul livello attivo.`);
+  };
+  const pasteClipboard = () => {
+    const src = clipboard.current.filter((id) => project.elements.some((x) => x.id === id));
+    if (!src.length) return;
+    let made: string[] = [];
+    edit((d) => {
+      made = copyElementsToLevel(d, src, lvlId);
+    });
+    changeTool('select');
+    select('modello', made);
+    setNotice(`${made.length} elementi incollati su «${level?.name ?? ''}».`);
+  };
 
   // ───────── Creazione elementi ─────────
 
   const addElement = (e: BuildingElement) => {
+    // disegnando sullo stato di fatto nascono elementi esistenti
+    const el = viewState === 'fatto' ? { ...e, status: 'esistente' as const } : e;
     edit((d) => {
-      d.elements.push(e);
+      d.elements.push(el);
     });
     return e.id;
+  };
+
+  /** Locali e annotazioni: un clic (o due) e si torna a Seleziona con l'oggetto selezionato */
+  const commitExtra = (q: Vec2, alt: boolean) => {
+    const done = (id: string) => {
+      select('modello', [id]);
+      resetDraft();
+      setTool('select');
+    };
+    if (tool === 'room') {
+      if (!roomShape(viewProject, lvlId, q)) return setNotice('Qui i muri non chiudono un vano: il locale va inserito dentro un perimetro chiuso.');
+      const id = uid('loc');
+      const n = (project.rooms ?? []).filter((r) => r.levelId === lvlId).length + 1;
+      edit((d) => void (d.rooms = [...(d.rooms ?? []), { id, levelId: lvlId, p: q, name: `Locale ${n}`, use: 'Altro' }]));
+      return done(id);
+    }
+    if (tool === 'altimetrica') {
+      const id = uid('an');
+      edit((d) => void (d.annotations = [...(d.annotations ?? []), { id, kind: 'altimetrica', levelId: lvlId, p: q, dz: 0 }]));
+      return done(id);
+    }
+    if (tool === 'quota') {
+      if (!draft.length) return setDraft([q]);
+      if (dist(draft[0], q) < 0.02) return;
+      const id = uid('an');
+      const a = draft[0];
+      edit((d) => void (d.annotations = [...(d.annotations ?? []), { id, kind: 'quota', levelId: lvlId, a, b: q, offset: 0.6 }]));
+      return done(id);
+    }
+    // testo: con Alt il primo clic è il punto indicato dalla linea di richiamo
+    if (alt && !draft.length) return setDraft([q]);
+    const id = uid('an');
+    const leader = draft[0];
+    edit((d) => void (d.annotations = [...(d.annotations ?? []), { id, kind: 'testo', levelId: lvlId, p: q, text: 'Testo', ...(leader ? { leader } : {}) }]));
+    done(id);
   };
 
   const commitPoint = (q: Vec2) => {
@@ -356,7 +459,16 @@ export function Modellazione() {
         ? snapPoint(e.world, drawOpts)
         : snapModel(e.world, { ...drawOpts, segments: axial ? segments.filter((g) => !g.face || g.column) : segments });
 
+    if (menu) setMenu(null);
     if (tool === 'select') return handleSelect(e, snap, tol);
+
+    if (tool === 'room' || tool === 'quota' || tool === 'testo' || tool === 'altimetrica') {
+      // il locale va dove si clicca; le annotazioni si agganciano agli oggetti
+      const q = tool === 'room' || tool === 'testo' ? { p: e.world, kind: 'libero' as const } : snapModel(e.world, { ...snapOpts, from: undefined, ortho: false, segments });
+      setCursor(q);
+      if (e.type === 'down' && e.button === 0) commitExtra(q.p, e.alt);
+      return;
+    }
 
     if (tool === 'door' || tool === 'window') {
       const nw = nearestWall(project, e.world, lvlId, 0.4);
@@ -418,7 +530,16 @@ export function Modellazione() {
         }
       }
       const secHit = (project.sections ?? []).find((sec) => projectOnSegment(e.world, sec.a, sec.b).d < tol);
-      const hit = hitTestModel(project, e.world, lvlId, tol);
+      // locali e annotazioni si prendono dalla loro etichetta, prima degli elementi sotto
+      const extra = hitExtras(pickProject, lvlId, e.world, tol);
+      if (extra) {
+        if (e.shift) select('modello', selectedIds.includes(extra) ? selectedIds.filter((x) => x !== extra) : [...selectedIds, extra]);
+        else if (!selectedIds.includes(extra)) select('modello', [extra]);
+        drag.current = { kind: 'move', id: extra, start: e.world, orig: project, moved: false };
+        setEditingType(null);
+        return;
+      }
+      const hit = hitTestModel(pickProject, e.world, lvlId, tol);
       if (secHit && !hit) {
         select('modello', [secHit.id]);
         drag.current = { kind: 'sezione', id: secHit.id, start: snap.p, orig: project, moved: false };
@@ -448,7 +569,7 @@ export function Modellazione() {
       setMarquee(null);
       if (dist(m.a, m.b) > tol) {
         const r = { minX: Math.min(m.a.x, m.b.x), minY: Math.min(m.a.y, m.b.y), maxX: Math.max(m.a.x, m.b.x), maxY: Math.max(m.a.y, m.b.y) };
-        const found = elementsInRect(project, lvlId, r, m.b.x < m.a.x);
+        const found = elementsInRect(pickProject, lvlId, r, m.b.x < m.a.x);
         select('modello', m.add ? [...new Set([...selectedIds, ...found])] : found);
       }
       return;
@@ -531,6 +652,7 @@ export function Modellazione() {
           d.elements[x] = translated(src, delta);
           if (src.kind === 'wall' && ids.length === 1) moveJoined(d, o, src.levelId, id, [src.a, src.b], delta);
         }
+        translateExtras(d, o, ids, delta);
       });
       return;
     }
@@ -547,27 +669,18 @@ export function Modellazione() {
         // seleziona tutto il livello
         e.preventDefault();
         changeTool('select');
-        select('modello', elementsInRect(project, lvlId, { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }, false));
+        select('modello', elementsInRect(pickProject, lvlId, { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }, false));
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedIds.length) {
         // copia la selezione (si incolla su qualsiasi livello, nella stessa posizione)
-        clipboard.current = selectedIds.filter((id) => project.elements.some((x) => x.id === id && x.kind !== 'opening'));
-        setNotice(`${clipboard.current.length} elementi copiati: Ctrl+V per incollarli sul livello attivo.`);
+        copySelection(selectedIds);
         e.preventDefault();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clipboard.current.length) {
         e.preventDefault();
-        const src = clipboard.current.filter((id) => project.elements.some((x) => x.id === id));
-        if (!src.length) return;
-        let made: string[] = [];
-        edit((d) => {
-          made = copyElementsToLevel(d, src, lvlId);
-        });
-        changeTool('select');
-        select('modello', made);
-        setNotice(`${made.length} elementi incollati su «${level?.name ?? ''}».`);
+        pasteClipboard();
         return;
       }
       if (e.ctrlKey || e.metaKey) return;
@@ -604,6 +717,7 @@ export function Modellazione() {
         edit((d) => {
           deleteElements(d, selectedIds);
           if (d.sections) d.sections = d.sections.filter((x) => !selectedIds.includes(x.id));
+          deleteExtras(d, selectedIds);
         });
         select('modello', []);
         return;
@@ -612,7 +726,7 @@ export function Modellazione() {
         setOrtho(!ortho);
         return;
       }
-      const t = [...TOOLS, SECTION_TOOL].find((x) => x.key.toLowerCase() === k.toLowerCase());
+      const t = ALL_TOOLS().find((x) => x.key.toLowerCase() === k.toLowerCase());
       if (t && !(isRoofLevel && ROOF_LEVEL_OFF.includes(t.id))) changeTool(t.id);
     };
     window.addEventListener('keydown', onKey);
@@ -630,12 +744,93 @@ export function Modellazione() {
       )
     : [];
 
+  // ───────── Menu contestuale ─────────
+
+  const menuTitle = (id: string | null) => {
+    if (!id) return level?.name ?? 'Pianta';
+    const el = project.elements.find((x) => x.id === id);
+    if (el) return selectedIds.length > 1 && selectedIds.includes(id) ? `${selectedIds.length} elementi` : elementCode(project, el);
+    return findRoom(project, id)?.name ?? 'Annotazione';
+  };
+  const menuItems = (id: string | null): MenuItem[] => {
+    const hideLayer = (k: keyof Layers, mode: 'bloccato' | 'nascosto') => {
+      setLayers({ ...layers, [k]: mode });
+      select('modello', []);
+    };
+    if (!id) {
+      const off = layersWith(layers, ['nascosto', 'bloccato']).length > 0;
+      return [
+        { label: 'Seleziona tutto', onClick: () => select('modello', elementsInRect(pickProject, lvlId, { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }, false)) },
+        { label: 'Incolla sul livello', disabled: !clipboard.current.length, onClick: pasteClipboard },
+        { label: 'Mostra e sblocca tutte le categorie', disabled: !off, onClick: () => setLayers(ALL_VISIBLE) },
+        { label: 'Pannello Vista…', onClick: () => setLayersOpen(true) },
+      ];
+    }
+    const targets = selectedIds.includes(id) ? selectedIds : [id];
+    const remove = () => {
+      edit((d) => {
+        deleteElements(d, targets);
+        if (d.sections) d.sections = d.sections.filter((x) => !targets.includes(x.id));
+        deleteExtras(d, targets);
+      });
+      select('modello', []);
+    };
+    const el = project.elements.find((x) => x.id === id);
+    if (!el) {
+      const k = findRoom(project, id) ? 'locali' : 'annotazioni';
+      return [
+        { label: `Nascondi «${LAYER_LABEL[k]}»`, onClick: () => hideLayer(k, 'nascosto') },
+        { label: 'Elimina', danger: true, onClick: remove },
+      ];
+    }
+    const k = layerOf(el);
+    const setStatus = (st: ElementStatus) =>
+      edit((d) => {
+        for (const x of d.elements)
+          if (targets.includes(x.id)) {
+            if (st === 'nuovo') delete x.status;
+            else x.status = st;
+          }
+      });
+    return [
+      { label: 'Seleziona simili sul livello', onClick: () => select('modello', similarElements(pickProject, id)) },
+      { label: 'Copia (Ctrl+C)', onClick: () => copySelection(targets) },
+      ...(['nuovo', 'esistente', 'demolito'] as ElementStatus[]).map((st) => ({ label: `Stato: ${STATUS_LABEL[st].toLowerCase()}`, onClick: () => setStatus(st) })),
+      { label: `Blocca «${LAYER_LABEL[k]}»`, onClick: () => hideLayer(k, 'bloccato') },
+      { label: `Nascondi «${LAYER_LABEL[k]}»`, onClick: () => hideLayer(k, 'nascosto') },
+      { label: 'Elimina (Canc)', danger: true, onClick: remove },
+    ];
+  };
+
   const planCanvas = (
     <Canvas2D
       bounds={bounds}
       onPointer={onPointer}
       cursor={tool === 'select' ? 'default' : 'crosshair'}
       ortho
+      onMenu={(m) => {
+        const tolM = 10 / m.zoom;
+        const id = hitExtras(pickProject, lvlId, m.world, tolM) ?? hitTestModel(pickProject, m.world, lvlId, tolM);
+        if (id && !selectedIds.includes(id)) select('modello', [id]);
+        if (tool !== 'select') changeTool('select');
+        setMenu({ x: m.x, y: m.y, id });
+      }}
+      hud={
+        <>
+          {layersOpen && (
+            <LayersPanel
+              layers={layers}
+              onLayers={setLayers}
+              state={viewState}
+              onState={setViewState}
+              hiddenDims={(project.hiddenDims ?? []).length}
+              onShowDims={() => edit((d) => void (d.hiddenDims = []))}
+              onClose={() => setLayersOpen(false)}
+            />
+          )}
+          {menu && <ContextMenu x={menu.x} y={menu.y} title={menuTitle(menu.id)} items={menuItems(menu.id)} onClose={() => setMenu(null)} />}
+        </>
+      }
       tools={
         <>
           {below && (
@@ -643,6 +838,18 @@ export function Modellazione() {
               Sottostante: {below.name}
             </button>
           )}
+          {above && above.kind !== 'copertura' && !isRoofLevel && (
+            <button className={`chip ${ghostAbove ? 'chip-on' : ''}`} onClick={() => setGhostAbove(!ghostAbove)} title="Mostra in trasparenza i muri del livello superiore">
+              Soprastante: {above.name}
+            </button>
+          )}
+          <button
+            className={`chip ${layersOpen || viewState !== 'progetto' || layersWith(layers, ['nascosto', 'bloccato']).length ? 'chip-on' : ''}`}
+            onClick={() => setLayersOpen(!layersOpen)}
+            title="Stato rappresentato, categorie visibili, bloccate o nascoste"
+          >
+            Vista{viewState !== 'progetto' ? `: ${VIEW_STATE_LABEL[viewState]}` : ''}
+          </button>
         </>
       }
     >
@@ -651,14 +858,17 @@ export function Modellazione() {
         return (
           <>
             <PlanView
-              project={project}
+              project={viewProject}
               levelId={lvlId}
               mm={mm}
               selectedIds={selectedIds}
               ghostLevelId={ghost ? below?.id : undefined}
-              showDimensions={z > 18}
+              ghostAboveId={ghostAbove && above && above.kind !== 'copertura' ? above.id : undefined}
+              comparativa={viewState === 'comparativa'}
+              showDimensions={z > 18 && layers.quote !== 'nascosto'}
               textScale={SCREEN_TEXT}
               onDimEdit={tool === 'select' ? openDim : undefined}
+              onDimHide={tool === 'select' ? hideDim : undefined}
               activeDim={dimEdit ? `${dimEdit.chain.id}#${dimEdit.k}` : undefined}
             />
             <DraftOverlay
@@ -755,6 +965,17 @@ export function Modellazione() {
                 </button>
               );
             })}
+          </div>
+
+          <div className="subhead">Locali e annotazioni</div>
+          <div className="toolgrid">
+            {EXTRA_TOOLS.map((t) => (
+              <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} onClick={() => changeTool(t.id)} title={`${t.label} (${t.key})`}>
+                <Icon name={t.icon} size={20} />
+                <span>{t.label}</span>
+                <kbd>{t.key}</kbd>
+              </button>
+            ))}
           </div>
 
           {catKey && (
@@ -955,6 +1176,10 @@ export function Modellazione() {
           ) : selectedIds.length ? (
             (project.sections ?? []).some((x) => x.id === selectedIds[0]) ? (
               <SectionInspector id={selectedIds[0]} onOpen={() => setView('sezioni')} />
+            ) : findRoom(project, selectedIds[0]) ? (
+              <RoomInspector id={selectedIds[0]} />
+            ) : findAnnotation(project, selectedIds[0]) ? (
+              <AnnotationInspector id={selectedIds[0]} />
             ) : (
               <Inspector ids={selectedIds} onEditType={(key, id) => setEditingType({ key, id })} />
             )

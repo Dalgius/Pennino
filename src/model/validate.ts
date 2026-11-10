@@ -110,6 +110,20 @@ export function validateProject(raw: unknown): ValidationResult {
     catalog,
     elements,
     sections: Array.isArray(raw.sections) ? (raw.sections as Project['sections']) : [],
+    rooms: Array.isArray(raw.rooms)
+      ? (raw.rooms as unknown[]).filter((r): r is NonNullable<Project['rooms']>[number] => isObj(r) && typeof r.id === 'string' && typeof r.levelId === 'string' && levelIds.has(r.levelId) && isPt(r.p))
+      : [],
+    annotations: Array.isArray(raw.annotations)
+      ? (raw.annotations as unknown[]).filter(
+          (n): n is NonNullable<Project['annotations']>[number] =>
+            isObj(n) &&
+            typeof n.id === 'string' &&
+            typeof n.levelId === 'string' &&
+            levelIds.has(n.levelId) &&
+            ((n.kind === 'quota' && isPt(n.a) && isPt(n.b) && isNum(n.offset)) || (n.kind === 'testo' && isPt(n.p) && typeof n.text === 'string') || (n.kind === 'altimetrica' && isPt(n.p) && isNum(n.dz))),
+        )
+      : [],
+    hiddenDims: Array.isArray(raw.hiddenDims) ? (raw.hiddenDims as unknown[]).filter((x): x is string => typeof x === 'string') : [],
     sheets: Array.isArray(raw.sheets) ? (raw.sheets as Project['sheets']) : base.sheets,
     titleBlock: { ...base.titleBlock, ...(isObj(raw.titleBlock) ? raw.titleBlock : {}) },
     prices: Array.isArray(raw.prices) ? (raw.prices as Project['prices']) : base.prices,

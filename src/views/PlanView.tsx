@@ -5,6 +5,7 @@
 import { memo } from 'react';
 import type { Opening, OpeningType, Project, Stair, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
+import { Annotations, RoomLabels, StatusOverlay } from './PlanExtras';
 import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
@@ -57,6 +58,12 @@ interface Props {
   /** Quote modificabili: clic su una cifra */
   onDimEdit?: (t: DimTarget) => void;
   activeDim?: string;
+  /** Alt+clic su una cifra: nasconde la catena di quote */
+  onDimHide?: (chainId: string) => void;
+  /** Livello superiore mostrato in trasparenza */
+  ghostAboveId?: string;
+  /** Comparativa: demolizioni in giallo e costruzioni in rosso */
+  comparativa?: boolean;
 }
 
 /**
@@ -65,7 +72,7 @@ interface Props {
  */
 export const PlanView = memo(PlanViewImpl);
 
-function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim }: Props) {
+function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim, onDimHide, ghostAboveId, comparativa }: Props) {
   const ts = textScale;
   const els = p.elements;
   const onLevel = <T extends { levelId: string }>(e: T) => e.levelId === levelId;
@@ -196,7 +203,16 @@ function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, sel
         );
       })}
 
-      {showDimensions && <DimChains project={p} levelId={levelId} mm={mm} ts={ts} onEdit={onDimEdit} activeKey={activeDim} />}
+      {comparativa && <StatusOverlay project={p} levelId={levelId} mm={mm} />}
+      {ghostAboveId && (
+        <g className="pv-ghost-above" strokeDasharray={`${2 * mm} ${1 * mm}`}>
+          <GhostWalls project={p} levelId={ghostAboveId} mm={mm} />
+        </g>
+      )}
+
+      {showDimensions && <DimChains project={p} levelId={levelId} mm={mm} ts={ts} onEdit={onDimEdit} activeKey={activeDim} onHide={onDimHide} />}
+      <RoomLabels project={p} levelId={levelId} mm={mm} ts={ts} selected={sel} />
+      <Annotations project={p} levelId={levelId} mm={mm} ts={ts} selected={sel} />
 
       {showLabels &&
         walls.map((w) => {
@@ -875,6 +891,7 @@ function DimChains({
   ts,
   onEdit,
   activeKey,
+  onHide,
 }: {
   project: Project;
   levelId: string;
@@ -882,8 +899,10 @@ function DimChains({
   ts: number;
   onEdit?: (t: DimTarget) => void;
   activeKey?: string;
+  onHide?: (chainId: string) => void;
 }) {
-  const chains = computeDimensions(p, levelId);
+  const hidden = new Set(p.hiddenDims ?? []);
+  const chains = computeDimensions(p, levelId).filter((c) => !hidden.has(c.id));
   const font = 2 * mm * ts;
   const charW = font * 0.62;
   return (
@@ -943,11 +962,18 @@ function DimChains({
                   className={`pv-dimtext ${c.row === 1 && c.marks.length > 2 ? 'pv-dimpartial' : ''} ${editable ? 'pv-dim-editable' : ''} ${activeKey === key ? 'pv-dim-active' : ''}`}
                   transform={`rotate(${ang} ${q.x} ${-q.y})`}
                   onPointerDown={
-                    editable
+                    editable || onHide
                       ? (e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          onEdit!({ chain: c, k, value: len, at: q });
+                          if (e.button !== 0) return;
+                          if (e.altKey && onHide) {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            onHide(c.id);
+                          } else if (editable) {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            onEdit!({ chain: c, k, value: len, at: q });
+                          }
                         }
                       : undefined
                   }

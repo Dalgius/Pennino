@@ -184,6 +184,8 @@ export interface Catalog {
 export interface Wall {
   id: ID;
   kind: 'wall';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   typeId: ID;
   a: Vec2;
@@ -197,6 +199,8 @@ export interface Wall {
 export interface Opening {
   id: ID;
   kind: 'opening';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   wallId: ID;
   typeId: ID;
   /** Distanza del centro dell'apertura dall'inizio del muro (a) */
@@ -218,6 +222,8 @@ export type SlabEdge = 'auto' | 'asse' | 'interno' | 'esterno' | 'distanza';
 export interface Slab {
   id: ID;
   kind: 'slab';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   typeId: ID;
   points: Vec2[];
@@ -229,6 +235,8 @@ export interface Slab {
 export interface Column {
   id: ID;
   kind: 'column';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   typeId: ID;
   p: Vec2;
@@ -237,6 +245,8 @@ export interface Column {
 export interface Beam {
   id: ID;
   kind: 'beam';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   typeId: ID;
   a: Vec2;
@@ -246,6 +256,8 @@ export interface Beam {
 export interface Stair {
   id: ID;
   kind: 'stair';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   a: Vec2;
   b: Vec2;
@@ -272,6 +284,8 @@ export interface Stair {
 export interface Roof {
   id: ID;
   kind: 'roof';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
   levelId: ID;
   typeId: ID;
   points: Vec2[];
@@ -293,6 +307,31 @@ export interface SectionLine {
   flip: boolean;
 }
 
+/** Stato di un elemento: esistente che resta, esistente da demolire, nuova costruzione */
+export type ElementStatus = 'esistente' | 'demolito' | 'nuovo';
+
+/** Che cosa mostra una vista: lo stato di fatto, il progetto, o il confronto demolizioni/costruzioni */
+export type ViewState = 'fatto' | 'progetto' | 'comparativa';
+
+/** Locale: il contorno si ricava dai muri attorno al punto p */
+export interface Room {
+  id: ID;
+  levelId: ID;
+  p: Vec2;
+  name: string;
+  /** Destinazione d'uso */
+  use: string;
+}
+
+/** Annotazioni libere in pianta */
+export type Annotation =
+  /** quota tra due punti; offset = distanza della linea di quota dai punti (a sinistra di a→b se positiva) */
+  | { id: ID; kind: 'quota'; levelId: ID; a: Vec2; b: Vec2; offset: number }
+  /** testo, con eventuale linea di richiamo verso il punto leader */
+  | { id: ID; kind: 'testo'; levelId: ID; p: Vec2; text: string; leader?: Vec2 }
+  /** quota altimetrica: quota del livello più dz */
+  | { id: ID; kind: 'altimetrica'; levelId: ID; p: Vec2; dz: number };
+
 export type BuildingElement = Wall | Opening | Slab | Column | Beam | Stair | Roof;
 export type ElementKind = BuildingElement['kind'];
 
@@ -313,6 +352,8 @@ export interface Viewport {
   sectionId?: ID;
   schedule?: 'aperture' | 'muri';
   showDimensions?: boolean;
+  /** Stato rappresentato (ristrutturazioni); assente = progetto */
+  stato?: ViewState;
 }
 
 export type PaperFormat = 'A3' | 'A2' | 'A1';
@@ -324,7 +365,15 @@ export interface Sheet {
   format: PaperFormat;
   revision: string;
   date: string;
+  /** Storico delle revisioni, riportato nel cartiglio */
+  revisions?: SheetRevision[];
   viewports: Viewport[];
+}
+
+export interface SheetRevision {
+  rev: string;
+  date: string;
+  note: string;
 }
 
 export interface TitleBlock {
@@ -380,6 +429,10 @@ export interface Project {
   catalog: Catalog;
   elements: BuildingElement[];
   sections?: SectionLine[];
+  rooms?: Room[];
+  annotations?: Annotation[];
+  /** Quote automatiche nascoste: «id catena#segmento» */
+  hiddenDims?: string[];
   sheets: Sheet[];
   titleBlock: TitleBlock;
   prices: PriceItem[];
