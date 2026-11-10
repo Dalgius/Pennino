@@ -3,7 +3,6 @@ import { useStore } from '../model/store';
 import type { BuildingElement, Project, Vec2 } from '../model/types';
 import {
   add,
-  dot,
   bbox,
   byId,
   convexHull,
@@ -23,7 +22,8 @@ import {
   stairFootprints,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
-import { columnUnder, copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, setHandle, snapModel, snapPoint, snapPoints, snapSegments, translate, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
+import { applyHandle, dragEdge, dragHandle, dragMove, elementLevel, moveJoined, translated } from '../model/dragging';
+import { columnUnder, copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, snapModel, snapPoint, snapPoints, snapSegments, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -497,86 +497,38 @@ export function Modellazione() {
         });
         return;
       }
+      // agganci fissati a inizio trascinamento (senza seguire ciò che si muove) e impostazioni di disegno
+      const ctx = { candidates: dr.cands ?? candidates, segments: dr.segs ?? segments, tol, grid, ortho: ortho !== e.shift, alt: e.alt };
       if (dr.kind === 'lato') {
-        // lato di un solaio o di una copertura: si sposta parallelo a sé stesso (perpendicolarmente)
-        const el = o.elements.find((x) => x.id === dr.id);
-        if (!el || (el.kind !== 'slab' && el.kind !== 'roof')) return;
-        const n = el.points.length;
-        const i = dr.handle!;
-        const j = (i + 1) % n;
-        const dE = norm(sub(el.points[j], el.points[i]));
-        const nn = { x: -dE.y, y: dE.x };
-        let off = dot(sub(e.world, dr.start), nn);
-        // agganci agli oggetti (piano e sottostante): il lato passa per il punto agganciato
-        const sp = e.alt
-          ? null
-          : snapModel(e.world, {
-              candidates: (dr.cands ?? candidates).filter((c) => !el.points.some((q) => dist(q, c.p) < 1e-6)),
-              segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id),
-              tol,
-              grid: 0,
-              ortho: false,
-            });
-        if (sp && sp.kind !== 'libero' && sp.kind !== 'griglia') off = dot(sub(sp.p, el.points[i]), nn);
-        else if (grid > 0) off = Math.round(off / grid) * grid;
-        setCursor(sp && sp.kind !== 'libero' && sp.kind !== 'griglia' ? sp : { p: e.world, kind: 'libero' });
+        const r = dragEdge(o, dr.id, dr.handle!, dr.start, e.world, ctx);
+        if (!r) return;
+        setCursor(r.snap);
         editLive((d) => {
           const x = d.elements.find((q) => q.id === dr.id);
           if (!x || (x.kind !== 'slab' && x.kind !== 'roof')) return;
-          x.points[i] = add(el.points[i], mul(nn, off));
-          x.points[j] = add(el.points[j], mul(nn, off));
+          for (const [k, p] of r.points) x.points[k] = p;
         });
         return;
       }
       if (dr.kind === 'handle') {
-        const el = o.elements.find((x) => x.id === dr.id)!;
-        const orig = getHandles(el)[dr.handle!];
-        const linear = el.kind === 'wall' || el.kind === 'beam' || el.kind === 'stair';
-        // segmenti: ortogonale rispetto all'altro estremo; poligoni (solai, coperture): rispetto alla posizione di partenza
-        const other = linear ? getHandles(el)[dr.handle! === 0 ? 1 : 0] : el.kind === 'slab' || el.kind === 'roof' ? orig : undefined;
-        const hOpts = {
-          // estremi di muri e travi: solo assi (giunzioni); vertici di solai e coperture: anche facce e spigoli
-          candidates: (dr.cands ?? candidates).filter((c) => dist(c.p, orig) > 1e-6 && !(linear && c.kind === 'spigolo')),
-          // esclusi l'elemento trascinato e i muri che si muovono con il suo estremo
-          segments: (dr.segs ?? segments).filter((g) => g.id !== dr.id && !(linear && g.face && !g.column) && dist(g.a, orig) > 1e-6 && dist(g.b, orig) > 1e-6),
-          tol,
-          grid,
-          from: other,
-          ortho: other ? ortho !== e.shift : false,
-        };
-        const onColumn = linear && !e.alt ? columnUnder(o, columnLevels(el.levelId), e.world) : null;
-        const sp = onColumn ?? (e.alt ? snapPoint(e.world, hOpts) : snapModel(e.world, hOpts));
-        setCursor(sp);
+        const r = dragHandle(o, dr.id, dr.handle!, e.world, { ...ctx, columnLevels: columnLevels(elementLevel(o, dr.id) ?? lvlId) });
+        if (!r) return;
+        setCursor(r.snap);
         editLive((d) => {
-          const x = d.elements.find((q) => q.id === dr.id)!;
-          setHandle(x, dr.handle!, sp.p);
-          if (el.kind === 'wall') moveJoined(d, o, el.levelId, dr.id, [orig], sub(sp.p, orig));
+          applyHandle(d, dr.id, dr.handle!, r.snap.p);
+          if (r.element.kind === 'wall') moveJoined(d, o, r.element.levelId, dr.id, [r.from], sub(r.snap.p, r.from));
         });
         return;
       }
       // spostamento dell'elemento (o della selezione)
-      // in ortogonale lo spostamento segue solo l'asse prevalente (Maiusc lo libera)
-      // agganci fissati a inizio trascinamento, senza gli elementi che si muovono
-      const movingIds = selectedIds.includes(dr.id) ? selectedIds : [dr.id];
-      const ms = e.alt
-        ? snap
-        : snapPoint(e.world, {
-            candidates: (dr.cands ?? candidates).filter((c) => !c.id || !movingIds.includes(c.id)),
-            tol,
-            grid: e.zoom > 120 ? Math.min(grid, 0.01) : grid,
-            ortho: false,
-          });
-      const raw = sub(ms.p, dr.start);
-      const delta = ortho !== e.shift ? (Math.abs(raw.x) >= Math.abs(raw.y) ? { x: raw.x, y: 0 } : { x: 0, y: raw.y }) : raw;
       const ids = selectedIds.includes(dr.id) ? selectedIds : [dr.id];
+      const delta = dragMove(dr.start, e.world, ids, { ...ctx, grid: e.zoom > 120 ? Math.min(grid, 0.01) : grid });
       editLive((d) => {
         for (const id of ids) {
           const src = o.elements.find((q) => q.id === id);
           const x = d.elements.findIndex((q) => q.id === id);
           if (!src || x < 0 || src.kind === 'opening') continue;
-          const copy = JSON.parse(JSON.stringify(src)) as BuildingElement;
-          translate(copy, delta);
-          d.elements[x] = copy;
+          d.elements[x] = translated(src, delta);
           if (src.kind === 'wall' && ids.length === 1) moveJoined(d, o, src.levelId, id, [src.a, src.b], delta);
         }
       });
@@ -1023,19 +975,6 @@ export function Modellazione() {
       (d.catalog[key] as unknown[]).push(copy);
     });
     return nid;
-  }
-}
-
-/** Trascinando un estremo di un muro, segue anche l'estremo dei muri collegati */
-function moveJoined(d: Project, orig: Project, levelId: string, selfId: string, points: Vec2[], delta: Vec2) {
-  for (const src of orig.elements) {
-    if (src.kind !== 'wall' || src.id === selfId || src.levelId !== levelId) continue;
-    const tgt = d.elements.find((x) => x.id === src.id);
-    if (!tgt || tgt.kind !== 'wall') continue;
-    for (const p of points) {
-      if (dist(src.a, p) < 0.01) tgt.a = add(src.a, delta);
-      if (dist(src.b, p) < 0.01) tgt.b = add(src.b, delta);
-    }
   }
 }
 

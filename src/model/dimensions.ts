@@ -6,6 +6,7 @@
 
 import type { Project, Vec2, Wall } from './types';
 import { add, byId, columnQuad, dist, dot, JOIN_TOL, mul, norm, openingSpans, projectOnSegment, sub, wallThickness } from './geometry';
+import { fitWallOpenings, wallFreeSpan } from './openingFit';
 import { endAt, faceOffset, levelCenter, startAt, wallGeom, wallsNear, type WallGeom } from './walls';
 
 export type MarkRef =
@@ -369,20 +370,12 @@ export function dimensionError(p: Project, chain: DimChain, k: number, value: nu
   return openingError(p, chain, k, value);
 }
 
-/** Tratto libero del muro (tra i tagli delle giunzioni d'estremità), in ascissa lungo il muro */
-function freeSpan(g: WallGeom) {
-  return {
-    s0: Math.max(startAt(g, g.half), startAt(g, -g.half), 0),
-    s1: Math.min(endAt(g, g.half), endAt(g, -g.half), g.L),
-  };
-}
-
 /** Allungando o accorciando un muro le sue aperture devono restarci dentro */
 function lengthError(p: Project, chain: DimChain, cur: number, value: number): string | null {
   const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
   if (!host) return null;
   const g = wallGeom(p, host);
-  const { s0, s1 } = freeSpan(g);
+  const { s0, s1 } = wallFreeSpan(g);
   const cuts = s0 + (g.L - s1);
   const need = openingSpans(p, host).reduce((t, x) => t + x.type.width, 0);
   const minL = Math.max(cuts + need, 0.05);
@@ -394,25 +387,11 @@ function lengthError(p: Project, chain: DimChain, cur: number, value: number): s
     : `Il muro diventerebbe troppo corto: misura minima ${fmt(vMin)} m.`;
 }
 
-/** Riporta le aperture del muro dentro il suo tratto libero, senza sovrapporle, nell'ordine in cui sono */
+/** Riporta le aperture del muro dentro il suo tratto libero, senza sovrapporle (sulla bozza d) */
 function refitOpenings(d: Project, host: Wall) {
-  const g = wallGeom(d, host);
-  const { s0, s1 } = freeSpan(g);
-  const ops = d.elements
-    .filter((e): e is Extract<Project['elements'][number], { kind: 'opening' }> => e.kind === 'opening' && e.wallId === host.id)
-    .map((o) => ({ o, w: byId(d.catalog.opening, o.typeId)?.width ?? 0.8 }))
-    .sort((x, y) => x.o.offset - y.o.offset);
-  let limit = s1;
-  for (let i = ops.length - 1; i >= 0; i--) {
-    const { o, w } = ops[i];
-    o.offset = Math.min(o.offset, limit - w / 2);
-    limit = o.offset - w / 2;
-  }
-  let from = s0;
-  for (const { o, w } of ops) {
-    o.offset = Math.max(o.offset, from + w / 2);
-    from = o.offset + w / 2;
-  }
+  const fit = fitWallOpenings(d, host, { separate: true });
+  if (!fit.ok) return;
+  for (const e of d.elements) if (e.kind === 'opening' && fit.offsets.has(e.id)) e.offset = fit.offsets.get(e.id)!;
 }
 
 function openingError(p: Project, chain: DimChain, k: number, value: number): string | null {

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
+const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 const g = await server.ssrLoadModule('/src/model/geometry.ts');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 

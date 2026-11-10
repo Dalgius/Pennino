@@ -6,8 +6,8 @@ import { createServer } from 'vite';
 import { produce } from 'immer';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
-const { followWalls, takeRefusal } = await server.ssrLoadModule('/src/model/constraints.ts');
+const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
+const { followWalls, constrain } = await server.ssrLoadModule('/src/model/constraints.ts');
 const { computeDimensions, applyDimension, dimensionError } = await server.ssrLoadModule('/src/model/dimensions.ts');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 const { openingSpans } = await server.ssrLoadModule('/src/model/geometry.ts');
@@ -35,7 +35,7 @@ function scenario() {
 const apply = (p, fn) => followWalls(p, produce(p, fn));
 
 /** Modifica la quota sul muro nord che sposta il tramezzo verticale */
-function moveVertical(p, vert, by) {
+function moveVertical(p, vert, by, withRefusal = false) {
   const north = p.elements.find((e) => e.kind === 'wall' && e.levelId === L1 && near(e.a.y, 9) && near(e.b.y, 9));
   const chain = computeDimensions(p, L1).find((c) => c.wallId === north.id && c.row === 1);
   const k = chain.marks.findIndex((m, i) => i > 0 && m.ref.k === 'giunto' && m.ref.wallId === vert.id && m.ref.face === 0) - 1;
@@ -43,7 +43,8 @@ function moveVertical(p, vert, by) {
   const cur = chain.marks[k + 1].s - chain.marks[k].s;
   // il verso della catena può essere opposto all'asse x
   const sign = Math.sign(chain.dir.x) || 1;
-  return apply(p, (d) => applyDimension(d, chain, k, cur + by * sign));
+  const fn = (d) => applyDimension(d, chain, k, cur + by * sign);
+  return withRefusal ? constrain(p, produce(p, fn)) : apply(p, fn);
 }
 
 const doorOf = (p) => p.elements.find((e) => e.id === 'porta');
@@ -73,10 +74,9 @@ test('se la porta non è toccata dallo spostamento resta dove era', () => {
 
 test('muro troppo corto per la porta: modifica annullata con messaggio', () => {
   const { p, vert } = scenario();
-  takeRefusal();
-  const q = moveVertical(p, vert, 5.3);
+  const { project: q, refusal } = moveVertical(p, vert, 5.3, true);
   assert.equal(q, p, 'modello invariato');
-  assert.match(takeRefusal() ?? '', /troppo corto/);
+  assert.match(refusal ?? '', /troppo corto/);
 });
 
 test('traslando il muro ospite la porta lo segue', () => {

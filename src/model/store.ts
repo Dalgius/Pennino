@@ -3,7 +3,7 @@ import { freeze, produce } from 'immer';
 import type { Phase, Project } from './types';
 import { sampleProject } from './defaults';
 import { getImage, putImage } from './images';
-import { followWalls, takeRefusal } from './constraints';
+import { constrain } from './constraints';
 import { ProjectFormatError, validateProject, type ValidationResult } from './validate';
 
 const STORAGE_KEY = 'pennino.project.v1';
@@ -104,13 +104,12 @@ export const useStore = create<State>((set, get) => ({
     const { project, past, revision } = get();
     // il valore restituito dalla funzione viene ignorato: conta solo ciò che modifica nella bozza
     // dopo la modifica, solai e coperture appoggiati sui muri cambiati li seguono
-    const next = followWalls(
+    const { project: next, refusal: why } = constrain(
       project,
       produce(project, (d) => {
         fn(d);
       }),
     );
-    const why = takeRefusal();
     if (why) set({ notice: why });
     if (next === project) return;
     set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [], revision: revision + 1 });
@@ -118,13 +117,12 @@ export const useStore = create<State>((set, get) => ({
   editLive: (fn) => {
     const { project, revision } = get();
     // dopo la modifica, solai e coperture appoggiati sui muri cambiati li seguono
-    const next = followWalls(
+    const { project: next, refusal: why } = constrain(
       project,
       produce(project, (d) => {
         fn(d);
       }),
     );
-    const why = takeRefusal();
     if (why && why !== get().notice) set({ notice: why });
     if (next !== project) set({ project: next, revision: revision + 1 });
   },
