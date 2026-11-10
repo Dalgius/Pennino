@@ -1,6 +1,7 @@
 // Computo e abachi: funzioni pure del modello.
 // Ogni volta che il modello cambia, quantità e importi vengono ricalcolati da qui.
 
+import { statusOf, usesStates } from './states';
 import type { PriceItem, Project, WbsCategory } from './types';
 import { wallGeom, wallOutline } from './walls';
 import {
@@ -79,6 +80,7 @@ function pick(unit: PriceItem['unit'] | undefined, g: Geo): { qty: number; formu
 const n2 = (x: number) => fmt(x, 2);
 
 export function computeComputo(p: Project): ComputoLine[] {
+  const states = usesStates(p);
   const lines = new Map<string, ComputoLine>();
   const priceOf = (code: string) => p.prices.find((x) => x.code === code);
 
@@ -96,6 +98,8 @@ export function computeComputo(p: Project): ComputoLine[] {
   };
 
   for (const e of p.elements) {
+    // nelle ristrutturazioni si computa solo la nuova costruzione
+    if (states && statusOf(e) !== 'nuovo') continue;
     const lvl = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
     const level = lvl?.name ?? '—';
     const label = elementCode(p, e);

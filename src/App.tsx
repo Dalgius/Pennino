@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { exportProjectFile, importProjectFile, resetToSample, useStore } from './model/store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { clearUnreadableBackup, downloadText, importProjectFile, resetToSample, unreadableBackup, useStore } from './model/store';
+import { canUseFiles, detachFile, openProject, openRecent, recentFiles, saveProject, type RecentFile } from './model/files';
+import { checkModel } from './model/checks';
 import { emptyProject } from './model/defaults';
 import { ProjectFormatError } from './model/validate';
 import type { Phase } from './model/types';
@@ -63,13 +65,14 @@ export function App() {
         st.setDrafting({ grid: !st.drafting.grid });
       } else if (mod && e.key.toLowerCase() === 'o') {
         e.preventDefault();
-        fileRef.current?.click();
+        openRef.current();
       } else if (mod && e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         newFileRef.current();
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        exportProjectFile(useStore.getState().project);
+        // Ctrl+S salva sul file del progetto, Ctrl+Maiusc+S chiede un nuovo file
+        saveProject(e.shiftKey);
       } else if (e.altKey && /^[1-5]$/.test(e.key)) {
         e.preventDefault();
         setPhase(PHASES[Number(e.key) - 1].id);
@@ -86,8 +89,57 @@ export function App() {
   const newFile = () => {
     if (!confirm('Creare un nuovo progetto vuoto? Il progetto attuale, se non l’hai salvato su file, andrà perso.')) return;
     replace(emptyProject(useStore.getState().project));
+    detachFile();
     setPhase('inquadramento');
   };
+
+  // ───────── File di progetto ─────────
+  const fileName = useStore((s) => s.fileName);
+  const fileSavedAt = useStore((s) => s.fileSavedAt);
+  const saveFailed = useStore((s) => s.saveFailed);
+  const [fileMenu, setFileMenu] = useState(false);
+  const [recent, setRecent] = useState<RecentFile[]>([]);
+  const showWarnings = (warnings: string[] | null) => {
+    if (warnings?.length) alert(`Progetto aperto con alcune correzioni:\n\n• ${warnings.join('\n• ')}`);
+  };
+  const openFailed = (err: unknown) =>
+    alert(err instanceof ProjectFormatError ? `Impossibile aprire il file: ${err.message}` : 'Il file non è un progetto Pennino valido.');
+  const openAny = () => {
+    setFileMenu(false);
+    if (canUseFiles()) openProject().then(showWarnings, openFailed);
+    else fileRef.current?.click();
+  };
+  const openRef = useRef(openAny);
+  openRef.current = openAny;
+  // il menu si chiude con Esc o con un clic fuori
+  useEffect(() => {
+    if (!fileMenu) return;
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.file-actions') && setFileMenu(false);
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setFileMenu(false);
+    window.addEventListener('pointerdown', down);
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('pointerdown', down);
+      window.removeEventListener('keydown', key);
+    };
+  }, [fileMenu]);
+  const toggleFileMenu = () => {
+    if (!fileMenu) recentFiles().then(setRecent);
+    setFileMenu(!fileMenu);
+  };
+
+  // ───────── Avvisi di coerenza ─────────
+  const issues = useMemo(() => checkModel(project), [project]);
+  const [issuesOpen, setIssuesOpen] = useState(false);
+  const setActiveLevel = useStore((s) => s.setActiveLevel);
+  const select = useStore((s) => s.select);
+  const goToIssue = (id: string, levelId?: string) => {
+    setPhase('modellazione');
+    if (levelId) setActiveLevel(levelId);
+    // dopo il cambio di fase, che azzera la selezione
+    setTimeout(() => select('modello', [id]), 0);
+  };
+  const [backup, setBackup] = useState(() => !!unreadableBackup());
 
   newFileRef.current = newFile;
 
@@ -95,6 +147,7 @@ export function App() {
     try {
       const { project: p, warnings } = await importProjectFile(await f.text());
       replace(p);
+      detachFile();
       if (warnings.length) alert(`Progetto aperto con alcune correzioni:\n\n• ${warnings.join('\n• ')}`);
     } catch (err) {
       alert(err instanceof ProjectFormatError ? `Impossibile aprire il file: ${err.message}` : 'Il file non è un progetto Pennino valido.');
@@ -128,8 +181,25 @@ export function App() {
         </div>
         <div className="file-actions">
           <button className="icon-btn" onClick={newFile} title="Nuovo progetto (Ctrl+Alt+N)"><Icon name="newfile" /></button>
-          <button className="icon-btn" onClick={() => fileRef.current?.click()} title="Apri progetto (Ctrl+O)"><Icon name="open" /></button>
-          <button className="icon-btn" onClick={() => exportProjectFile(project)} title="Salva progetto su file (Ctrl+S)"><Icon name="save" /></button>
+          <button className="icon-btn" onClick={openAny} title="Apri progetto (Ctrl+O)"><Icon name="open" /></button>
+          <button className="icon-btn" onClick={() => saveProject()} title={fileName ? `Salva su ${fileName} (Ctrl+S)` : 'Salva progetto su file (Ctrl+S)'}><Icon name="save" /></button>
+          <button className={`icon-btn file-caret ${fileMenu ? 'on' : ''}`} onClick={toggleFileMenu} title="Progetti recenti e Salva con nome" aria-label="Menu dei file">▾</button>
+          {fileMenu && (
+            <div className="file-menu">
+              <button className="ctx-item" onClick={openAny}>Apri…  <kbd>Ctrl+O</kbd></button>
+              <button className="ctx-item" onClick={() => { setFileMenu(false); saveProject(); }}>Salva  <kbd>Ctrl+S</kbd></button>
+              <button className="ctx-item" onClick={() => { setFileMenu(false); saveProject(true); }}>Salva con nome…  <kbd>Ctrl+Maiusc+S</kbd></button>
+              <div className="ctx-title">Progetti recenti</div>
+              {recent.map((r) => (
+                <button key={r.name} className="ctx-item" onClick={() => { setFileMenu(false); openRecent(r).then(showWarnings, openFailed); }}>
+                  {r.name} <span className="muted">{new Date(r.at).toLocaleDateString('it-IT')}</span>
+                </button>
+              ))}
+              {!recent.length && (
+                <div className="ctx-note">{canUseFiles() ? 'Nessun progetto salvato su file da questo programma.' : 'In questo browser il progetto si scarica come file: l’elenco dei recenti richiede Chrome, Edge o l’app desktop.'}</div>
+              )}
+            </div>
+          )}
           <span className="sep" />
           <button className="icon-btn" onClick={undo} disabled={!canUndo} title="Annulla (Ctrl+Z)"><Icon name="undo" /></button>
           <button className="icon-btn" onClick={redo} disabled={!canRedo} title="Ripeti (Ctrl+Maiusc+Z)"><Icon name="redo" /></button>
@@ -171,6 +241,21 @@ export function App() {
         {phase === 'cantiere' && <Cantiere />}
       </div>
 
+      {issuesOpen && (
+        <div className="issues-panel">
+          <div className="layers-head">
+            <b>Controlli del modello</b>
+            <button className="link" onClick={() => setIssuesOpen(false)}>Chiudi</button>
+          </div>
+          {!issues.length && <p className="note">Nessun problema rilevato: muri, aperture, scale, solai e locali sono coerenti.</p>}
+          {issues.map((it, i) => (
+            <button key={i} className={`issue issue-${it.severity}`} onClick={() => goToIssue(it.id, it.levelId)} title="Vai all’elemento">
+              <span className="issue-level">{project.levels.find((l) => l.id === it.levelId)?.name ?? '—'}</span>
+              <span>{it.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {notice && (
         <div className="notice" role="status" onClick={() => setNotice(null)}>
           {notice}
@@ -182,12 +267,40 @@ export function App() {
         <span className="status-link" onClick={() => setPhase('computo')} title="Apri il computo">
           Computo <b className="mono">{fmtEuro(total)}</b>
         </span>
+        <button className={`status-issues ${issues.length ? (issues.some((i) => i.severity === 'errore') ? 'bad' : 'warn') : ''}`} onClick={() => setIssuesOpen(!issuesOpen)} title="Controlli di coerenza del modello">
+          {issues.length ? `${issues.length} ${issues.length === 1 ? 'avviso' : 'avvisi'}` : 'Nessun avviso'}
+        </button>
         <span className="spacer" />
-        <span className="muted">{savedAt ? `Salvato in locale alle ${new Date(savedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : 'Salvataggio automatico attivo'}</span>
+        {backup && (
+          <button
+            className="link warn"
+            title="Il salvataggio locale trovato all’avvio non era leggibile o è stato corretto: qui scarichi l’originale"
+            onClick={() => {
+              const raw = unreadableBackup();
+              if (raw) downloadText('progetto-recuperato.pennino.json', raw, 'application/json');
+              clearUnreadableBackup();
+              setBackup(false);
+            }}
+          >
+            Scarica il salvataggio originale
+          </button>
+        )}
+        <span className={saveFailed ? 'warn' : 'muted'}>
+          {fileName && fileSavedAt
+            ? `${fileName} · salvato alle ${new Date(fileSavedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
+            : saveFailed
+              ? 'Salvataggio locale non riuscito'
+              : savedAt
+                ? `Salvato in locale alle ${new Date(savedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Salvataggio automatico attivo'}
+        </span>
         <button
           className="link"
           onClick={() => {
-            if (confirm('Ricaricare il progetto di esempio? Le modifiche non esportate andranno perse.')) resetToSample();
+            if (confirm('Ricaricare il progetto di esempio? Le modifiche non esportate andranno perse.')) {
+              resetToSample();
+              detachFile();
+            }
           }}
         >
           Progetto di esempio

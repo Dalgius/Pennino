@@ -9,16 +9,50 @@ import { ProjectFormatError, validateProject, type ValidationResult } from './va
 const STORAGE_KEY = 'pennino.project.v1';
 const HISTORY_LIMIT = 120;
 
+const BACKUP_KEY = 'pennino.project.illeggibile';
+
+/** Avviso da mostrare all'avvio (salvataggio non leggibile o corretto in lettura) */
+let startupNotice: string | null = null;
+
 function loadInitial(): Project {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return validateProject(JSON.parse(raw)).project;
+      const { project, warnings } = validateProject(JSON.parse(raw));
+      if (warnings.length) {
+        // qualcosa è stato scartato o completato: si conserva l'originale e lo si dice
+        localStorage.setItem(BACKUP_KEY, raw);
+        startupNotice = `Progetto ripreso con correzioni: ${warnings.join(' ')} L’originale è conservato: scaricalo dal messaggio in basso.`;
+      }
+      return project;
     }
   } catch {
-    /* progetto salvato non leggibile: si riparte dall'esempio */
+    // progetto salvato non leggibile: si riparte dall'esempio, ma senza perdere ciò che c'era
+    try {
+      if (raw) localStorage.setItem(BACKUP_KEY, raw);
+    } catch {
+      /* spazio esaurito: resta il salvataggio originale finché non viene sovrascritto */
+    }
+    if (raw) startupNotice = 'Il progetto salvato non era leggibile: è aperto l’esempio. Il salvataggio originale è conservato: scaricalo dal messaggio in basso.';
   }
   return sampleProject();
+}
+
+/** Salvataggio locale messo da parte perché non leggibile o corretto (testo del file), se c'è */
+export function unreadableBackup(): string | null {
+  try {
+    return localStorage.getItem(BACKUP_KEY);
+  } catch {
+    return null;
+  }
+}
+export function clearUnreadableBackup() {
+  try {
+    localStorage.removeItem(BACKUP_KEY);
+  } catch {
+    /* niente da fare */
+  }
 }
 
 export type Selection = { scope: 'modello' | 'cantiere' | 'contesto'; ids: string[] };
@@ -36,6 +70,11 @@ interface State {
   savedAt: number | null;
   /** Avviso breve all'utente (modifica rifiutata, ecc.) */
   notice: string | null;
+  /** File su disco a cui è legato il progetto, e ora dell'ultima scrittura */
+  fileName: string | null;
+  fileSavedAt: number | null;
+  /** Il salvataggio locale non riesce (spazio esaurito) */
+  saveFailed: boolean;
   setNotice: (n: string | null) => void;
 
   /** Modifica del modello registrata nella cronologia */
@@ -97,7 +136,10 @@ export const useStore = create<State>((set, get) => ({
   theme: readTheme(),
   drafting: readDrafting(),
   savedAt: null,
-  notice: null,
+  notice: startupNotice,
+  fileName: null,
+  fileSavedAt: null,
+  saveFailed: false,
   setNotice: (n) => set({ notice: n }),
 
   edit: (fn) => {
@@ -180,27 +222,47 @@ export const useStore = create<State>((set, get) => ({
 
 // Salvataggio automatico locale
 let saveTimer: number | undefined;
+let pendingSave = false;
+function saveLocal() {
+  pendingSave = false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(useStore.getState().project));
+    useStore.setState({ savedAt: Date.now(), saveFailed: false });
+  } catch {
+    // spazio locale esaurito: lo si dice una volta; il progetto resta salvabile su file
+    if (!useStore.getState().saveFailed)
+      useStore.setState({ saveFailed: true, notice: 'Salvataggio locale non riuscito (spazio esaurito): salva il progetto su file per non perdere il lavoro.' });
+  }
+}
 useStore.subscribe((s, prev) => {
   if (s.project === prev.project) return;
+  pendingSave = true;
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(useStore.getState().project));
-      useStore.setState({ savedAt: Date.now() });
-    } catch {
-      /* spazio locale esaurito: il progetto resta esportabile in JSON */
-    }
-  }, 400);
+  saveTimer = window.setTimeout(saveLocal, 400);
 });
+// chiudendo o nascondendo la finestra l'ultima modifica viene scritta subito
+if (typeof window !== 'undefined') {
+  const flush = () => {
+    if (!pendingSave) return;
+    window.clearTimeout(saveTimer);
+    saveLocal();
+  };
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush());
+}
 
-export async function exportProjectFile(p: Project) {
-  // le immagini raster viaggiano dentro il file di progetto
+/** Testo del file di progetto: le immagini raster viaggiano dentro il file */
+export async function serializeProject(p: Project): Promise<string> {
   const images: Record<string, string> = {};
   for (const u of p.site.underlays ?? []) {
     const url = await getImage(u.imageId);
     if (url) images[u.imageId] = url;
   }
-  const blob = new Blob([JSON.stringify({ ...p, images }, null, 2)], { type: 'application/json' });
+  return JSON.stringify({ ...p, images }, null, 2);
+}
+
+export async function exportProjectFile(p: Project) {
+  const blob = new Blob([await serializeProject(p)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${p.name.replace(/[^\w\- ]+/g, '').trim() || 'progetto'}.pennino.json`;

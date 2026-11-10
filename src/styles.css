@@ -2192,3 +2192,129 @@ select.chip:disabled {
   border: 0;
   outline: 0;
 }
+
+/* ───────── Revisioni delle tavole ───────── */
+.revisions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+.revision-row {
+  display: grid;
+  grid-template-columns: 28px 74px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.revision-add {
+  display: flex;
+  gap: 6px;
+}
+.revision-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.table-group td {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* ───────── File di progetto e controlli del modello ───────── */
+.file-actions {
+  position: relative;
+}
+.file-caret {
+  width: 18px;
+  font-size: 11px;
+}
+.file-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  min-width: 300px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+}
+.file-menu .ctx-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.file-menu .ctx-title {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+.ctx-note {
+  padding: 6px 12px;
+  color: var(--text-3);
+  max-width: 320px;
+}
+.status-issues {
+  padding: 0 8px;
+  background: none;
+  border: 0;
+  color: var(--text-3);
+  font: inherit;
+  cursor: pointer;
+}
+.status-issues.warn {
+  color: #d9822b;
+}
+.status-issues.bad {
+  color: #e0685a;
+}
+.issues-panel {
+  position: fixed;
+  left: 12px;
+  bottom: 34px;
+  z-index: 55;
+  width: 460px;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: var(--shadow);
+}
+.issue {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-left: 2px solid #d9822b;
+  cursor: pointer;
+}
+.issue:hover {
+  background: var(--line);
+}
+.issue-errore {
+  border-left-color: #e0685a;
+}
+.issue-level {
+  color: var(--text-3);
+}

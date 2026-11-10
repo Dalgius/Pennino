@@ -1,6 +1,7 @@
 // Tavola di stampa in millimetri. Ogni vista è un riferimento al modello, non una copia:
 // quando il modello cambia, la tavola si ridisegna.
 
+import { projectInState } from '../model/states';
 import { useEffect, useState } from 'react';
 import type { PaperFormat, Project, Sheet, Viewport } from '../model/types';
 import { bbox, fmt, sortedLevels, wallThickness } from '../model/geometry';
@@ -132,7 +133,7 @@ export function SheetView({ project: p, sheet, revision, selectedVp, onViewportD
 }
 
 function ViewportBox({
-  project: p,
+  project: full,
   vp,
   revision,
   selected,
@@ -146,14 +147,16 @@ function ViewportBox({
   onDown?: (vp: Viewport, e: React.PointerEvent) => void;
   index: number;
 }) {
-  const f = viewportFrame(p, vp);
+  const f = viewportFrame(full, vp);
   const mm = vp.scale / 1000; // metri per mm di carta
+  // stato rappresentato dalla vista (ristrutturazioni): stato di fatto, progetto o comparativa
+  const p = projectInState(full, vp.stato ?? 'progetto');
   const content = () => {
     switch (vp.kind) {
       case 'pianta':
         return (
           <g transform={`scale(${f.k}) translate(${-f.ox} ${f.oy})`}>
-            <PlanView project={p} levelId={vp.levelId ?? ''} mm={mm} showDimensions={vp.showDimensions} />
+            <PlanView project={p} levelId={vp.levelId ?? ''} mm={mm} showDimensions={vp.showDimensions} comparativa={vp.stato === 'comparativa'} />
           </g>
         );
       case 'prospetto':
@@ -407,6 +410,23 @@ function TitleBlock({ project: p, sheet, W, H }: { project: Project; sheet: Shee
       <text x={133} y={32.5} fontSize={2} className="sh-text sh-text-inv">TAVOLA</text>
       <text x={155} y={47} fontSize={11} textAnchor="middle" className="sh-text sh-text-inv sh-text-bold">{sheet.number}</text>
       <title>{levels.length} livelli</title>
+      {/* storico delle revisioni, sopra il cartiglio: la più recente in basso */}
+      {(sheet.revisions ?? []).slice(-5).map((rv, i, list) => {
+        const yy = -(list.length - i) * 5;
+        return (
+          <g key={i}>
+            <rect x={0} y={yy} width={w} height={5} className="sh-tb-box" />
+            <line x1={14} y1={yy} x2={14} y2={yy + 5} className="sh-line" />
+            <line x1={38} y1={yy} x2={38} y2={yy + 5} className="sh-line" />
+            <text x={3} y={yy + 3.5} fontSize={2.4} className="sh-text sh-mono sh-text-bold">{rv.rev}</text>
+            <text x={16} y={yy + 3.5} fontSize={2.2} className="sh-text sh-mono">{rv.date.split('-').reverse().join('.')}</text>
+            <text x={40} y={yy + 3.5} fontSize={2.2} className="sh-text">{rv.note}</text>
+          </g>
+        );
+      })}
+      {(sheet.revisions ?? []).length > 0 && (
+        <text x={3} y={-(Math.min(5, sheet.revisions!.length) * 5) - 1.2} fontSize={2} className="sh-text sh-text-soft">REVISIONI</text>
+      )}
     </g>
   );
 }

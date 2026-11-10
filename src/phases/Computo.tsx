@@ -1,7 +1,9 @@
+import { isHabitable, MIN_LIGHT_RATIO, MIN_ROOM_HEIGHT, roomSchedule } from '../model/rooms';
+import { projectInState } from '../model/states';
 import { useMemo, useState } from 'react';
 import { downloadText, useStore } from '../model/store';
 import type { PriceItem, Project, WbsCategory } from '../model/types';
-import { byId, fmt, fmtEuro, polygonArea } from '../model/geometry';
+import { byId, fmt, fmtEuro, polygonArea, sortedLevels } from '../model/geometry';
 import { computeComputo, openingSchedule, projectMetrics, wallSchedule, WBS, type ComputoLine } from '../model/quantities';
 import { Segmented, Stat } from '../ui/controls';
 import { Icon } from '../ui/icons';
@@ -235,6 +237,7 @@ function Schedules({ project }: { project: Project }) {
   const slabs = project.elements.filter((e) => e.kind === 'slab');
   return (
     <div className="schedules">
+      <RoomTable project={project} />
       <h3 className="doc-h">Abaco dei serramenti</h3>
       <table className="table">
         <thead>
@@ -411,4 +414,57 @@ function exportCsv(p: Project, lines: ComputoLine[]) {
   rows.push(['', '', '', 'TOTALE', '', '', '', num(lines.reduce((s, l) => s + l.amount, 0))]);
   const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(';')).join('\n');
   downloadText(`Computo_${p.name}.csv`, '﻿' + csv, 'text/csv');
+}
+
+/** Tabella dei locali: superfici nette per piano, altezze e rapporti aeroilluminanti */
+function RoomTable({ project }: { project: Project }) {
+  const rows = roomSchedule(projectInState(project, 'progetto'));
+  if (!rows.length)
+    return (
+      <>
+        <h3 className="doc-h">Tabella dei locali</h3>
+        <p className="note">Nessun locale: in 02 Modellazione usa lo strumento «Locale» (L) e clicca dentro un vano.</p>
+      </>
+    );
+  const levels = sortedLevels(project).filter((l) => rows.some((r) => r.room.levelId === l.id));
+  const total = rows.reduce((s, r) => s + r.area, 0);
+  return (
+    <>
+      <h3 className="doc-h">Tabella dei locali</h3>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Locale</th><th>Destinazione</th><th className="num">Superficie netta m²</th><th className="num">Altezza m</th><th className="num">Volume m³</th>
+            <th className="num">Finestre m²</th><th className="num">R.A.I.</th><th>Verifica</th>
+          </tr>
+        </thead>
+        {levels.map((l) => {
+          const list = rows.filter((r) => r.room.levelId === l.id);
+          return (
+            <tbody key={l.id}>
+              <tr className="table-group"><td colSpan={8}>{l.name}</td></tr>
+              {list.map((r) => {
+                const hab = isHabitable(r.room);
+                const lightOk = r.ratio >= MIN_LIGHT_RATIO - 1e-4;
+                const heightOk = r.height >= MIN_ROOM_HEIGHT - 1e-4;
+                const verdict = !r.shape ? 'vano non chiuso' : !hab ? '—' : lightOk && heightOk ? 'verificato' : [lightOk ? '' : 'R.A.I. sotto 1/8', heightOk ? '' : 'altezza sotto 2,70 m'].filter(Boolean).join(', ');
+                return (
+                  <tr key={r.room.id}>
+                    <td>{r.room.name}</td><td>{r.room.use}</td>
+                    <td className="num mono strong">{fmt(r.area)}</td><td className="num mono">{fmt(r.height)}</td><td className="num mono">{fmt(r.area * r.height)}</td>
+                    <td className="num mono">{fmt(r.windowArea)}</td><td className="num mono">{r.ratio > 0 ? `1/${fmt(1 / r.ratio, 1)}` : '—'}</td>
+                    <td className={verdict === 'verificato' || verdict === '—' ? '' : 'warn'}>{verdict}</td>
+                  </tr>
+                );
+              })}
+              <tr><td colSpan={2} className="strong">Totale {l.name}</td><td className="num mono strong">{fmt(list.reduce((s, r) => s + r.area, 0))}</td><td colSpan={5} /></tr>
+            </tbody>
+          );
+        })}
+        <tfoot>
+          <tr><td colSpan={2}>Superficie netta totale</td><td className="num mono">{fmt(total)}</td><td colSpan={5} /></tr>
+        </tfoot>
+      </table>
+    </>
+  );
 }

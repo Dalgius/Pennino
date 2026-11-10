@@ -1,8 +1,9 @@
+import { usesStates, VIEW_STATE_LABEL } from '../model/states';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../model/store';
 import { downloadText } from '../model/store';
-import type { PaperFormat, Project, Sheet, Viewport, ViewportKind } from '../model/types';
+import type { PaperFormat, Project, Sheet, Viewport, ViewportKind, ViewState } from '../model/types';
 import { byId, sortedLevels, uid } from '../model/geometry';
 import { NumberField, Panel, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
@@ -278,6 +279,14 @@ function ViewportPanel({ project, sheet, vp, upd, onRemove }: { project: Project
           </label>
         </>
       )}
+      {(vp.kind === 'pianta' || vp.kind === 'prospetto' || vp.kind === 'sezione') && usesStates(project) && (
+        <SelectField<ViewState>
+          label="Stato rappresentato"
+          value={vp.stato ?? 'progetto'}
+          options={(Object.keys(VIEW_STATE_LABEL) as ViewState[]).filter((v) => v !== 'comparativa' || vp.kind === 'pianta').map((v) => ({ value: v, label: VIEW_STATE_LABEL[v] }))}
+          onChange={(v) => upd((x) => (x.stato = v))}
+        />
+      )}
       {vp.kind === 'prospetto' && (
         <SelectField label="Fronte" value={vp.direction ?? 'sud'} options={['sud', 'nord', 'est', 'ovest'].map((d) => ({ value: d as 'sud', label: `Prospetto ${d}` }))} onChange={(v) => upd((x) => (x.direction = v))} />
       )}
@@ -324,6 +333,7 @@ function SheetPanel({ project, sheet, upd, onRemove }: { project: Project; sheet
           <TextField label="Revisione" value={sheet.revision} onChange={(v) => upd((s) => (s.revision = v))} />
           <TextField label="Data" value={sheet.date} onChange={(v) => upd((s) => (s.date = v))} />
         </div>
+        <RevisionList sheet={sheet} upd={upd} />
         <button className="btn btn-danger btn-block" disabled={project.sheets.length < 2} onClick={onRemove}>
           <Icon name="trash" size={14} /> Elimina tavola
         </button>
@@ -340,5 +350,46 @@ function SheetPanel({ project, sheet, upd, onRemove }: { project: Project; sheet
       </Panel>
       <p className="note">Seleziona una vista sul foglio per cambiarne scala, livello o fronte.</p>
     </>
+  );
+}
+
+/** Storico delle revisioni di una tavola: ogni nuova revisione aggiorna sigla e data del cartiglio */
+function RevisionList({ sheet, upd }: { sheet: Sheet; upd: (fn: (s: Sheet) => void) => void }) {
+  const [note, setNote] = useState('');
+  const list = sheet.revisions ?? [];
+  const add = () => {
+    const text = note.trim();
+    if (!text) return;
+    const n = parseInt(sheet.revision, 10);
+    const rev = Number.isFinite(n) ? String(n + 1).padStart(Math.max(2, sheet.revision.length), '0') : `${sheet.revision}+`;
+    const date = new Date().toISOString().slice(0, 10);
+    upd((s) => {
+      s.revisions = [...(s.revisions ?? []), { rev, date, note: text }];
+      s.revision = rev;
+      s.date = date;
+    });
+    setNote('');
+  };
+  return (
+    <div className="revisions">
+      <div className="subhead">Revisioni</div>
+      {list.map((r, i) => (
+        <div key={i} className="revision-row">
+          <b className="mono">{r.rev}</b>
+          <span className="mono muted">{r.date.split('-').reverse().join('.')}</span>
+          <span>{r.note}</span>
+          <button className="icon-btn" title="Togli dallo storico" onClick={() => upd((s) => void (s.revisions = (s.revisions ?? []).filter((_x, k) => k !== i)))}>
+            <Icon name="trash" size={12} />
+          </button>
+        </div>
+      ))}
+      <div className="revision-add">
+        <input value={note} placeholder="Descrizione della modifica" onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <button className="btn" disabled={!note.trim()} onClick={add}>
+          Nuova revisione
+        </button>
+      </div>
+      {!list.length && <p className="note">Ogni nuova revisione avanza la sigla, aggiorna la data e compare sopra il cartiglio.</p>}
+    </div>
   );
 }
