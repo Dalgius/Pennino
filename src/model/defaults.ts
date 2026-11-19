@@ -197,6 +197,7 @@ export function sampleProject(): Project {
       opening: [
         { id: 'ot_int', category: 'porta', name: 'Porta interna 80×210', width: 0.8, height: 2.1, sill: 0, priceCode: 'SER.01' },
         { id: 'ot_ing', category: 'porta', name: 'Portoncino 100×220', width: 1.0, height: 2.2, sill: 0, priceCode: 'SER.02' },
+        { id: 'ot_vano', category: 'porta', name: 'Vano senza porta 80×210', width: 0.8, height: 2.1, sill: 0, priceCode: '', leaves: 0 },
         { id: 'ot_fin', category: 'finestra', name: 'Finestra 120×150', width: 1.2, height: 1.5, sill: 0.9, priceCode: 'SER.03', uw: 1.1 },
         { id: 'ot_pf', category: 'finestra', name: 'Portafinestra 160×240', width: 1.6, height: 2.4, sill: 0, priceCode: 'SER.04', uw: 1.2 },
       ],

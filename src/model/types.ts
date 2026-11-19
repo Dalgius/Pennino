@@ -158,8 +158,8 @@ export interface OpeningType {
   priceCode: string;
   /** Trasmittanza (finestre) */
   uw?: number;
-  /** Numero di ante; se assente si deduce dalla larghezza */
-  leaves?: 1 | 2;
+  /** Numero di ante; se assente si deduce dalla larghezza. 0 = vano senza serramento (solo porte) */
+  leaves?: 0 | 1 | 2;
 }
 
 export interface RoofType {

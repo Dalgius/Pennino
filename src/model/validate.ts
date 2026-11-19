@@ -42,6 +42,11 @@ export function validateProject(raw: unknown): ValidationResult {
     if (Array.isArray(list) && list.length && list.every((t) => isObj(t) && typeof t.id === 'string')) (catalog[k] as unknown[]) = list;
     else warnings.push(`Tipologie «${k}» mancanti: sono state usate quelle predefinite.`);
   }
+  // progetti precedenti al vano senza porta: la tipologia si aggiunge al catalogo
+  if (!catalog.opening.some((t) => t.category === 'porta' && t.leaves === 0)) {
+    const vano = base.catalog.opening.find((t) => t.category === 'porta' && t.leaves === 0);
+    if (vano) catalog.opening = [...catalog.opening, { ...vano, id: catalog.opening.some((t) => t.id === vano.id) ? `${vano.id}_${catalog.opening.length}` : vano.id }];
+  }
   const siteRaw = isObj(raw.site) ? raw.site : {};
   if (!isObj(raw.site)) warnings.push('Dati del sito mancanti: sono stati usati quelli predefiniti.');
   const site = {

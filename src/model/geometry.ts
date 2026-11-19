@@ -376,7 +376,7 @@ export function elementCode(p: Project, e: BuildingElement): string {
     const same = p.elements.filter(
       (x) => x.kind === 'opening' && byId(p.catalog.opening, x.typeId)?.category === t?.category,
     );
-    return `${t?.category === 'porta' ? 'PO' : 'FI'}-${String(same.indexOf(e) + 1).padStart(2, '0')}`;
+    return `${t?.category === 'porta' ? (t.leaves === 0 ? 'VA' : 'PO') : 'FI'}-${String(same.indexOf(e) + 1).padStart(2, '0')}`;
   }
   const same = p.elements.filter((x) => x.kind === e.kind);
   return `${prefix[e.kind]}-${String(same.indexOf(e) + 1).padStart(2, '0')}`;

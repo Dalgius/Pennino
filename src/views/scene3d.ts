@@ -250,6 +250,8 @@ function buildFixture(
   pick: (id: string, m: THREE.Material) => THREE.Material,
 ) {
   const spec = fixtureSpec(p, w, g, o, t);
+  // vano senza porta: il varco nel muro basta, niente serramento
+  if (spec.bare) return;
   const isDoor = t.category === 'porta';
   const on = sel.has(o.id);
   const frameMat = on ? pick(o.id, wallMat) : M('frame', FRAME_COLOR, { roughness: 0.5, metalness: 0.3 });

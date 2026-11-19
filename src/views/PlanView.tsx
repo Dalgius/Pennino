@@ -757,6 +757,18 @@ function OpeningPlan({
   const thin = 0.13 * mm;
   const med = 0.25 * mm;
 
+  if (spec.bare) {
+    // vano senza porta: solo il varco nel muro, con l'architrave in proiezione (tratteggiata) sulle due facce
+    const dash = `${1.2 * mm} ${0.8 * mm}`;
+    return (
+      <g className="pv-door pv-bare">
+        {[g.half, -g.half].map((oo) => (
+          <polyline key={oo} points={pts([P(start, oo), P(end, oo)])} className="pv-swing" strokeWidth={thin} strokeDasharray={dash} />
+        ))}
+      </g>
+    );
+  }
+
   const base = (
     <>
       {spec.hasSill && (

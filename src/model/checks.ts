@@ -65,9 +65,9 @@ function run(p: Project, full: Project): Issue[] {
         const t = byId(p.catalog.opening, o.typeId);
         if (!t) continue;
         if (o.offset - t.width / 2 < -1e-3 || o.offset + t.width / 2 > L + 1e-3)
-          out.push({ id: o.id, levelId: lv.id, severity: 'errore', text: `${t.category === 'porta' ? 'Porta' : 'Finestra'} che esce dal muro.` });
+          out.push({ id: o.id, levelId: lv.id, severity: 'errore', text: `${t.category === 'porta' ? (t.leaves === 0 ? 'Vano' : 'Porta') : 'Finestra'} che esce dal muro.` });
         if (t.sill + t.height > lv.height + 1e-3 && lv.height > 0)
-          out.push({ id: o.id, levelId: lv.id, severity: 'avviso', text: `${t.category === 'porta' ? 'Porta' : 'Finestra'} più alta dell’interpiano (${fmt(t.sill + t.height)} m su ${fmt(lv.height)} m).` });
+          out.push({ id: o.id, levelId: lv.id, severity: 'avviso', text: `${t.category === 'porta' ? (t.leaves === 0 ? 'Vano' : 'Porta') : 'Finestra'} più alta dell’interpiano (${fmt(t.sill + t.height)} m su ${fmt(lv.height)} m).` });
       }
       for (let i = 0; i + 1 < spans.length; i++)
         if (spans[i + 1].start < spans[i].end - 1e-3) out.push({ id: spans[i + 1].opening.id, levelId: lv.id, severity: 'errore', text: 'Aperture sovrapposte nello stesso muro.' });

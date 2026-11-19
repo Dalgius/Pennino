@@ -20,7 +20,9 @@ export interface FixtureSpec {
   tf: number;
   /** Spessore dell'anta */
   leafT: number;
-  leaves: 1 | 2;
+  leaves: 0 | 1 | 2;
+  /** Vano senza serramento: niente telaio, ante, soglia */
+  bare: boolean;
   /** Verso di apertura delle ante lungo la normale n del muro (+1 / −1) */
   openDir: 1 | -1;
   /** Cerniera della prima anta sull'inizio (false) o sulla fine (true) dell'apertura */
@@ -29,7 +31,11 @@ export interface FixtureSpec {
   hasThreshold: boolean;
 }
 
-export function leavesOf(t: OpeningType): 1 | 2 {
+/** Vano senza porta: una porta con zero ante */
+export const isBareOpening = (t: Pick<OpeningType, 'category' | 'leaves'> | undefined) => !!t && t.category === 'porta' && t.leaves === 0;
+
+export function leavesOf(t: OpeningType): 0 | 1 | 2 {
+  if (isBareOpening(t)) return 0;
   if (t.leaves) return t.leaves;
   return t.category === 'finestra' ? (t.width >= 1.0 ? 2 : 1) : t.width >= 1.4 ? 2 : 1;
 }
@@ -58,15 +64,17 @@ export function fixtureSpec(p: Project, w: Wall, g: WallGeom, o: Opening, t: Ope
     tf: isDoor ? 0.04 : 0.055,
     leafT: isDoor ? (exterior ? 0.07 : 0.045) : 0.07,
     leaves: leavesOf(t),
+    bare: isBareOpening(t),
     openDir,
     mirror: !!o.mirror,
     hasSill: !isDoor && t.sill > 0,
-    hasThreshold: exterior && t.sill === 0,
+    hasThreshold: exterior && t.sill === 0 && !isBareOpening(t),
   };
 }
 
 /** Ante: intervalli lungo il muro, con la posizione della cerniera */
 export function leafSpans(spec: FixtureSpec, start: number, end: number) {
+  if (spec.leaves === 0) return [];
   const c0 = start + spec.ct + spec.tf;
   const c1 = end - spec.ct - spec.tf;
   if (spec.leaves === 2) {

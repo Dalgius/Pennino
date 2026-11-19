@@ -403,10 +403,11 @@ export interface OpeningScheduleRow {
 }
 
 export function openingSchedule(p: Project): OpeningScheduleRow[] {
-  const seq = { porta: 0, finestra: 0 };
+  const seq = { porta: 0, finestra: 0, vano: 0 };
   return p.catalog.opening
     .map((t) => {
-      const n = ++seq[t.category];
+      const bare = t.category === 'porta' && t.leaves === 0;
+      const n = ++seq[bare ? 'vano' : t.category];
       const inst = p.elements.filter((e) => e.kind === 'opening' && e.typeId === t.id);
       const levels = new Set<string>();
       for (const o of inst) {
@@ -416,7 +417,7 @@ export function openingSchedule(p: Project): OpeningScheduleRow[] {
       }
       return {
         typeId: t.id,
-        mark: `${t.category === 'porta' ? 'P' : 'F'}${String(n).padStart(2, '0')}`,
+        mark: `${bare ? 'V' : t.category === 'porta' ? 'P' : 'F'}${String(n).padStart(2, '0')}`,
         name: t.name,
         category: t.category,
         width: t.width,

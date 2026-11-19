@@ -4,7 +4,7 @@
 
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
 import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
-import { fixtureSpec } from '../model/openings';
+import { fixtureSpec, isBareOpening } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -236,7 +236,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         // sopra l'architrave il muro arriva fino alla copertura
         piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1), true);
       });
-      if (hit && X) {
+      if (hit && X && !isBareOpening(hit.type)) {
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale
         const spec = fixtureSpec(p, e, g, hit.opening, hit.type);
         const h0 = z0 + hit.type.sill;

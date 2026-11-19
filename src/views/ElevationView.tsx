@@ -177,6 +177,11 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           const US = (sv: number) => U({ x: e.a.x + g.d.x * sv, y: e.a.y + g.d.y * sv });
           const tf = spec.ct + spec.tf; // telaio in vista
           const dash = `${1.2 * mm} ${0.8 * mm}`;
+          if (spec.bare) {
+            // vano senza porta: si vede solo il contorno del varco
+            glass.push(<rect key={s.opening.id} x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame" fill="none" strokeWidth={0.25 * mm} />);
+            continue;
+          }
           glass.push(
             <g key={s.opening.id}>
               {/* telaio fisso */}

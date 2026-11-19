@@ -152,7 +152,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             <div className="fields">
               <NumberField label="Distanza dall’inizio muro" unit="m" value={e.offset} min={(t?.width ?? 0) / 2} max={L - (t?.width ?? 0) / 2} onChange={(v) => upd((x) => x.kind === 'opening' && (x.offset = v))} />
             </div>
-            {t?.category === 'porta' && (
+            {t?.category === 'porta' && t.leaves !== 0 && (
               <div className="door-tools">
                 <button className="btn" onClick={() => upd((x) => x.kind === 'opening' && (x.flip = !x.flip))} title="L’anta apre verso l’altro lato del muro">
                   ⇅ Inverti verso
@@ -831,17 +831,36 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
         const ot = byId(project.catalog.opening, id)!;
         return (
           <>
-            <SelectField label="Categoria" value={ot.category} options={[{ value: 'porta', label: 'Porta' }, { value: 'finestra', label: 'Finestra' }]} onChange={(v) => upd((x: { category: string }) => (x.category = v))} />
+            <SelectField
+              label="Categoria"
+              value={ot.category}
+              options={[{ value: 'porta', label: 'Porta' }, { value: 'finestra', label: 'Finestra' }]}
+              onChange={(v) =>
+                upd((x: { category: string; leaves?: 0 | 1 | 2 }) => {
+                  x.category = v;
+                  // una finestra non può essere un vano senza serramento
+                  if (v === 'finestra' && x.leaves === 0) x.leaves = undefined;
+                })
+              }
+            />
             <SelectField
               label="Ante"
-              value={ot.leaves ? String(ot.leaves) : 'auto'}
+              value={ot.leaves === undefined ? 'auto' : String(ot.leaves)}
               options={[
-                { value: 'auto', label: `Automatico (${leavesOf(ot) === 2 ? 'due ante' : 'un’anta'})` },
+                { value: 'auto', label: `Automatico (${leavesOf({ ...ot, leaves: undefined }) === 2 ? 'due ante' : 'un’anta'})` },
                 { value: '1', label: 'Un’anta' },
                 { value: '2', label: 'Due ante' },
+                ...(ot.category === 'porta' ? [{ value: '0', label: 'Nessuna · vano senza porta' }] : []),
               ]}
-              onChange={(v) => upd((x: { leaves?: 1 | 2 }) => (x.leaves = v === 'auto' ? undefined : (Number(v) as 1 | 2)))}
+              onChange={(v) =>
+                upd((x: { leaves?: 0 | 1 | 2; priceCode: string }) => {
+                  x.leaves = v === 'auto' ? undefined : (Number(v) as 0 | 1 | 2);
+                  // un vano senza porta non ha serramento da computare
+                  if (x.leaves === 0) x.priceCode = '';
+                })
+              }
             />
+            {ot.leaves === 0 && <p className="note">Vano senza porta: in pianta il varco con l’architrave tratteggiata, nessun telaio né anta nelle altre viste e nel computo dei serramenti.</p>}
             <div className="fields fields-2">
               <NumberField label="Larghezza" unit="cm" digits={0} step={5} value={ot.width * 100} min={30} onChange={(v) => upd((x: { width: number }) => (x.width = v / 100))} />
               <NumberField label="Altezza" unit="cm" digits={0} step={5} value={ot.height * 100} min={30} onChange={(v) => upd((x: { height: number }) => (x.height = v / 100))} />
