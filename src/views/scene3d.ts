@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { sceneBounds } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
-import { fixtureSpec, leafSpans } from '../model/openings';
+import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import {
   add,
@@ -250,8 +250,28 @@ function buildFixture(
   pick: (id: string, m: THREE.Material) => THREE.Material,
 ) {
   const spec = fixtureSpec(p, w, g, o, t);
+  const stoneMat = M('sill', 0xd8d4cc);
+  // soglia: tutto lo spessore del muro, con 2 cm di sporgenza oltre il filo esterno
+  const threshold = () => {
+    const o0 = -g.extSign * g.half;
+    const o1 = g.extSign * (g.half + THRESHOLD_NOSE);
+    const m = segmentBox(
+      { x: w.a.x + g.d.x * start + g.n.x * ((o0 + o1) / 2), y: w.a.y + g.d.y * start + g.n.y * ((o0 + o1) / 2) },
+      { x: w.a.x + g.d.x * end + g.n.x * ((o0 + o1) / 2), y: w.a.y + g.d.y * end + g.n.y * ((o0 + o1) / 2) },
+      Math.abs(o1 - o0),
+      zb - 0.04,
+      zb,
+      stoneMat,
+    );
+    m.userData.id = o.id;
+    m.receiveShadow = true;
+    root.add(m);
+  };
   // vano senza porta: il varco nel muro basta, niente serramento
-  if (spec.bare) return;
+  if (spec.bare) {
+    if (spec.hasThreshold) threshold();
+    return;
+  }
   const isDoor = t.category === 'porta';
   const on = sel.has(o.id);
   const frameMat = on ? pick(o.id, wallMat) : M('frame', FRAME_COLOR, { roughness: 0.5, metalness: 0.3 });
@@ -290,11 +310,11 @@ function buildFixture(
   // davanzale o soglia
   const sg = g.extSign;
   const outerFrame = spec.fc + sg * (spec.fd / 2);
-  if (spec.hasSill || spec.hasThreshold) {
-    const tip = sg * (g.half + (spec.hasSill ? 0.04 : 0.02));
-    const ext = spec.hasSill ? 0.03 : 0;
-    box(start - ext, end + ext, (outerFrame + tip) / 2, Math.abs(tip - outerFrame), zb - 0.04, zb, M('sill', 0xd8d4cc));
+  if (spec.hasSill) {
+    const tip = sg * (g.half + 0.04);
+    box(start - 0.03, end + 0.03, (outerFrame + tip) / 2, Math.abs(tip - outerFrame), zb - 0.04, zb, stoneMat);
   }
+  if (spec.hasThreshold) threshold();
 }
 
 function gableRoof(points: Vec2[], pitch: number, o: number, base: number, th: number, material: THREE.Material) {

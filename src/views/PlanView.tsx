@@ -9,7 +9,7 @@ import { Annotations, RoomLabels, StatusOverlay } from './PlanExtras';
 import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
-import { fixtureSpec, leafSpans } from '../model/openings';
+import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
@@ -762,6 +762,7 @@ function OpeningPlan({
     const dash = `${1.2 * mm} ${0.8 * mm}`;
     return (
       <g className="pv-door pv-bare">
+        {spec.hasThreshold && <polygon points={R(start, end, -sg * g.half, sg * (g.half + THRESHOLD_NOSE))} className="pv-sill" strokeWidth={med * 0.8} />}
         {[g.half, -g.half].map((oo) => (
           <polyline key={oo} points={pts([P(start, oo), P(end, oo)])} className="pv-swing" strokeWidth={thin} strokeDasharray={dash} />
         ))}
@@ -778,7 +779,8 @@ function OpeningPlan({
           <polygon points={R(start - 0.03, end + 0.03, outerFrame, sg * (g.half + 0.04))} className="pv-sill" strokeWidth={med * 0.8} />
         </>
       )}
-      {spec.hasThreshold && <polygon points={R(start, end, outerFrame, sg * (g.half + 0.02))} className="pv-sill" strokeWidth={med * 0.8} />}
+      {/* soglia: tutto lo spessore del muro, con 2 cm di sporgenza oltre il filo esterno */}
+      {spec.hasThreshold && <polygon points={R(start, end, -sg * g.half, sg * (g.half + THRESHOLD_NOSE))} className="pv-sill" strokeWidth={med * 0.8} />}
     </>
   );
 

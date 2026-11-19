@@ -29,7 +29,8 @@ import {
 } from '../model/geometry';
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
-import { fixtureSpec, frameDepth, frameDistance, isBareOpening, leavesOf } from '../model/openings';
+import { fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf } from '../model/openings';
+import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
@@ -232,6 +233,24 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               </div>
             )}
             {t && w && w.kind === 'wall' && !isBareOpening(t) && <FrameField project={project} opening={e} wall={w} type={t} upd={upd} />}
+            {t && w && w.kind === 'wall' && t.sill === 0 && (
+              <SelectField<'auto' | 'si' | 'no'>
+                label="Soglia"
+                value={e.threshold === undefined ? 'auto' : e.threshold ? 'si' : 'no'}
+                options={[
+                  { value: 'auto', label: `Automatica (${hasThreshold({}, t, isExteriorWall(project, w)) ? 'sì, muro perimetrale' : 'no, muro interno'})` },
+                  { value: 'si', label: 'Sì · tutto lo spessore del muro' },
+                  { value: 'no', label: 'No' },
+                ]}
+                onChange={(v) =>
+                  upd((x) => {
+                    if (x.kind !== 'opening') return;
+                    if (v === 'auto') delete x.threshold;
+                    else x.threshold = v === 'si';
+                  })
+                }
+              />
+            )}
             <div className="kv-grid">
               <div><span>Luce netta</span><b className="mono">{fmt(t?.width ?? 0)} × {fmt(t?.height ?? 0)} m</b></div>
               <div><span>Davanzale</span><b className="mono">{fmt(t?.sill ?? 0)} m</b></div>

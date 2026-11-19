@@ -179,7 +179,12 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           const dash = `${1.2 * mm} ${0.8 * mm}`;
           if (spec.bare) {
             // vano senza porta: si vede solo il contorno del varco
-            glass.push(<rect key={s.opening.id} x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame" fill="none" strokeWidth={0.25 * mm} />);
+            glass.push(
+              <g key={s.opening.id}>
+                <rect x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame" fill="none" strokeWidth={0.25 * mm} />
+                {spec.hasThreshold && <line x1={x0} y1={Z(h0)} x2={x1} y2={Z(h0)} className="ev-frame" strokeWidth={0.35 * mm} />}
+              </g>,
+            );
             continue;
           }
           glass.push(

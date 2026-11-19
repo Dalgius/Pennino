@@ -40,6 +40,15 @@ export function leavesOf(t: OpeningType): 0 | 1 | 2 {
   return t.category === 'finestra' ? (t.width >= 1.0 ? 2 : 1) : t.width >= 1.4 ? 2 : 1;
 }
 
+/** Soglia: solo per le aperture a pavimento; scelta sull'apertura, altrimenti nei muri perimetrali */
+export function hasThreshold(o: Pick<Opening, 'threshold'>, t: OpeningType, exterior: boolean): boolean {
+  if (t.sill > 0) return false;
+  return o.threshold ?? (exterior && !isBareOpening(t));
+}
+
+/** Sporgenza della soglia oltre il filo esterno del muro (m) */
+export const THRESHOLD_NOSE = 0.02;
+
 /** Profondità del telaio quando non occupa tutto lo spessore del muro */
 export const frameDepth = (t: OpeningType) => (t.category === 'porta' ? 0.09 : 0.07);
 
@@ -88,7 +97,7 @@ export function fixtureSpec(p: Project, w: Wall, g: WallGeom, o: Opening, t: Ope
     openDir,
     mirror: !!o.mirror,
     hasSill: !isDoor && t.sill > 0,
-    hasThreshold: exterior && t.sill === 0 && !isBareOpening(t),
+    hasThreshold: hasThreshold(o, t, exterior),
   };
 }
 

@@ -216,6 +216,8 @@ export interface Opening {
   frame?: FramePosition;
   /** Distanza della faccia esterna del telaio dal filo esterno del muro (m), per frame = 'distanza' */
   frameOffset?: number;
+  /** Soglia (aperture a pavimento); assente = automatica: sì nei muri perimetrali */
+  threshold?: boolean;
 }
 
 export type FramePosition = 'auto' | 'esterno' | 'asse' | 'interno' | 'distanza';

@@ -119,4 +119,26 @@ test('telaio: la posizione resta nel file di progetto', () => {
   assert.equal(back.frameOffset, 0.18);
 });
 
+// ───────── Soglia ─────────
+
+test('soglia: automatica nei muri perimetrali, sì/no scelto sull’apertura', () => {
+  const p = sampleProject();
+  const ext = p.elements.find((e) => e.kind === 'opening' && e.typeId === 'ot_ing'); // portoncino nel muro esterno
+  const int = p.elements.find((e) => e.kind === 'opening' && e.typeId === 'ot_int'); // porta interna nel tramezzo
+  const win = p.elements.find((e) => e.kind === 'opening' && e.typeId === 'ot_fin'); // finestra con davanzale
+  const spec = (o, patch = {}) => {
+    const w = p.elements.find((x) => x.id === o.wallId);
+    return O.fixtureSpec(p, w, wallGeom(p, w), { ...o, ...patch }, p.catalog.opening.find((t) => t.id === o.typeId));
+  };
+  assert.equal(spec(ext).hasThreshold, true);
+  assert.equal(spec(int).hasThreshold, false);
+  assert.equal(spec(ext, { threshold: false }).hasThreshold, false);
+  assert.equal(spec(int, { threshold: true }).hasThreshold, true);
+  assert.equal(spec(win, { threshold: true }).hasThreshold, false, 'una finestra con davanzale non ha soglia');
+  // anche un vano senza porta può avere la soglia, se la si chiede
+  const vano = p.catalog.opening.find((t) => t.leaves === 0);
+  assert.equal(spec({ ...int, typeId: vano.id }).hasThreshold, false);
+  assert.equal(spec({ ...int, typeId: vano.id }, { threshold: true }).hasThreshold, true);
+});
+
 test.after(() => server.close());
