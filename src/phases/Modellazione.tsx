@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { BuildingElement, ElementStatus, Project, Vec2, ViewState } from '../model/types';
+import type { BuildingElement, ElementStatus, Project, Vec2, ViewState, WallRef } from '../model/types';
+import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
   add,
   bbox,
@@ -178,6 +179,25 @@ export function Modellazione() {
   const [mirrorNext, setMirrorNext] = useState(false);
   // forma delle nuove scale
   const [stairShape, setStairShape] = useState<'dritta' | 'L' | 'U'>('dritta');
+  // linea di riferimento dei muri disegnati (ricordata tra le sessioni)
+  const [wallRef, setWallRefState] = useState<WallRef>(() => {
+    try {
+      const v = localStorage.getItem('pennino.wallRef');
+      return v === 'sinistra' || v === 'destra' ? v : 'asse';
+    } catch {
+      return 'asse';
+    }
+  });
+  const setWallRef = (r: WallRef) => {
+    setWallRefState(r);
+    try {
+      localStorage.setItem('pennino.wallRef', r);
+    } catch {
+      /* preferenza non salvabile */
+    }
+  };
+  /** Muri della spezzata in corso, nell'ordine in cui sono stati disegnati */
+  const chainIds = useRef<string[]>([]);
   const [stairTurn, setStairTurn] = useState<'sinistra' | 'destra'>('sinistra');
   const [openingPreview, setOpeningPreview] = useState<{ wallId: string; offset: number } | null>(null);
   const drag = useRef<Drag | null>(null);
@@ -234,6 +254,7 @@ export function Modellazione() {
   const resetDraft = () => {
     setDraft([]);
     setTyped('');
+    chainIds.current = [];
   };
 
   const changeTool = (t: Tool) => {
@@ -345,19 +366,47 @@ export function Modellazione() {
     const pts2 = [...draft, q];
     if (tool === 'wall') {
       if (draft.length >= 1) {
-        const a = draft[draft.length - 1];
-        if (dist(a, q) > 0.01)
-          addElement({
-            id: uid('w'),
-            kind: 'wall',
-            levelId: lvlId,
-            typeId: activeType.wall,
-            a,
-            b: q,
-            // sul livello delle coperture il muro è un parapetto
-            ...(isRoofLevel ? { height: ROOF_PARAPET } : {}),
+        const last = draft[draft.length - 1];
+        const closing = dist(q, draft[0]) < 0.01 && draft.length > 1;
+        if (dist(last, q) > 0.01) {
+          // i punti cliccati stanno sul filo di riferimento: l'asse si ricava di mezzo spessore
+          const half = wallThickness(byId(project.catalog.wall, activeType.wall)) / 2;
+          const axis = axisPolyline(closing ? draft : pts2, half, wallRef, closing);
+          const k = draft.length - 1;
+          const dir = norm(sub(q, last));
+          let a = axis[k];
+          let b = closing ? axis[0] : axis[k + 1];
+          if (wallRef !== 'asse') {
+            // su un muro esistente l'estremo arriva al suo asse: giunzione a T
+            if (k === 0) a = extendToHost(viewProject, lvlId, a, mul(dir, -1));
+            if (!closing) b = extendToHost(viewProject, lvlId, b, dir);
+          }
+          const id = uid('w');
+          const prevId = chainIds.current[chainIds.current.length - 1];
+          const firstId = chainIds.current[0];
+          edit((d) => {
+            d.elements.push({
+              id,
+              kind: 'wall',
+              levelId: lvlId,
+              typeId: activeType.wall,
+              a,
+              b,
+              ...(wallRef !== 'asse' ? { ref: wallRef } : {}),
+              // sul livello delle coperture il muro è un parapetto
+              ...(isRoofLevel ? { height: ROOF_PARAPET } : {}),
+              ...(viewState === 'fatto' ? { status: 'esistente' as const } : {}),
+            });
+            if (wallRef === 'asse') return;
+            // il muro precedente finisce nel nuovo vertice d'asse; chiudendo, anche il primo
+            const pw = prevId && d.elements.find((x) => x.id === prevId);
+            if (pw && pw.kind === 'wall') pw.b = a;
+            const fw = closing && firstId && d.elements.find((x) => x.id === firstId);
+            if (fw && fw.kind === 'wall') fw.a = b;
           });
-        if (dist(q, draft[0]) < 0.01 && draft.length > 1) return resetDraft();
+          chainIds.current = [...chainIds.current, id];
+        }
+        if (closing) return resetDraft();
       }
       setDraft(pts2);
     } else if (tool === 'slab' || tool === 'roof') {
@@ -448,7 +497,7 @@ export function Modellazione() {
     };
     // Alt sospende l'aggancio agli oggetti (resta griglia/ortogonale)
     // muri e travi si agganciano agli assi (le giunzioni a T e ad L nascono sull'asse), il resto anche a facce e spigoli
-    const axial = tool === 'wall' || tool === 'beam';
+    const axial = tool === 'beam' || (tool === 'wall' && wallRef === 'asse');
     // travi e muri: assi, più i lati dei pilastri (ci si attesta sul bordo del pilastro, restando sull'asse)
     const drawOpts = axial ? { ...snapOpts, candidates: snapOpts.candidates.filter((c) => c.kind !== 'spigolo') } : snapOpts;
     // travi e muri sopra un pilastro: l'estremo va al centro del pilastro (piano e sottostante)
@@ -726,6 +775,14 @@ export function Modellazione() {
         setOrtho(!ortho);
         return;
       }
+      if (tool === 'wall' && k.toLowerCase() === 'r') {
+        // R: riferimento successivo (asse → filo sinistro → filo destro)
+        const order: WallRef[] = ['asse', 'sinistra', 'destra'];
+        const next = order[(order.indexOf(wallRef) + 1) % order.length];
+        setWallRef(next);
+        setNotice(`Riferimento del muro: ${WALL_REF_LABEL[next].toLowerCase()}`);
+        return;
+      }
       const t = ALL_TOOLS().find((x) => x.key.toLowerCase() === k.toLowerCase());
       if (t && !(isRoofLevel && ROOF_LEVEL_OFF.includes(t.id))) changeTool(t.id);
     };
@@ -880,6 +937,11 @@ export function Modellazione() {
               typed={typed}
               previewLen={previewLen}
               thickness={tool === 'wall' ? wallThickness(byId(project.catalog.wall, activeType.wall)) : 0}
+              wallAxis={
+                tool === 'wall' && last && cursor && wallRef !== 'asse'
+                  ? axisPolyline([...draft, cursor.p], wallThickness(byId(project.catalog.wall, activeType.wall)) / 2, wallRef).slice(-2)
+                  : undefined
+              }
             />
             {tool === 'stair' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.1 && (
               // anteprima della scala: rampe e pianerottolo
@@ -1018,6 +1080,22 @@ export function Modellazione() {
             <button className="btn btn-block" onClick={() => fromWalls(tool)}>
               {tool === 'slab' ? 'Solaio dal perimetro dei muri' : 'Copertura sull’edificio'}
             </button>
+          )}
+          {tool === 'wall' && (
+            <>
+              <div className="subhead">Riferimento <kbd>R</kbd></div>
+              <Segmented<WallRef>
+                small
+                value={wallRef}
+                options={(['sinistra', 'asse', 'destra'] as WallRef[]).map((r) => ({ value: r, label: WALL_REF_LABEL[r] }))}
+                onChange={setWallRef}
+              />
+              <p className="note">
+                {wallRef === 'asse'
+                  ? 'Si disegna sull’asse del muro.'
+                  : `Si disegna sul ${wallRef === 'sinistra' ? 'filo sinistro' : 'filo destro'}, guardando nel verso di disegno: il muro cresce dall’altra parte e quel filo resta fermo se cambi spessore.`}
+              </p>
+            </>
           )}
           {tool === 'stair' && (
             <>
@@ -1212,6 +1290,7 @@ function DraftOverlay({
   typed,
   previewLen,
   thickness,
+  wallAxis,
 }: {
   tool: Tool;
   draft: Vec2[];
@@ -1221,6 +1300,8 @@ function DraftOverlay({
   typed: string;
   previewLen: number;
   thickness: number;
+  /** Asse del tratto in disegno, quando si disegna su un filo */
+  wallAxis?: Vec2[];
 }) {
   const last = draft[draft.length - 1];
   const chain = cursor && tool !== 'select' ? [...draft, cursor] : draft;
@@ -1229,7 +1310,11 @@ function DraftOverlay({
     <g className="draft" pointerEvents="none">
       {tool === 'wall' && last && cursor && dist(last, cursor) > 0.01 && (
         <polygon
-          points={pts(wallSegmentQuad({ a: last, b: cursor } as never, thickness, 0, dist(last, cursor)))}
+          points={pts(
+            wallAxis
+              ? wallSegmentQuad({ a: wallAxis[0], b: wallAxis[1] } as never, thickness, 0, dist(wallAxis[0], wallAxis[1]))
+              : wallSegmentQuad({ a: last, b: cursor } as never, thickness, 0, dist(last, cursor)),
+          )}
           className="draft-wall"
           strokeWidth={0.25 * mm}
         />

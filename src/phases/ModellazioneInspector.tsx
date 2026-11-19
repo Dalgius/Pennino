@@ -35,7 +35,7 @@ import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Stair } from '../model/types';
+import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Stair, WallRef } from '../model/types';
 import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
@@ -65,6 +65,30 @@ function StatusField({ ids }: { ids: string[] }) {
             }
         })
       }
+    />
+  );
+}
+
+/**
+ * Riferimento di un muro esistente, detto con i suoi fili (esterno/interno) invece che con il verso
+ * di disegno. Cambiarlo non sposta il muro: decide quale filo resta fermo se cambia lo spessore.
+ */
+function WallRefField({ project, wall: w, onChange }: { project: Project; wall: Wall; onChange: (r: WallRef) => void }) {
+  const g = wallGeom(project, w);
+  // il lato sinistro (+n) è l'esterno se extSign = +1
+  const extRef: WallRef = g.extSign === 1 ? 'sinistra' : 'destra';
+  const intRef: WallRef = extRef === 'sinistra' ? 'destra' : 'sinistra';
+  const value = !w.ref || w.ref === 'asse' ? 'asse' : w.ref === extRef ? 'esterno' : 'interno';
+  return (
+    <SelectField<'asse' | 'esterno' | 'interno'>
+      label="Riferimento (resta fermo se cambia lo spessore)"
+      value={value}
+      options={[
+        { value: 'esterno', label: 'Filo esterno' },
+        { value: 'asse', label: 'Asse' },
+        { value: 'interno', label: 'Filo interno' },
+      ]}
+      onChange={(v) => onChange(v === 'asse' ? 'asse' : v === 'esterno' ? extRef : intRef)}
     />
   );
 }
@@ -532,6 +556,7 @@ function WallInspector({
   return (
     <>
       {typeSelect('wall', w.typeId)}
+      <WallRefField project={project} wall={w} onChange={(r) => upd((x) => (r === 'asse' ? delete x.ref : (x.ref = r)))} />
       <SelectField label="Livello" value={w.levelId} options={levelOptions} onChange={(v) => upd((x) => (x.levelId = v))} />
       <div className="fields fields-2">
         <NumberField label="Lunghezza" unit="m" value={L} min={0.05} onChange={(v) => upd((x) => (x.b = add(x.a, mul(norm(sub(x.b, x.a)), v))))} />

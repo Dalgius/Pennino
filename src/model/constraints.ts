@@ -9,6 +9,7 @@ import { produce } from 'immer';
 import type { Project, Vec2, Wall } from './types';
 import { add, JOIN_TOL, dot, mul, norm, sortedLevels, sub } from './geometry';
 import { fitWallOpenings } from './openingFit';
+import { keepReferenceFaces } from './wallRef';
 
 const TOL = JOIN_TOL;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
@@ -49,7 +50,9 @@ export interface Constrained {
  * porte e finestre restano intere dentro il tratto libero del loro muro. Se non ci stanno la
  * modifica è rifiutata: si restituisce prev con il motivo.
  */
-export function constrain(prev: Project, next: Project): Constrained {
+export function constrain(prev: Project, next0: Project): Constrained {
+  // muri con un filo di riferimento: se cambia lo spessore il filo resta fermo
+  const next = prev === next0 ? next0 : produce(next0, (d) => void keepReferenceFaces(prev, d));
   const out = followWallsInner(prev, next);
   if (out === prev) return { project: out, refusal: null };
   const prevById = new Map(prev.elements.map((e) => [e.id, e]));

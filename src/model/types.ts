@@ -194,7 +194,14 @@ export interface Wall {
   height?: number;
   /** Inverte il lato esterno (di norma è quello rivolto fuori dall'edificio) */
   flip?: boolean;
+  /**
+   * Linea di riferimento: il filo che resta fermo se cambia lo spessore. sinistra/destra guardando
+   * da a verso b; assente = asse. a e b sono comunque sempre sull'asse.
+   */
+  ref?: WallRef;
 }
+
+export type WallRef = 'asse' | 'sinistra' | 'destra';
 
 export interface Opening {
   id: ID;
