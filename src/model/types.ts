@@ -209,7 +209,16 @@ export interface Opening {
   flip: boolean;
   /** Porta specchiata: cerniera sull'altro stipite */
   mirror?: boolean;
+  /**
+   * Posizione del telaio nello spessore del muro; assente = automatica (porte interne a tutto
+   * spessore, il resto a filo esterno della muratura portante)
+   */
+  frame?: FramePosition;
+  /** Distanza della faccia esterna del telaio dal filo esterno del muro (m), per frame = 'distanza' */
+  frameOffset?: number;
 }
+
+export type FramePosition = 'auto' | 'esterno' | 'asse' | 'interno' | 'distanza';
 
 /**
  * Dove arriva il bordo di un solaio sui lati appoggiati ai muri (i vertici si disegnano sull'asse):

@@ -2,7 +2,7 @@
 // Le misure sono convenzionali (sezioni tipiche di serramenti in legno-alluminio e porte interne)
 // e servono al disegno; la luce dell'apertura è la larghezza della tipologia.
 
-import type { Opening, OpeningType, Project, Wall } from './types';
+import type { FramePosition, Opening, OpeningType, Project, Wall } from './types';
 import { byId } from './geometry';
 import { isExteriorWall } from './dimensions';
 import { layerBands, type WallGeom } from './walls';
@@ -40,13 +40,33 @@ export function leavesOf(t: OpeningType): 0 | 1 | 2 {
   return t.category === 'finestra' ? (t.width >= 1.0 ? 2 : 1) : t.width >= 1.4 ? 2 : 1;
 }
 
+/** Profondità del telaio quando non occupa tutto lo spessore del muro */
+export const frameDepth = (t: OpeningType) => (t.category === 'porta' ? 0.09 : 0.07);
+
+/**
+ * Centro del telaio (scostamento dall'asse lungo n) per una posizione scelta. Le distanze si misurano
+ * dal filo esterno del muro (lato extSign) verso l'interno e sono contenute nello spessore.
+ */
+export function framePlacement(g: WallGeom, pos: Exclude<FramePosition, 'auto'>, fd: number, offset = 0): number {
+  const room = Math.max(0, 2 * g.half - fd);
+  const d = pos === 'esterno' ? 0 : pos === 'interno' ? room : pos === 'asse' ? room / 2 : Math.min(room, Math.max(0, offset));
+  return g.extSign * (g.half - d - fd / 2);
+}
+
+/** Distanza della faccia esterna del telaio dal filo esterno del muro */
+export const frameDistance = (g: WallGeom, spec: Pick<FixtureSpec, 'fc' | 'fd'>) => g.half - g.extSign * spec.fc - spec.fd / 2;
+
 export function fixtureSpec(p: Project, w: Wall, g: WallGeom, o: Opening, t: OpeningType): FixtureSpec {
   const exterior = isExteriorWall(p, w);
   const wt = byId(p.catalog.wall, w.typeId);
   const isDoor = t.category === 'porta';
   let fc = 0;
   let fd = 2 * g.half;
-  if (exterior || !isDoor) {
+  if (o.frame && o.frame !== 'auto') {
+    // posizione scelta per questa apertura (murature storiche, mazzette, serramenti in luce)
+    fd = Math.min(frameDepth(t), 2 * g.half);
+    fc = framePlacement(g, o.frame, fd, o.frameOffset);
+  } else if (exterior || !isDoor) {
     // telaio a filo esterno della muratura portante, subito dietro il cappotto
     fd = isDoor ? 0.09 : 0.07;
     const bands = wt ? layerBands(g, wt.layers) : [];

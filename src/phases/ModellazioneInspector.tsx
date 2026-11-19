@@ -29,11 +29,12 @@ import {
 } from '../model/geometry';
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
-import { leavesOf } from '../model/openings';
+import { fixtureSpec, frameDepth, frameDistance, isBareOpening, leavesOf } from '../model/openings';
+import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { ElementStatus, HatchKind, Stair } from '../model/types';
+import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Stair } from '../model/types';
 import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
@@ -64,6 +65,74 @@ function StatusField({ ids }: { ids: string[] }) {
         })
       }
     />
+  );
+}
+
+const FRAME_LABEL: Record<FramePosition, string> = {
+  auto: 'Automatica',
+  esterno: 'A filo esterno',
+  asse: 'In asse al muro',
+  interno: 'A filo interno',
+  distanza: 'A distanza dal filo esterno',
+};
+
+/** Posizione del telaio nello spessore del muro, per questa apertura */
+function FrameField({
+  project,
+  opening: o,
+  wall: w,
+  type: t,
+  upd,
+}: {
+  project: Project;
+  opening: Opening;
+  wall: Wall;
+  type: OpeningType;
+  upd: (fn: (x: BuildingElement) => void) => void;
+}) {
+  const g = wallGeom(project, w);
+  const spec = fixtureSpec(project, w, g, o, t);
+  const thick = 2 * g.half;
+  const dist = frameDistance(g, spec);
+  const maxD = Math.max(0, thick - Math.min(frameDepth(t), thick));
+  const pos = o.frame ?? 'auto';
+  const set = (fn: (x: Opening) => void) => upd((x) => x.kind === 'opening' && fn(x));
+  return (
+    <>
+      <SelectField<FramePosition>
+        label="Telaio nello spessore del muro"
+        value={pos}
+        options={(Object.keys(FRAME_LABEL) as FramePosition[]).map((v) => ({ value: v, label: FRAME_LABEL[v] }))}
+        onChange={(v) =>
+          set((x) => {
+            if (v === 'auto') {
+              delete x.frame;
+              delete x.frameOffset;
+              return;
+            }
+            x.frame = v;
+            // passando a «distanza» si parte dalla posizione attuale, così il telaio non salta
+            if (v === 'distanza') x.frameOffset = +Math.min(maxD, Math.max(0, dist)).toFixed(3);
+            else delete x.frameOffset;
+          })
+        }
+      />
+      {pos === 'distanza' && (
+        <NumberField
+          label="Distanza dal filo esterno"
+          unit="cm"
+          digits={1}
+          step={1}
+          min={0}
+          max={maxD * 100}
+          value={(o.frameOffset ?? 0) * 100}
+          onChange={(v) => set((x) => (x.frameOffset = Math.min(maxD, Math.max(0, v / 100))))}
+        />
+      )}
+      <p className="note">
+        Telaio da {Math.round(spec.fd * 100)} cm: faccia esterna a {fmt(Math.max(0, dist) * 100, 1)} cm dal filo esterno, faccia interna a {fmt(Math.max(0, thick - dist - spec.fd) * 100, 1)} cm dal filo interno (muro da {fmt(thick * 100, 1)} cm).
+      </p>
+    </>
   );
 }
 
@@ -162,6 +231,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
                 </button>
               </div>
             )}
+            {t && w && w.kind === 'wall' && !isBareOpening(t) && <FrameField project={project} opening={e} wall={w} type={t} upd={upd} />}
             <div className="kv-grid">
               <div><span>Luce netta</span><b className="mono">{fmt(t?.width ?? 0)} × {fmt(t?.height ?? 0)} m</b></div>
               <div><span>Davanzale</span><b className="mono">{fmt(t?.sill ?? 0)} m</b></div>
