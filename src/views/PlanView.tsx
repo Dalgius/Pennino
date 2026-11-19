@@ -161,7 +161,29 @@ function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, sel
       )}
 
       {stairs.map((s) => s.kind === 'stair' && <StairPlan key={s.id} project={p} stair={s} mode="partenza" mm={mm} />)}
-      {arriving.map((s) => s.kind === 'stair' && <StairPlan key={`arr${s.id}`} project={p} stair={s} mode="arrivo" mm={mm} />)}
+      {/* scale che arrivano dal piano sotto: si vedono solo dai fori dei solai o dove non c'è solaio */}
+      {arriving.length > 0 && (
+        <>
+          <defs>
+            <mask id={`${hp}-arr`} maskUnits="userSpaceOnUse" x={-1e4} y={-1e4} width={2e4} height={2e4}>
+              <rect x={-1e4} y={-1e4} width={2e4} height={2e4} fill="#fff" />
+              {slabs.map((sl) =>
+                sl.kind === 'slab' ? (
+                  <g key={sl.id}>
+                    <polygon points={pts(slabOutline(p, sl))} fill="#000" />
+                    {slabHoles(p, sl).map((h, i) => (
+                      <polygon key={i} points={pts(h)} fill="#fff" />
+                    ))}
+                  </g>
+                ) : null,
+              )}
+            </mask>
+          </defs>
+          <g mask={`url(#${hp}-arr)`}>
+            {arriving.map((s) => s.kind === 'stair' && <StairPlan key={`arr${s.id}`} project={p} stair={s} mode="arrivo" mm={mm} />)}
+          </g>
+        </>
+      )}
       {/* bordi dei fori scala: linea continua del solaio tagliato */}
       {slabs.flatMap((s) =>
         s.kind === 'slab' ? slabHoles(p, s).map((h, i) => <polygon key={`hole${s.id}${i}`} points={pts(h)} className="pv-slab-hole" strokeWidth={med} />) : [],
