@@ -11,6 +11,7 @@ import { add, JOIN_TOL, dot, mul, norm, sortedLevels, sub } from './geometry';
 import { fitWallOpenings } from './openingFit';
 import { keepReferenceFaces } from './wallRef';
 import { followAnchors, hasAnchors } from './anchors';
+import { followDimRefs } from './dimensions';
 
 const TOL = JOIN_TOL;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
@@ -53,9 +54,18 @@ export interface Constrained {
  */
 export function constrain(prev: Project, next0: Project): Constrained {
   const r = constrainElements(prev, next0);
-  // le quote legate seguono gli elementi
-  if (r.refusal || r.project === prev || !hasAnchors(r.project)) return r;
-  return { project: produce(r.project, (d) => void followAnchors(d)), refusal: null };
+  if (r.refusal || r.project === prev) return r;
+  // le quote legate seguono gli elementi; i riferimenti alle quote nascoste o spostate restano in ordine
+  const anchors = hasAnchors(r.project);
+  const dimRefs = !!(r.project.hiddenDims?.length || Object.keys(r.project.dimOffsets ?? {}).length) && r.project.elements !== prev.elements;
+  if (!anchors && !dimRefs) return r;
+  return {
+    project: produce(r.project, (d) => {
+      if (anchors) followAnchors(d);
+      if (dimRefs) followDimRefs(prev, d);
+    }),
+    refusal: null,
+  };
 }
 
 function constrainElements(prev: Project, next0: Project): Constrained {

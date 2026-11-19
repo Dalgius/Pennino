@@ -5,6 +5,7 @@
 
 import type { BuildingElement, Project } from './types';
 import { emptyProject, sampleProject } from './defaults';
+import { pruneDimRefs } from './dimensions';
 
 export class ProjectFormatError extends Error {}
 
@@ -137,5 +138,9 @@ export function validateProject(raw: unknown): ValidationResult {
     siteLogistics: Array.isArray(raw.siteLogistics) ? (raw.siteLogistics as Project['siteLogistics']) : [],
     wallComputeOverride: raw.wallComputeOverride as Project['wallComputeOverride'],
   };
+  // riferimenti a quote di elementi che non ci sono più: si tolgono
+  const refs = pruneDimRefs(project);
+  project.hiddenDims = refs.hiddenDims;
+  project.dimOffsets = refs.dimOffsets;
   return { project, warnings };
 }

@@ -139,13 +139,14 @@ test('file: locali, annotazioni, stati e quote nascoste sopravvivono a salvatagg
     { id: 'h1', kind: 'altimetrica', levelId: L0, p: { x: 1, y: 1 }, dz: -0.05 },
     { id: 'rotta', kind: 'quota', levelId: L1, a: { x: 0, y: 0 } },
   ];
-  p.hiddenDims = ['w1:1'];
+  const hw = p.elements.find((e) => e.kind === 'wall');
+  p.hiddenDims = [`${hw.id}:1`];
   p.elements[0].status = 'esistente';
   p.sheets[0].revisions = [{ rev: '01', date: '2026-01-10', note: 'Prima emissione' }];
   const { project: q } = validateProject(JSON.parse(JSON.stringify(p)));
   assert.deepEqual(q.rooms.map((r) => r.id), [p.rooms[0].id]);
   assert.deepEqual(q.annotations.map((n) => n.id), ['q1', 't1', 'h1']);
-  assert.deepEqual(q.hiddenDims, ['w1:1']);
+  assert.deepEqual(q.hiddenDims, [`${hw.id}:1`]);
   assert.equal(q.elements[0].status, 'esistente');
   assert.equal(q.sheets[0].revisions[0].note, 'Prima emissione');
 });

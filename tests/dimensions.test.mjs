@@ -190,9 +190,10 @@ test('quote: l’esempio non ha catene sovrapposte', () => {
 
 test('quote: le posizioni scelte a mano restano nel file', () => {
   const p = sampleProject();
-  p.dimOffsets = { 'w1:1': 9.5, rotta: 'x' };
+  const w = p.elements.find((e) => e.kind === 'wall');
+  p.dimOffsets = { [`${w.id}:1`]: 9.5, rotta: 'x' };
   const { project } = validateProject(JSON.parse(JSON.stringify(p)));
-  assert.deepEqual(project.dimOffsets, { 'w1:1': 9.5 });
+  assert.deepEqual(project.dimOffsets, { [`${w.id}:1`]: 9.5 });
 });
 
 // ───────── Quale elemento si sposta ─────────
@@ -234,6 +235,46 @@ test('linee di quota: si allineano alle parallele vicine', () => {
   assert.deepEqual(snapDimLine(1.15, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'x', 0.1), { value: 1.2, to: 'a' });
   assert.equal(snapDimLine(1.5, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'x', 0.1).to, null);
   assert.equal(snapDimLine(1.15, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'a', 0.1).to, null, 'non con sé stessa');
+});
+
+// ───────── Riferimenti alle quote nascoste o spostate ─────────
+
+test('quote nascoste: i riferimenti di elementi eliminati si tolgono', () => {
+  const p = sampleProject();
+  const w = p.elements.find((e) => e.kind === 'wall' && e.levelId === L1);
+  const keep = p.elements.find((e) => e.kind === 'wall' && e.levelId === L1 && e.id !== w.id);
+  p.hiddenDims = [`${w.id}:2`, `${keep.id}:2`];
+  p.dimOffsets = { [`${w.id}:1`]: 10, [`${keep.id}:1`]: 12 };
+  const { project: q } = constrain(p, produce(p, (d) => void (d.elements = d.elements.filter((e) => e.id !== w.id && e.wallId !== w.id))));
+  assert.deepEqual(q.hiddenDims, [`${keep.id}:2`]);
+  assert.deepEqual(q.dimOffsets, { [`${keep.id}:1`]: 12 });
+  // all'apertura di un file i riferimenti orfani si puliscono
+  const raw = JSON.parse(JSON.stringify(p));
+  raw.hiddenDims.push('inesistente:2');
+  raw.dimOffsets['inesistente:1'] = 3;
+  const v = validateProject(raw).project;
+  assert.ok(!v.hiddenDims.includes('inesistente:2') && !('inesistente:1' in v.dimOffsets));
+});
+
+test('quote nascoste: il lato di un solaio diviso da un muro resta nascosto', () => {
+  const p = sampleProject();
+  const slab = p.elements.find((e) => e.kind === 'slab' && e.levelId === L1);
+  // lato ovest del balcone: da (0,−2,6) al muro; si nasconde la sua catena
+  const before = computeDimensions(p, L1).filter((c) => c.wallId === slab.id);
+  const west = before.find((c) => Math.abs(c.dir.x) < 1e-6 && c.origin.x < 0.1);
+  assert.ok(west, 'catena sul lato ovest');
+  p.hiddenDims = [west.id];
+  // un muro corto sul lato del balcone ne divide il tratto libero in due: i codici cambiano
+  const wt = p.elements.find((e) => e.kind === 'wall' && e.levelId === L1).typeId;
+  const { project: q } = constrain(p, produce(p, (d) => void d.elements.push({ id: 'wy', kind: 'wall', levelId: L1, typeId: wt, a: { x: 0, y: -1.6 }, b: { x: 0, y: -1.0 } })));
+  const after = computeDimensions(q, L1).filter((c) => c.wallId === slab.id && Math.abs(c.dir.x) < 1e-6 && c.origin.x < 0.1);
+  assert.ok(after.length >= 1);
+  assert.ok(after.length === 2, 'il tratto è diviso in due');
+  assert.deepEqual([...q.hiddenDims].sort(), after.map((c) => c.id).sort(), 'restano nascoste entrambe le parti');
+  // togliendo il muro le due parti tornano una, ancora nascosta
+  const { project: r } = constrain(q, produce(q, (d) => void (d.elements = d.elements.filter((e) => e.id !== 'wy'))));
+  const back = computeDimensions(r, L1).filter((c) => c.wallId === slab.id && Math.abs(c.dir.x) < 1e-6 && c.origin.x < 0.1);
+  assert.deepEqual(r.hiddenDims, back.map((c) => c.id));
 });
 
 test.after(() => server.close());

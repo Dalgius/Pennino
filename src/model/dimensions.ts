@@ -630,3 +630,89 @@ export function snapDimLine(raw: number, base: Vec2, dir: Vec2, nrm: Vec2, lines
   }
   return best ? { value: best.value, to: best.to } : { value: raw, to: null };
 }
+
+// ───────── Quote nascoste e spostate: riferimenti che seguono il modello ─────────
+
+/** Elemento da cui nasce una catena (la parte del codice prima dei due punti) */
+const chainOwner = (id: string) => id.split(':')[0];
+
+/** Livello di un elemento (le aperture stanno sul livello del loro muro) */
+function ownerLevel(p: Project, id: string): string | null {
+  const e = p.elements.find((x) => x.id === id);
+  return e && 'levelId' in e ? e.levelId : null;
+}
+
+/** Ingombro di una catena lungo la sua direzione, in coordinate canoniche, per riconoscerla dopo una modifica */
+function chainSpan(c: DimChain) {
+  const d = c.dir.x < -1e-9 || (Math.abs(c.dir.x) < 1e-9 && c.dir.y < 0) ? mul(c.dir, -1) : c.dir;
+  const ts = c.marks.map((m) => dot(add(c.origin, mul(c.dir, m.s)), d));
+  return { d, out: c.out, t0: Math.min(...ts), t1: Math.max(...ts), perp: dot(c.origin, c.out) };
+}
+
+/**
+ * Tiene in ordine i riferimenti alle catene nascoste (hiddenDims) e spostate (dimOffsets):
+ * - quelli di elementi che non esistono più si tolgono;
+ * - se una catena cambia codice (un lato di solaio diviso o riunito da un muro), il riferimento passa
+ *   alla catena dello stesso elemento che le somiglia di più (stesso lato, tratto che si sovrappone).
+ * Lavora sulla bozza d; prev è il progetto prima della modifica.
+ */
+export function followDimRefs(prev: Project, d: Project): boolean {
+  const hidden = d.hiddenDims ?? [];
+  const offsets = d.dimOffsets ?? {};
+  const ids = [...new Set([...hidden, ...Object.keys(offsets)])];
+  if (!ids.length) return false;
+  /** codice → codici che lo sostituiscono (vuoto = da togliere) */
+  const rename = new Map<string, string[]>();
+  const chainsOf = new Map<string, { prev: DimChain[]; next: DimChain[] }>();
+  const levelChains = (lv: string) => {
+    let c = chainsOf.get(lv);
+    if (!c) chainsOf.set(lv, (c = { prev: computeDimensions(prev, lv), next: computeDimensions(d, lv) }));
+    return c;
+  };
+  for (const id of ids) {
+    const owner = chainOwner(id);
+    const lv = ownerLevel(d, owner);
+    // elemento eliminato: il riferimento non serve più
+    if (!lv) {
+      rename.set(id, []);
+      continue;
+    }
+    // muri e pilastri hanno codici stabili (:1 parziali, :2 totale, :x/:y): solo i lati dei solai cambiano
+    if (d.elements.find((e) => e.id === owner)?.kind !== 'slab') continue;
+    const { prev: before, next: after } = levelChains(lv);
+    const old = before.find((c) => c.id === id);
+    if (!old) {
+      if (!after.some((c) => c.id === id)) rename.set(id, []);
+      continue;
+    }
+    // catene dello stesso lato che coprono il tratto di prima (un tratto diviso in due: entrambe)
+    const o = chainSpan(old);
+    const matches = after
+      .filter((c) => {
+        if (chainOwner(c.id) !== owner || c.row !== old.row) return false;
+        const sp = chainSpan(c);
+        if (Math.abs(sp.d.x * o.d.y - sp.d.y * o.d.x) > 0.01 || dot(sp.out, o.out) < 0.9 || Math.abs(sp.perp - o.perp) > 0.05) return false;
+        return Math.min(sp.t1, o.t1) - Math.max(sp.t0, o.t0) > 0.01;
+      })
+      .map((c) => c.id);
+    if (matches.length !== 1 || matches[0] !== id) rename.set(id, matches);
+  }
+  if (!rename.size) return false;
+  const map = (id: string) => (rename.has(id) ? rename.get(id)! : [id]);
+  if (d.hiddenDims) d.hiddenDims = [...new Set(d.hiddenDims.flatMap(map))];
+  if (d.dimOffsets) {
+    const next: Record<string, number> = {};
+    for (const [k, v] of Object.entries(d.dimOffsets)) for (const nk of map(k)) if (!(nk in next)) next[nk] = v;
+    d.dimOffsets = next;
+  }
+  return true;
+}
+
+/** Riferimenti a catene di elementi che non esistono (per la pulizia all'apertura dei file) */
+export function pruneDimRefs(p: Project): { hiddenDims: string[]; dimOffsets: Record<string, number> } {
+  const exists = (id: string) => p.elements.some((e) => e.id === chainOwner(id));
+  return {
+    hiddenDims: (p.hiddenDims ?? []).filter(exists),
+    dimOffsets: Object.fromEntries(Object.entries(p.dimOffsets ?? {}).filter(([k]) => exists(k))),
+  };
+}
