@@ -307,10 +307,15 @@ export interface Roof {
   levelId: ID;
   typeId: ID;
   points: Vec2[];
-  shape: 'piana' | 'falde';
+  /** falde = a capanna (due falde con timpani), padiglione = falde su tutti i lati, falda = una sola */
+  shape: 'piana' | 'falde' | 'padiglione' | 'falda';
   /** Pendenza falde in gradi */
   pitch: number;
   overhang: number;
+  /** Capanna: direzione del colmo (x = est-ovest, y = nord-sud); assente o auto = lungo il lato lungo */
+  ridge?: 'auto' | 'x' | 'y';
+  /** Una falda: lato verso cui scende (gronda) */
+  slopeTo?: 'sud' | 'nord' | 'est' | 'ovest';
 }
 
 /** Traccia di sezione verticale: piano passante per a→b, vista verso sinistra di a→b (o destra se flip) */

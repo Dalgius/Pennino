@@ -1,6 +1,7 @@
 // Planimetria: lotto, contesto e impronta dell'edificio (fase 01),
 // con l'eventuale sovrapposizione della logistica di cantiere (fase 05).
 
+import { planeAt, roofGeom, roofSlopeArrows } from '../model/roofs';
 import type { Project, SiteItem, Vec2, VehicleKind } from '../model/types';
 import {
   add,
@@ -10,8 +11,8 @@ import {
   roofOutline,
   roofEave,
   roofWithEave,
-  roofRidgeRise,
   centroid,
+  dist,
   fmt,
   mul,
   norm,
@@ -208,7 +209,6 @@ export function RoofSymbols({
         const lvl = byId(p.levels, r.levelId);
         const base = (lvl?.elevation ?? 0) + (lvl?.height ?? 0);
         const th = byId(p.catalog.roof, r.typeId)?.thickness ?? 0.3;
-        const b = bbox(r.points);
         const o = roofEave(p, r);
         if (r.shape === 'piana') {
           const c = centroid(r.points);
@@ -226,41 +226,57 @@ export function RoofSymbols({
             </g>
           );
         }
-        const alongX = b.w >= b.h;
-        const x0 = b.minX - o;
-        const x1 = b.maxX + o;
-        const y0 = b.minY - o;
-        const y1 = b.maxY + o;
-        const outline = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
-        const cx = (b.minX + b.maxX) / 2;
-        const cy = (b.minY + b.maxY) / 2;
-        const ridge = alongX ? [{ x: x0, y: cy }, { x: x1, y: cy }] : [{ x: cx, y: y0 }, { x: cx, y: y1 }];
-        const ridgeZ = base + th + roofRidgeRise(r.points, r.pitch);
+        const g = roofGeom(p, r);
+        if (!g) return null;
         const slope = Math.round(Math.tan((r.pitch * Math.PI) / 180) * 100);
-        // frecce di pendenza su ciascuna falda, a un terzo della lunghezza
-        const along = alongX ? x0 + (x1 - x0) / 3 : y0 + (y1 - y0) / 3;
-        const span = alongX ? (y1 - y0) / 2 : (x1 - x0) / 2;
-        const fromA = alongX ? { x: along, y: cy - span * 0.2 } : { x: cx - span * 0.2, y: along };
-        const toA = alongX ? { x: along, y: cy - span * 0.8 } : { x: cx - span * 0.8, y: along };
-        const fromB = alongX ? { x: along, y: cy + span * 0.2 } : { x: cx + span * 0.2, y: along };
-        const toB = alongX ? { x: along, y: cy + span * 0.8 } : { x: cx + span * 0.8, y: along };
-        const lab = alongX ? { x: x0 + (x1 - x0) * 0.68, y: cy } : { x: cx, y: y0 + (y1 - y0) * 0.68 };
+        // colmo: la linea orizzontale più alta (o il punto più alto, nelle falde senza colmo)
+        const ridges = g.lines.filter((l) => l.kind === 'colmo');
+        const topRidge = ridges.sort((x, y) => dist(y.a, y.b) - dist(x.a, x.b))[0];
+        // senza colmo (una falda): l'etichetta va sul lato più alto
+        const highest = (() => {
+          const vs = g.fragments.flatMap((fr) => fr.poly.map((q) => ({ q, z: planeAt(fr.plane, q) })));
+          const zmax = Math.max(...vs.map((v) => v.z));
+          const top = vs.filter((v) => v.z > zmax - 1e-6).map((v) => v.q);
+          return top.length ? centroid(top) : centroid(g.outline);
+        })();
+        const lab = topRidge ? { x: (topRidge.a.x + topRidge.b.x) / 2, y: (topRidge.a.y + topRidge.b.y) / 2 } : highest;
+        const ob = bbox(g.outline);
         return (
           <g key={r.id}>
-            <polygon points={pts(outline)} className="sv-roof" strokeWidth={0.5 * mm} />
-            <polyline points={pts(ridge)} className="sv-ridge" strokeWidth={0.5 * mm} />
-            {arrow(fromA, toA, 'a')}
-            {arrow(fromB, toB, 'b')}
+            <polygon points={pts(g.outline)} className="sv-roof" strokeWidth={0.5 * mm} />
+            {g.lines.map((l, i) => (
+              <line
+                key={i}
+                x1={l.a.x}
+                y1={-l.a.y}
+                x2={l.b.x}
+                y2={-l.b.y}
+                className={`sv-ridge sv-${l.kind}`}
+                strokeWidth={(l.kind === 'compluvio' ? 0.35 : 0.5) * mm}
+              />
+            ))}
+            {/* frecce di pendenza: una per falda, verso la gronda */}
+            {roofSlopeArrows(g).map((a, i) => {
+              const from = add(a.at, mul(a.down, -a.size / 2));
+              const to = add(a.at, mul(a.down, a.size / 2));
+              return (
+                <g key={`f${i}`}>
+                  {arrow(from, to, `a${i}`)}
+                  {showLabels && (
+                    <text x={to.x} y={-to.y} dx={1.2 * mm * ts} dy={-0.8 * mm * ts} fontSize={1.8 * mm * ts} className="sv-text">
+                      p {slope}%
+                    </text>
+                  )}
+                </g>
+              );
+            })}
             {showLabels && (
               <>
-                <text x={toA.x} y={-toA.y} dy={alongX ? -1.2 * mm * ts : 0} dx={alongX ? 1.5 * mm * ts : 0} fontSize={1.8 * mm * ts} className="sv-text">
-                  p {slope}%
-                </text>
                 <text x={lab.x} y={-lab.y} dy={-1 * mm * ts} fontSize={2 * mm * ts} textAnchor="middle" className="sv-text sv-text-strong">
-                  colmo {fmtLevel(ridgeZ)}
+                  {topRidge ? 'colmo' : 'linea alta'} {fmtLevel(g.base + g.rise + th)}
                 </text>
-                <text x={x1} y={-y0} dy={-1 * mm * ts} dx={-1 * mm * ts} fontSize={1.8 * mm * ts} textAnchor="end" className="sv-text">
-                  gronda {fmtLevel(base - Math.tan((r.pitch * Math.PI) / 180) * o)}
+                <text x={ob.maxX} y={-ob.minY} dy={-1 * mm * ts} dx={-1 * mm * ts} fontSize={1.8 * mm * ts} textAnchor="end" className="sv-text">
+                  gronda {fmtLevel(base - g.slope * o)}
                 </text>
               </>
             )}

@@ -15,7 +15,7 @@ import {
   openingSpans,
   polygonArea,
   polygonPerimeter,
-  roofEave,
+  fmtLevel,
   slabHoles,
   slabNetArea,
   slabOutline,
@@ -29,13 +29,14 @@ import {
 } from '../model/geometry';
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
+import { isConvexPolygon, isOrthogonal, ROOF_SHAPE_LABEL, roofTop } from '../model/roofs';
 import { fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf } from '../model/openings';
 import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Stair, WallRef } from '../model/types';
+import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Roof, Stair, WallRef } from '../model/types';
 import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
@@ -503,13 +504,46 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
           <>
             {typeSelect('roof', e.typeId)}
             <SelectField label="Su livello" value={e.levelId} options={levelOptions} onChange={(v) => upd((x) => x.kind === 'roof' && (x.levelId = v))} />
-            <SelectField label="Forma" value={e.shape} options={[{ value: 'falde', label: 'A due falde' }, { value: 'piana', label: 'Piana' }]} onChange={(v) => upd((x) => x.kind === 'roof' && (x.shape = v))} />
+            <SelectField<Roof['shape']>
+              label="Forma"
+              value={e.shape}
+              options={(Object.keys(ROOF_SHAPE_LABEL) as Roof['shape'][]).map((v) => ({ value: v, label: ROOF_SHAPE_LABEL[v] }))}
+              onChange={(v) => upd((x) => x.kind === 'roof' && (x.shape = v))}
+            />
+            {e.shape === 'falde' && (
+              <SelectField<'auto' | 'x' | 'y'>
+                label="Colmo"
+                value={e.ridge ?? 'auto'}
+                options={[
+                  { value: 'auto', label: 'Lungo il lato più lungo' },
+                  { value: 'x', label: 'Est – ovest' },
+                  { value: 'y', label: 'Nord – sud' },
+                ]}
+                onChange={(v) => upd((x) => x.kind === 'roof' && (v === 'auto' ? delete x.ridge : (x.ridge = v)))}
+              />
+            )}
+            {e.shape === 'falda' && (
+              <SelectField<'sud' | 'nord' | 'est' | 'ovest'>
+                label="La falda scende verso"
+                value={e.slopeTo ?? 'sud'}
+                options={(['sud', 'nord', 'est', 'ovest'] as const).map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }))}
+                onChange={(v) => upd((x) => x.kind === 'roof' && (x.slopeTo = v))}
+              />
+            )}
             <div className="fields fields-2">
-              {e.shape === 'falde' && <NumberField label="Pendenza" unit="°" digits={1} step={1} value={e.pitch} min={0} max={60} onChange={(v) => upd((x) => x.kind === 'roof' && (x.pitch = v))} />}
+              {e.shape !== 'piana' && <NumberField label="Pendenza" unit="°" digits={1} step={1} value={e.pitch} min={0} max={60} onChange={(v) => upd((x) => x.kind === 'roof' && (x.pitch = v))} />}
               <NumberField label="Sporto di gronda" unit="m" value={e.overhang} min={0} onChange={(v) => upd((x) => x.kind === 'roof' && (x.overhang = v))} />
             </div>
+            {e.shape !== 'piana' && e.shape !== 'falda' && !isConvexPolygon(e.points) && (
+              <p className="note">
+                {isOrthogonal(e.points)
+                  ? 'Pianta a L, a T o a U: ogni braccio ha le sue falde e dove si incontrano nascono i compluvi.'
+                  : 'Pianta non ortogonale: le falde si costruiscono sul contorno convesso.'}
+              </p>
+            )}
             <div className="kv-grid">
-              <div><span>Superficie di falda</span><b className="mono">{fmt(roofSurface(e.points, e.shape, e.pitch, roofEave(project, e)))} m²</b></div>
+              <div><span>Superficie di falda</span><b className="mono">{fmt(roofSurface(project, e))} m²</b></div>
+              {e.shape !== 'piana' && <div><span>Colmo</span><b className="mono">{fmtLevel(roofTop(project, e))}</b></div>}
               <div><span>Pendenza</span><b className="mono">{fmt(Math.tan((e.pitch * Math.PI) / 180) * 100, 0)} %</b></div>
               <div><span>Spessore pacchetto</span><b className="mono">{fmt(t?.thickness ?? 0)} m</b></div>
             </div>

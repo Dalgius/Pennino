@@ -1,16 +1,15 @@
 // Prospetto ortogonale generato dal modello: muri, aperture, solai, copertura e quote dei livelli.
 
+import { clipHalf, planeAt, roofGeom, roofTop } from '../model/roofs';
 import type { Project, Vec2, Wall } from '../model/types';
 import {
-  bbox,
   byId,
   columnQuad,
   dot,
   fmtLevel,
   norm,
   openingSpans,
-  roofRidgeRise,
-  roofEave,
+  roofUndersideAt,
   slabOutline,
   sortedLevels,
   sub,
@@ -330,42 +329,63 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;
       const base = lvl.elevation + lvl.height;
-      const b = bbox(e.points);
-      const o = roofEave(p, e);
-      const corners = [
-        { x: b.minX - o, y: b.minY - o },
-        { x: b.maxX + o, y: b.maxY + o },
-      ];
-      const us = corners.map(U);
-      const u0 = Math.min(...us);
-      const u1 = Math.max(...us);
-      const dpt = Math.min(...corners.map(D));
+      const g = roofGeom(p, e);
+      if (!g) continue;
+      // nelle sezioni conta solo ciò che sta oltre il piano: le falde si tagliano alla profondità near
+      const nearK0 = frame.near !== undefined ? -frame.near - dot(frame.origin, frame.depth) : null;
+      const cut = (poly: Vec2[]) => (nearK0 === null ? poly : clipHalf(poly, frame.depth, nearK0));
+      const P2 = (q: Vec2, z: number) => `${U(q)},${Z(z)}`;
       if (e.shape === 'piana') {
+        const ol = cut(g.outline);
+        if (!ol.length) continue;
+        const us = ol.map(U);
         items.push({
-          depth: dpt - 0.02,
-          node: <rect key={e.id} x={u0} y={Z(base + th)} width={u1 - u0} height={th} className="ev-roof" strokeWidth={0.35 * mm} />,
+          depth: Math.min(...ol.map(D)) - 0.02,
+          node: <rect key={e.id} x={Math.min(...us)} y={Z(base + th)} width={Math.max(...us) - Math.min(...us)} height={th} className="ev-roof" strokeWidth={0.35 * mm} />,
         });
-      } else {
-        const rise = roofRidgeRise(e.points, e.pitch);
-        const ridgeAlongX = b.w >= b.h;
-        const ridgeParallelToView = ridgeAlongX === Math.abs(u.x) > 0.5;
-        const extra = Math.tan((e.pitch * Math.PI) / 180) * o; // l'aggetto abbassa la linea di gronda
-        const eave = base - extra;
-        const shape = ridgeParallelToView
-          ? `M${u0},${Z(eave)} L${u1},${Z(eave)} L${u1},${Z(eave + th)} L${u1},${Z(base + rise + th)} L${u0},${Z(base + rise + th)} L${u0},${Z(eave + th)} Z`
-          : `M${u0},${Z(eave)} L${u0},${Z(eave + th)} L${(u0 + u1) / 2},${Z(base + rise + th)} L${u1},${Z(eave + th)} L${u1},${Z(eave)} L${(u0 + u1) / 2},${Z(base + rise)} Z`;
-        items.push({
-          depth: dpt - 0.02,
-          node: (
-            <g key={e.id}>
-              <path d={shape} className="ev-roof" strokeWidth={0.35 * mm} />
-              {ridgeParallelToView && (
-                <line x1={u0} y1={Z(eave + th)} x2={u1} y2={Z(eave + th)} className="ev-frame" strokeWidth={0.18 * mm} />
-              )}
-            </g>
-          ),
-        });
+        continue;
       }
+      // falde viste: quelle che salgono allontanandosi da chi guarda (estradosso, th sopra l'intradosso)
+      g.fragments.forEach((fr, k) => {
+        if (dot(fr.plane.n, frame.depth) <= 1e-6) return;
+        const poly = cut(fr.poly);
+        if (!poly.length) return;
+        items.push({
+          depth: poly.reduce((s, q) => s + D(q), 0) / poly.length,
+          node: <polygon key={`${e.id}f${k}`} points={poly.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')} className="ev-roof" strokeWidth={0.25 * mm} />,
+        });
+      });
+      // bordi verso chi guarda: fascia di gronda e profilo delle falde sui timpani (spessore th)
+      const ol = g.outline;
+      const ccwSign = ol.reduce((s, a, k) => s + a.x * ol[(k + 1) % ol.length].y - ol[(k + 1) % ol.length].x * a.y, 0) >= 0 ? 1 : -1;
+      const vertices = g.fragments.flatMap((fr) => fr.poly);
+      ol.forEach((a, k) => {
+        const b = ol[(k + 1) % ol.length];
+        const L = Math.hypot(b.x - a.x, b.y - a.y);
+        if (L < 1e-6) return;
+        const outward = { x: ((b.y - a.y) / L) * ccwSign, y: (-(b.x - a.x) / L) * ccwSign };
+        if (dot(outward, frame.depth) > -1e-6) return;
+        // punti di rottura del profilo lungo il bordo: i vertici delle falde che ci stanno sopra
+        const ts = new Set<number>([0, 1]);
+        for (const v of vertices) {
+          const tt = ((v.x - a.x) * (b.x - a.x) + (v.y - a.y) * (b.y - a.y)) / (L * L);
+          const off = Math.abs((v.x - a.x) * (b.y - a.y) - (v.y - a.y) * (b.x - a.x)) / L;
+          if (off < 1e-5 && tt > 1e-6 && tt < 1 - 1e-6) ts.add(+tt.toFixed(6));
+        }
+        const pts = [...ts]
+          .sort((x, y) => x - y)
+          .map((tt) => ({ x: a.x + (b.x - a.x) * tt, y: a.y + (b.y - a.y) * tt }))
+          .filter((q) => nearK0 === null || dot(q, frame.depth) + nearK0 >= -1e-9);
+        if (pts.length < 2) return;
+        // quota sul bordo: appena dentro la copertura, dove la falda è definita
+        const zAt = (q: Vec2) => roofUndersideAt(p, { x: q.x - outward.x * 1e-4, y: q.y - outward.y * 1e-4 }, base) ?? base;
+        const bottom = pts.map((q) => P2(q, zAt(q)));
+        const top = [...pts].reverse().map((q) => P2(q, zAt(q) + th));
+        items.push({
+          depth: Math.min(...pts.map(D)) - 0.01,
+          node: <polygon key={`${e.id}e${k}`} points={[...bottom, ...top].join(' ')} className="ev-roof ev-roof-edge" strokeWidth={0.35 * mm} />,
+        });
+      });
     }
   }
 
@@ -377,10 +397,8 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
     ...(() => {
       let ridge = -Infinity;
       for (const e of p.elements) {
-        if (e.kind !== 'roof' || e.shape !== 'falde') continue;
-        const lv = byId(p.levels, e.levelId);
-        const th = byId(p.catalog.roof, e.typeId)?.thickness ?? 0.3;
-        if (lv) ridge = Math.max(ridge, lv.elevation + lv.height + th + roofRidgeRise(e.points, e.pitch));
+        if (e.kind !== 'roof' || e.shape === 'piana') continue;
+        ridge = Math.max(ridge, roofTop(p, e));
       }
       return isFinite(ridge) ? [{ id: 'colmo', z: ridge, name: 'Colmo' }] : [];
     })(),
@@ -418,7 +436,7 @@ export function elevationHeight(p: Project) {
     const lvl = 'levelId' in e ? byId(p.levels, e.levelId) : undefined;
     if (!lvl) continue;
     const base = lvl.elevation + lvl.height;
-    if (e.kind === 'roof') top = Math.max(top, base + roofRidgeRise(e.points, e.pitch) + 0.5);
+    if (e.kind === 'roof') top = Math.max(top, (e.shape === 'piana' ? base : roofTop(p, e)) + 0.5);
     else top = Math.max(top, base);
   }
   return { top, bottom: Math.min(p.site.groundLevel, ...p.levels.map((l) => l.elevation)) - 0.6 };

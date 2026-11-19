@@ -1,8 +1,9 @@
 // Computo e abachi: funzioni pure del modello.
 // Ogni volta che il modello cambia, quantità e importi vengono ricalcolati da qui.
 
+import { roofGeom } from './roofs';
 import { statusOf, usesStates } from './states';
-import type { PriceItem, Project, WbsCategory } from './types';
+import type { PriceItem, Project, Roof, WbsCategory } from './types';
 import { wallGeom, wallOutline } from './walls';
 import {
   bbox,
@@ -10,14 +11,12 @@ import {
   dist,
   elementCode,
   fmt,
-  offsetPolygon,
   openingSpans,
   pointInPolygon,
   polygonArea,
   polygonPerimeter,
   slabHoles,
   slabNetArea,
-  roofEave,
   slabOutline,
   sortedLevels,
   stairLayout,
@@ -195,10 +194,10 @@ export function computeComputo(p: Project): ComputoLine[] {
       push('SCA.01', base, { length: Ls, f: { m: lay.flights.length > 1 ? `rampe ${lay.flights.map((f) => n2(f.len)).join(' + ')}` : `L ${n2(Ls)}` } });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
-      const A = roofSurface(e.points, e.shape, e.pitch, roofEave(p, e));
+      const A = roofSurface(p, e);
       const th = t?.thickness ?? 0.3;
       const mode = wallMode(p, t);
-      const fA = e.shape === 'falde' ? `A orizz. con sporto / cos ${e.pitch}°` : 'A con sporto';
+      const fA = e.shape !== 'piana' ? `Σ falde con sporto (A orizz. / cos ${e.pitch}°)` : 'A con sporto';
       if (mode !== 'strati' || !t?.layers?.length)
         push(t?.priceCode, base, { area: A, volume: A * th, f: { m2: fA, m3: `${n2(A)} × ${n2(th)}` } });
       if (mode !== 'pacchetto')
@@ -264,12 +263,12 @@ export function wallTypeUnitCosts(p: Project, t: { priceCode: string; layers: { 
   return { pack, layers: priced ? layers : null, priced, count: t.layers.length };
 }
 
-export function roofSurface(points: { x: number; y: number }[], shape: 'piana' | 'falde', pitch: number, overhang: number) {
+/** Superficie della copertura con lo sporto: piana in pianta, a falde come somma delle falde inclinate */
+export function roofSurface(p: Project, r: Roof): number {
+  const g = roofGeom(p, r);
+  if (!g) return 0;
   // sporto con gli spigoli: il contorno scostato, non A + P·sporto (che omette gli angoli)
-  if (shape === 'piana') return polygonArea(offsetPolygon(points, overhang));
-  const b = bbox(points);
-  const A = (b.w + 2 * overhang) * (b.h + 2 * overhang);
-  return A / Math.cos((pitch * Math.PI) / 180);
+  return r.shape === 'piana' ? polygonArea(g.outline) : g.area;
 }
 
 export function siteItemLabel(s: Project['siteLogistics'][number]): string {

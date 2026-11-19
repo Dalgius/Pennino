@@ -1,5 +1,7 @@
+import { roofOutlineOf, roofSurfaceAt, roofTop } from './roofs';
 import type {
   BuildingElement,
+  Roof,
   Column,
   ColumnType,
   Level,
@@ -224,7 +226,7 @@ export function buildingHeight(p: Project): number {
     if (e.kind === 'wall') top = Math.max(top, lvl.elevation + wallHeight(p, e));
     if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId)?.thickness ?? 0.3;
-      top = Math.max(top, lvl.elevation + lvl.height + t + (e.shape === 'falde' ? roofRidgeRise(e.points, e.pitch) : 0));
+      top = Math.max(top, e.shape === 'piana' ? lvl.elevation + lvl.height + t : roofTop(p, e));
     }
     if (e.kind === 'slab') top = Math.max(top, lvl.elevation);
   }
@@ -269,26 +271,8 @@ export function wallTopProfile(p: Project, w: Wall, zTop: number, s0: number, s1
 }
 
 export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | null {
-  let best: number | null = null;
-  for (const e of p.elements) {
-    if (e.kind !== 'roof' || e.points.length < 3) continue;
-    const base = roofBase(p, e);
-    if (Math.abs(base - zTop) > 0.05) continue;
-    const b = bbox(e.points);
-    // l'ingombro comprende lo sporto: i muri sotto la gronda vi rientrano per tutto lo spessore
-    const m = roofEave(p, e) + 1e-3;
-    if (X.x < b.minX - m || X.x > b.maxX + m || X.y < b.minY - m || X.y > b.maxY + m) continue;
-    let z = base;
-    if (e.shape === 'falde') {
-      const alongX = b.w >= b.h;
-      const half = (alongX ? b.h : b.w) / 2;
-      const rise = roofRidgeRise(e.points, e.pitch);
-      const across = alongX ? X.y - (b.minY + b.h / 2) : X.x - (b.minX + b.w / 2);
-      z = base + rise - (rise / (half || 1)) * Math.abs(across);
-    }
-    best = best === null ? z : Math.max(best, z);
-  }
-  return best;
+  // falde come piani: vedi model/roofs.ts
+  return roofSurfaceAt(p, X, zTop);
 }
 
 /**
@@ -324,16 +308,8 @@ export function offsetPolygon(points: Vec2[], d: number | number[]): Vec2[] {
 }
 
 /** Contorno in pianta di una copertura comprensivo dello sporto di gronda */
-export function roofOutline(r: { points: Vec2[]; shape: 'piana' | 'falde'; overhang: number }): Vec2[] {
-  if (r.shape === 'piana') return offsetPolygon(r.points, r.overhang);
-  const b = bbox(r.points);
-  const o = r.overhang;
-  return [
-    { x: b.minX - o, y: b.minY - o },
-    { x: b.maxX + o, y: b.minY - o },
-    { x: b.maxX + o, y: b.maxY + o },
-    { x: b.minX - o, y: b.maxY + o },
-  ];
+export function roofOutline(r: { points: Vec2[]; shape: Roof['shape']; overhang: number }): Vec2[] {
+  return roofOutlineOf(r, r.overhang);
 }
 
 export function roofRidgeRise(points: Vec2[], pitch: number) {

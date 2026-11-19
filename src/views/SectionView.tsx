@@ -2,8 +2,9 @@
 // Ciò che sta oltre il piano è disegnato in vista (motore dei prospetti); ciò che il piano taglia
 // (muri, solai, coperture, pilastri, travi, scale) è campito. Le aperture tagliate interrompono il muro.
 
+import { roofGeom } from '../model/roofs';
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, bbox, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofEave, roofWithEave, roofRidgeRise, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofWithEave, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec, isBareOpening } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
@@ -407,38 +408,18 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         );
         continue;
       }
-      const b = bbox(e.points);
-      const o = roofEave(p, e);
-      const outline = [
-        { x: b.minX - o, y: b.minY - o },
-        { x: b.maxX + o, y: b.minY - o },
-        { x: b.maxX + o, y: b.maxY + o },
-        { x: b.minX - o, y: b.maxY + o },
-      ];
-      const alongX = b.w >= b.h;
-      const half = (alongX ? b.h : b.w) / 2;
-      const rise = roofRidgeRise(e.points, e.pitch);
-      const slope = rise / (half || 1);
-      const cx = (b.minX + b.maxX) / 2;
-      const cy = (b.minY + b.maxY) / 2;
-      const zb = (uu: number) => {
-        const X = add(f.origin, mul(f.u, uu));
-        const across = alongX ? X.y - cy : X.x - cx;
-        return base + rise - slope * Math.abs(across);
-      };
-      cutIntervals(outline, f).forEach(([u0, u1], i) => {
-        // punti di campionamento: estremi ed eventuale attraversamento del colmo
-        const us = [u0, u1];
-        const du = alongX ? f.u.y : f.u.x;
-        if (Math.abs(du) > 1e-6) {
-          const X0 = add(f.origin, mul(f.u, u0));
-          const c0 = alongX ? X0.y - cy : X0.x - cx;
-          const ur = u0 - c0 / du;
-          if (ur > u0 && ur < u1) us.splice(1, 0, ur);
-        }
-        if (rl) return roofBands(`${e.id}${i}`, us, zb);
-        const bottom = us.map((uu) => `${uu},${Z(zb(uu))}`);
-        const top = [...us].reverse().map((uu) => `${uu},${Z(zb(uu) + th)}`);
+      // falde come piani: il profilo tagliato è spezzato dove la traccia attraversa i bordi delle falde
+      const g = roofGeom(p, e);
+      if (!g) continue;
+      const breaks = g.fragments.flatMap((fr) => cutIntervals(fr.poly, f).flat());
+      const zb = (uu: number) => roofUndersideAt(p, add(f.origin, mul(f.u, uu)), base) ?? base;
+      cutIntervals(g.outline, f).forEach(([u0, u1], i) => {
+        const us = [u0, ...[...new Set(breaks.map((x) => +x.toFixed(6)))].filter((x) => x > u0 + 1e-6 && x < u1 - 1e-6).sort((a, b) => a - b), u1];
+        // agli estremi la quota si legge appena dentro la copertura
+        const zIn = (uu: number) => zb(uu === u0 ? u0 + 1e-4 : uu === u1 ? u1 - 1e-4 : uu);
+        if (rl) return roofBands(`${e.id}${i}`, us, zIn);
+        const bottom = us.map((uu) => `${uu},${Z(zIn(uu))}`);
+        const top = [...us].reverse().map((uu) => `${uu},${Z(zIn(uu) + th)}`);
         cuts.push(<polygon key={`${e.id}${i}`} points={[...bottom, ...top].join(' ')} className="sc-cut" strokeWidth={sw} />);
       });
     }

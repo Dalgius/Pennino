@@ -1,6 +1,7 @@
 // Costruzione della scena 3D a partire dal modello informativo.
 // Mappatura assi: modello (x, y, z) → three.js (x, z, −y).
 
+import { planeAt, roofGeom, type RoofGeom } from '../model/roofs';
 import * as THREE from 'three';
 import { sceneBounds } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
@@ -14,9 +15,8 @@ import {
   dist,
   openingSpans,
   roofOutline,
-  roofEave,
   roofWithEave,
-  roofRidgeRise,
+  pointInPolygon,
   sunPosition,
   wallHeight,
   wallTopProfile,
@@ -161,9 +161,8 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       if (e.shape === 'piana' || e.points.length < 3) {
         root.add(tag(extrudePolygon(roofOutline(roofWithEave(p, e)), base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
       } else {
-        const roof = gableRoof(e.points, e.pitch, roofEave(p, e), base, th, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide })));
-        roof.traverse((c) => tag(c, e.id));
-        root.add(roof);
+        const g = roofGeom(p, e);
+        if (g) root.add(tag(roofMesh(g, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide }))), e.id));
       }
     }
   }
@@ -317,34 +316,45 @@ function buildFixture(
   if (spec.hasThreshold) threshold();
 }
 
-function gableRoof(points: Vec2[], pitch: number, o: number, base: number, th: number, material: THREE.Material) {
-  const b = bbox(points);
-  const alongX = b.w >= b.h;
-  const half = (alongX ? b.h : b.w) / 2;
-  const rise = roofRidgeRise(points, pitch);
-  const slope = rise / half;
-  const span = half + o;
-  const zb = (t: number) => base + rise - slope * Math.abs(t);
-  const s = new THREE.Shape();
-  s.moveTo(-span, zb(-span));
-  s.lineTo(0, base + rise);
-  s.lineTo(span, zb(span));
-  s.lineTo(span, zb(span) + th);
-  s.lineTo(0, base + rise + th);
-  s.lineTo(-span, zb(-span) + th);
-  s.closePath();
-  const length = (alongX ? b.w : b.h) + 2 * o;
-  const geo = new THREE.ExtrudeGeometry(s, { depth: length, bevelEnabled: false });
-  const m = new THREE.Mesh(geo, material);
-  const group = new THREE.Group();
-  group.add(m);
-  if (alongX) {
-    group.rotation.y = Math.PI / 2;
-    group.position.set(b.minX - o, 0, -(b.minY + b.h / 2));
-  } else {
-    group.position.set(b.minX + b.w / 2, 0, -(b.maxY + o));
+/**
+ * Copertura a falde: per ogni falda visibile l'estradosso (th sopra) e l'intradosso, più le fasce
+ * verticali lungo il contorno (gronde e profili sui timpani).
+ */
+function roofMesh(g: RoofGeom, material: THREE.Material) {
+  const pos: number[] = [];
+  const V = (q: Vec2, z: number) => pos.push(q.x, z, -q.y);
+  const tri = (a: Vec2, za: number, b: Vec2, zb: number, c: Vec2, zc: number) => {
+    V(a, za);
+    V(b, zb);
+    V(c, zc);
+  };
+  const inOutline = (q: Vec2) => pointInPolygon(q, g.outline);
+  for (const fr of g.fragments) {
+    const poly = fr.poly;
+    const z = (q: Vec2) => planeAt(fr.plane, q);
+    for (let i = 1; i + 1 < poly.length; i++) {
+      tri(poly[0], z(poly[0]) + g.th, poly[i], z(poly[i]) + g.th, poly[i + 1], z(poly[i + 1]) + g.th);
+      tri(poly[0], z(poly[0]), poly[i + 1], z(poly[i + 1]), poly[i], z(poly[i]));
+    }
+    poly.forEach((a, i) => {
+      const b = poly[(i + 1) % poly.length];
+      const L = Math.hypot(b.x - a.x, b.y - a.y);
+      if (L < 1e-6) return;
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const n = { x: (b.y - a.y) / L, y: -(b.x - a.x) / L };
+      // bordo esterno: appena fuori dal frammento non c'è più copertura
+      if (inOutline({ x: m.x + n.x * 1e-3, y: m.y + n.y * 1e-3 }) && inOutline({ x: m.x - n.x * 1e-3, y: m.y - n.y * 1e-3 })) return;
+      tri(a, z(a), b, z(b), b, z(b) + g.th);
+      tri(a, z(a), b, z(b) + g.th, a, z(a) + g.th);
+    });
   }
-  return group;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, material);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
 }
 
 

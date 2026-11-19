@@ -1,5 +1,6 @@
 // Operazioni di editing condivise dalle fasi (selezione, maniglie, spostamenti, aggancio).
 
+import { roofOutlineOf } from './roofs';
 import type { BuildingElement, ContextItem, Project, SiteItem, Vec2 } from './types';
 import {
   add,
@@ -135,10 +136,8 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
     if (e.kind !== 'roof') continue;
     const onRoofLevel = here?.kind === 'copertura' && Math.abs(roofBase(p, e) - here.elevation) < 0.01;
     if (e.levelId !== levelId && !onRoofLevel) continue;
-    const b = bbox(e.points);
-    const o = roofEave(p, e);
-    const inside = e.shape === 'falde' ? w.x >= b.minX - o && w.x <= b.maxX + o && w.y >= b.minY - o && w.y <= b.maxY + o : pointInPolygon(w, e.points);
-    if (inside) return e.id;
+    // dentro il contorno con lo sporto (quello che si vede dall'alto)
+    if (pointInPolygon(w, roofOutlineOf(e, roofEave(p, e)))) return e.id;
   }
   return null;
 }

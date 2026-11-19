@@ -2,6 +2,7 @@
 // Usata sia dall'editor (fase 02) sia dai fogli di stampa (fase 03): stesso disegno, stessi dati.
 // Coordinate in metri; l'asse Y del modello è ribaltato per l'SVG.
 
+import { roofGeom } from '../model/roofs';
 import { memo } from 'react';
 import type { Opening, OpeningType, Project, Stair, Vec2, Wall } from '../model/types';
 import { SectionMark } from './SectionView';
@@ -16,7 +17,6 @@ import {
   JOIN_TOL,
   roofBase,
   roofOutline,
-  roofEave,
   roofWithEave,
   slabOutline,
   slabHoles,
@@ -142,19 +142,13 @@ function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, sel
       ) : (
         roofs.map((r) => {
         if (r.kind !== 'roof') return null;
-        const b = bbox(r.points);
-        const o = roofEave(p, r);
-        const outline = roofOutline(roofWithEave(p, r));
-        const alongX = b.w >= b.h;
+        // copertura sopra il piano: contorno, colmi, displuvi e compluvi tratteggiati
+        const g = roofGeom(p, r);
+        const outline = g?.outline ?? roofOutline(roofWithEave(p, r));
         return (
           <g key={r.id} className="pv-roof" strokeWidth={med} strokeDasharray={`${3 * mm} ${1.5 * mm}`}>
             <polygon points={pts(outline)} />
-            {r.shape === 'falde' &&
-              (alongX ? (
-                <line x1={b.minX - o} y1={-(b.minY + b.h / 2)} x2={b.maxX + o} y2={-(b.minY + b.h / 2)} />
-              ) : (
-                <line x1={b.minX + b.w / 2} y1={-(b.minY - o)} x2={b.minX + b.w / 2} y2={-(b.maxY + o)} />
-              ))}
+            {g?.lines.map((l, i) => <line key={i} x1={l.a.x} y1={-l.a.y} x2={l.b.x} y2={-l.b.y} />)}
           </g>
         );
         })
