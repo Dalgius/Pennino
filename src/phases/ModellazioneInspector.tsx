@@ -22,6 +22,7 @@ import {
   sortedLevels,
   stairAxisLength,
   stairSteps,
+  stairLayout,
   sub,
   wallHeight,
   wallLength,
@@ -431,20 +432,32 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
                   ]}
                   onChange={(v) => reshape({ turn: v })}
                 />
-                <div className={`fields ${shape === 'U' ? 'fields-2' : ''}`}>
-                  <NumberField
-                    label={`Alzate 1ª rampa (2ª: ${n - k1})`}
-                    digits={0}
-                    step={1}
-                    value={k1}
-                    min={2}
-                    max={n - 1}
-                    onChange={(v) => reshape({ firstRisers: Math.round(v) })}
-                  />
-                  {shape === 'U' && (
-                    <NumberField label="Pozzo tra le rampe" unit="cm" digits={0} step={5} value={(e.gap ?? 0.1) * 100} min={0} onChange={(v) => upd((x) => x.kind === 'stair' && (x.gap = v / 100))} />
-                  )}
+                {/* le due rampe: alzate (pianerottolo compreso nella prima) e lunghezze in pianta */}
+                <div className="fields fields-2">
+                  <NumberField label="Alzate 1ª rampa" digits={0} step={1} value={k1} min={2} max={n - 1} onChange={(v) => reshape({ firstRisers: Math.round(v) })} />
+                  <NumberField label="Alzate 2ª rampa" digits={0} step={1} value={n - k1} min={1} max={n - 2} onChange={(v) => reshape({ firstRisers: n - Math.round(v) })} />
                 </div>
+                <div className="kv-grid">
+                  {stairLayout(project, e).flights.map((f, i) => (
+                    <div key={i}>
+                      <span>{i === 0 ? '1ª' : '2ª'} rampa</span>
+                      <b className="mono">
+                        {f.steps} pedate · {fmt(f.len)} m
+                      </b>
+                    </div>
+                  ))}
+                </div>
+                <div className="door-tools">
+                  <button className="btn" onClick={() => reshape({ firstRisers: Math.ceil(n / 2) })} title="Stesse alzate (o quasi) nelle due rampe">
+                    Rampe uguali
+                  </button>
+                  <button className="btn" onClick={() => reshape({ firstRisers: n - k1 + 1 })} disabled={n - k1 + 1 === k1} title="La rampa lunga diventa corta e viceversa">
+                    Scambia le rampe
+                  </button>
+                </div>
+                {shape === 'U' && (
+                  <NumberField label="Pozzo tra le rampe" unit="cm" digits={0} step={5} value={(e.gap ?? 0.1) * 100} min={0} onChange={(v) => upd((x) => x.kind === 'stair' && (x.gap = v / 100))} />
+                )}
               </>
             )}
             <div className="fields fields-2">

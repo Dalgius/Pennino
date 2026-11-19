@@ -837,3 +837,21 @@ export function roofEave(p: Project, r: { levelId: string; points: Vec2[]; overh
 export function roofWithEave<T extends { levelId: string; points: Vec2[]; overhang: number }>(p: Project, r: T): T {
   return { ...r, overhang: roofEave(p, r) };
 }
+
+/** Pedata secondo Blondel (2a + p = 63 cm) per un'alzata data, entro 25–32 cm */
+export const blondelTread = (h: number) => Math.min(0.32, Math.max(0.25, 0.63 - 2 * h));
+
+/**
+ * Scala a L o a U disegnata con due clic (partenza e bordo del pianerottolo): la pedata è quella di
+ * Blondel e la lunghezza disegnata decide quante alzate ha la prima rampa; la seconda prende le
+ * restanti. Così le rampe possono avere lunghezze diverse. b viene portato a un numero intero di pedate.
+ */
+export function stairFromClicks<T extends StairLike>(p: Project, s: T): T {
+  if ((s.shape ?? 'dritta') === 'dritta') return s;
+  const { n, h } = stairSteps(p, s);
+  const tread = blondelTread(h);
+  const L = dist(s.a, s.b);
+  const k1 = Math.max(2, Math.min(n - 1, Math.round(L / tread) + 1));
+  const d = norm(sub(s.b, s.a));
+  return { ...s, firstRisers: k1, b: add(s.a, mul(d, (k1 - 1) * tread)) };
+}

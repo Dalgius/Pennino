@@ -22,6 +22,7 @@ import {
   wallSegmentQuad,
   wallThickness,
   stairFootprints,
+  stairFromClicks,
 } from '../model/geometry';
 import { HatchSwatch, hatchOf } from '../views/hatch';
 import { ALL_VISIBLE, deleteExtras, findAnnotation, findRoom, hitExtras, layerOf, layersWith, similarElements, translateExtras, withoutLayers, LAYER_LABEL, type Layers } from '../model/layers';
@@ -444,15 +445,18 @@ export function Modellazione() {
         if (dist(draft[0], q) > 0.1) {
           if (tool === 'beam') addElement({ id: uid('b'), kind: 'beam', levelId: lvlId, typeId: activeType.beam, a: draft[0], b: q });
           else
-            addElement({
-              id: uid('sc'),
-              kind: 'stair',
-              levelId: lvlId,
-              a: draft[0],
-              b: q,
-              width: 1.1,
-              ...(stairShape === 'dritta' ? {} : { shape: stairShape, turn: stairTurn }),
-            });
+            addElement(
+              // a L e a U la lunghezza disegnata fissa le alzate della prima rampa, non la pedata
+              stairFromClicks(project, {
+                id: uid('sc'),
+                kind: 'stair' as const,
+                levelId: lvlId,
+                a: draft[0],
+                b: q,
+                width: 1.1,
+                ...(stairShape === 'dritta' ? {} : { shape: stairShape, turn: stairTurn }),
+              }),
+            );
         }
         resetDraft();
       } else setDraft([q]);
@@ -1070,7 +1074,7 @@ export function Modellazione() {
             {tool === 'stair' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.1 && (
               // anteprima della scala: rampe e pianerottolo
               <g className="draft" pointerEvents="none">
-                {stairFootprints(project, { levelId: lvlId, a: draft[0], b: cursor.p, width: 1.1, shape: stairShape, turn: stairTurn }).map((q, i) => (
+                {stairFootprints(project, stairFromClicks(project, { levelId: lvlId, a: draft[0], b: cursor.p, width: 1.1, shape: stairShape, turn: stairTurn })).map((q, i) => (
                   <polygon key={i} points={pts(q)} className="draft-poly" strokeWidth={0.35 * mm} />
                 ))}
               </g>

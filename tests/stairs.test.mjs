@@ -84,4 +84,25 @@ test('soletta rampante: parte dal pavimento e si raccorda all’intradosso del p
   assert.ok(near(Math.max(...p2.map((q) => q.y)), 3.2));
 });
 
+test('scala a U disegnata: la lunghezza decide le alzate della prima rampa, la pedata resta di Blondel', () => {
+  const { p, s } = withStair({ shape: 'U', turn: 'sinistra' });
+  const { n, h } = g.stairSteps(p, s);
+  const p0 = g.blondelTread(h);
+  // prima rampa corta (circa 4 pedate) e lunga (circa n − 5)
+  for (const steps of [4, n - 5]) {
+    const drawn = g.stairFromClicks(p, { ...s, b: { x: s.a.x + steps * p0 + 0.04, y: s.a.y } });
+    const lay = g.stairLayout(p, drawn);
+    assert.equal(lay.flights[0].steps, steps, 'pedate della prima rampa');
+    assert.equal(lay.flights[0].steps + lay.flights[1].steps + 1, n, 'il pianerottolo vale un’alzata');
+    assert.ok(Math.abs(lay.tread - p0) < 1e-9, 'pedata costante');
+    assert.ok(Math.abs(lay.flights[0].len - steps * p0) < 1e-9);
+  }
+  // le due rampe hanno lunghezze diverse
+  const lay = g.stairLayout(p, g.stairFromClicks(p, { ...s, b: { x: s.a.x + 4 * p0, y: s.a.y } }));
+  assert.ok(Math.abs(lay.flights[0].len - lay.flights[1].len) > 1, 'rampe di lunghezza diversa');
+  // scala dritta: invariata
+  const straight = { ...s, shape: 'dritta' };
+  assert.equal(g.stairFromClicks(p, straight), straight);
+});
+
 test.after(() => server.close());
