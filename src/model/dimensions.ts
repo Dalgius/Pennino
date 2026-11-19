@@ -495,3 +495,60 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
     refitOpenings(d, host);
   }
 }
+
+// ───────── Disposizione delle catene in pianta ─────────
+
+/** Distanza della prima linea di quota dal suo elemento e passo tra linee successive (mm di carta) */
+export const DIM_FIRST = 6;
+export const DIM_STEP = 7;
+
+export interface PlacedChain {
+  chain: DimChain;
+  /** distanza della linea di quota dall'elemento quotato, in mm di carta */
+  offset: number;
+}
+
+/**
+ * Dispone le catene perché non si sovrappongano: due catene parallele, rivolte dallo stesso lato,
+ * che cadrebbero sulla stessa linea in tratti che si sovrappongono vanno su linee successive.
+ * Una catena con le stesse misure di una già disposta, vicina e dallo stesso lato, si omette.
+ * unit = metri per mm di carta (comprende l'ingrandimento dei testi a schermo).
+ */
+export function layoutDimensions(chains: DimChain[], unit: number, fixed: Record<string, number> = {}): PlacedChain[] {
+  type Line = { d: Vec2; out: Vec2; perp: number; t0: number; t1: number; feature: number; marks: string };
+  const placed: Line[] = [];
+  const result: PlacedChain[] = [];
+  const canon = (d: Vec2) => (d.x < -1e-9 || (Math.abs(d.x) < 1e-9 && d.y < 0) ? { x: -d.x, y: -d.y } : d);
+  // prima le catene parziali (vicine all'edificio), poi i totali; a parità le più lunghe
+  // prima quelle spostate a mano (la loro posizione è decisa), poi le altre
+  const order = [...chains].sort((a, b) => Number(b.id in fixed) - Number(a.id in fixed) || a.row - b.row || Math.abs(b.marks[b.marks.length - 1].s - b.marks[0].s) - Math.abs(a.marks[a.marks.length - 1].s - a.marks[0].s));
+  for (const c of order) {
+    const d = canon(c.dir);
+    const at = (s: number) => add(c.origin, mul(c.dir, s));
+    const ts = c.marks.map((m) => dot(at(m.s), d));
+    const t0 = Math.min(...ts);
+    const t1 = Math.max(...ts);
+    const feature = dot(c.origin, c.out);
+    const marks = ts
+      .map((t) => Math.round(t * 100))
+      .sort((x, y) => x - y)
+      .join(',');
+    const same = (l: Line) => Math.abs(l.d.x * d.y - l.d.y * d.x) < 0.01 && dot(l.out, c.out) > 0.9;
+    // stesse misure, stesso lato, a meno di un metro: è la stessa informazione
+    if (placed.some((l) => same(l) && l.marks === marks && Math.abs(l.feature - feature) < 1)) continue;
+    let offset = fixed[c.id];
+    if (offset === undefined) {
+      // posizione automatica: la prima linea libera
+      let k = c.row === 1 ? 0 : 1;
+      for (; k < 8; k++) {
+        const perp = feature + (DIM_FIRST + DIM_STEP * k) * unit;
+        const clash = placed.some((l) => same(l) && Math.abs(l.perp - perp) < 4 * unit && l.t0 < t1 - 0.01 && l.t1 > t0 + 0.01);
+        if (!clash) break;
+      }
+      offset = DIM_FIRST + DIM_STEP * k;
+    }
+    placed.push({ d, out: c.out, perp: feature + offset * unit, t0, t1, feature, marks });
+    result.push({ chain: c, offset });
+  }
+  return result;
+}

@@ -4,6 +4,7 @@ import type { BuildingElement, ElementStatus, Project, Vec2, ViewState, WallRef 
 import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
   add,
+  dot,
   bbox,
   byId,
   convexHull,
@@ -38,7 +39,7 @@ import { Icon } from '../ui/icons';
 import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
 import { SectionMark, SectionView, sectionLength } from '../views/SectionView';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
-import { applyDimension, dimensionError } from '../model/dimensions';
+import { applyDimension, dimensionError, type DimChain } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
@@ -93,7 +94,9 @@ function readLayers(): Layers {
 const NO_IDS: string[] = [];
 
 interface Drag {
-  kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo';
+  kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo' | 'quota';
+  /** catena di quote trascinata */
+  chain?: DimChain;
   id: string;
   handle?: number;
   start: Vec2;
@@ -210,6 +213,19 @@ export function Modellazione() {
     setDimEdit(t);
     setDimText(t.value.toFixed(2));
   }, []);
+  const moveDim = useCallback((chain: DimChain) => {
+    drag.current = { kind: 'quota', id: chain.id, start: chain.origin, orig: useStore.getState().project, moved: false, chain };
+  }, []);
+  const resetDim = useCallback(
+    (chainId: string) =>
+      edit((d) => {
+        if (!d.dimOffsets) return;
+        const next = { ...d.dimOffsets };
+        delete next[chainId];
+        d.dimOffsets = next;
+      }),
+    [edit],
+  );
   const hideDim = useCallback(
     (chainId: string) => {
       edit((d) => void (d.hiddenDims = [...new Set([...(d.hiddenDims ?? []), chainId])]));
@@ -627,6 +643,18 @@ export function Modellazione() {
       setCursor({ p: snap.p, kind: 'libero' });
       const dr = drag.current;
       if (!dr) return;
+      if (dr.kind === 'quota' && dr.chain) {
+        // catena di quote: la linea segue il cursore, a passi di mezzo millimetro di carta
+        const c = dr.chain;
+        const unit = (3 / e.zoom) * SCREEN_TEXT;
+        const off = Math.max(2, Math.round((dot(sub(e.world, c.origin), c.out) / unit) * 2) / 2);
+        if (!dr.moved) {
+          checkpoint();
+          dr.moved = true;
+        }
+        editLive((d) => void (d.dimOffsets = { ...(d.dimOffsets ?? {}), [c.id]: off }));
+        return;
+      }
       if (!dr.moved) {
         if (dist(e.world, dr.start) < tol * 0.5) return;
         checkpoint();
@@ -882,6 +910,8 @@ export function Modellazione() {
               onState={setViewState}
               hiddenDims={(project.hiddenDims ?? []).length}
               onShowDims={() => edit((d) => void (d.hiddenDims = []))}
+              movedDims={Object.keys(project.dimOffsets ?? {}).length}
+              onResetDims={() => edit((d) => void (d.dimOffsets = {}))}
               onClose={() => setLayersOpen(false)}
             />
           )}
@@ -926,6 +956,8 @@ export function Modellazione() {
               textScale={SCREEN_TEXT}
               onDimEdit={tool === 'select' ? openDim : undefined}
               onDimHide={tool === 'select' ? hideDim : undefined}
+              onDimMove={tool === 'select' ? moveDim : undefined}
+              onDimReset={tool === 'select' ? resetDim : undefined}
               activeDim={dimEdit ? `${dimEdit.chain.id}#${dimEdit.k}` : undefined}
             />
             <DraftOverlay

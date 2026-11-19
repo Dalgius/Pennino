@@ -27,6 +27,8 @@ export function LayersPanel({
   onState,
   hiddenDims,
   onShowDims,
+  movedDims,
+  onResetDims,
   onClose,
 }: {
   layers: Layers;
@@ -35,6 +37,9 @@ export function LayersPanel({
   onState: (s: ViewState) => void;
   hiddenDims: number;
   onShowDims: () => void;
+  /** catene spostate a mano */
+  movedDims: number;
+  onResetDims: () => void;
   onClose: () => void;
 }) {
   return (
@@ -66,7 +71,12 @@ export function LayersPanel({
           Ripristina {hiddenDims} {hiddenDims === 1 ? 'catena di quote nascosta' : 'catene di quote nascoste'}
         </button>
       )}
-      <p className="note">Alt+clic su una quota la nasconde. Le categorie bloccate restano agganciabili.</p>
+      {movedDims > 0 && (
+        <button className="btn" onClick={onResetDims}>
+          Rimetti al loro posto {movedDims} {movedDims === 1 ? 'catena spostata' : 'catene spostate'}
+        </button>
+      )}
+      <p className="note">Trascina la linea di una quota per spostarla, doppio clic per rimetterla al suo posto, Alt+clic su una cifra per nasconderla. Le categorie bloccate restano agganciabili.</p>
     </div>
   );
 }

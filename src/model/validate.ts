@@ -129,6 +129,7 @@ export function validateProject(raw: unknown): ValidationResult {
         )
       : [],
     hiddenDims: Array.isArray(raw.hiddenDims) ? (raw.hiddenDims as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+    dimOffsets: isObj(raw.dimOffsets) ? Object.fromEntries(Object.entries(raw.dimOffsets).filter(([, v]) => isNum(v))) as Record<string, number> : {},
     sheets: Array.isArray(raw.sheets) ? (raw.sheets as Project['sheets']) : base.sheets,
     titleBlock: { ...base.titleBlock, ...(isObj(raw.titleBlock) ? raw.titleBlock : {}) },
     prices: Array.isArray(raw.prices) ? (raw.prices as Project['prices']) : base.prices,

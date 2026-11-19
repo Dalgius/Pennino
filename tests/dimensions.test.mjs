@@ -8,8 +8,9 @@ import { produce } from 'immer';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 const { followWalls, constrain } = await server.ssrLoadModule('/src/model/constraints.ts');
-const { computeDimensions, applyDimension, dimensionError } = await server.ssrLoadModule('/src/model/dimensions.ts');
+const { computeDimensions, applyDimension, dimensionError, layoutDimensions } = await server.ssrLoadModule('/src/model/dimensions.ts');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
+const { validateProject } = await server.ssrLoadModule('/src/model/validate.ts');
 const { openingSpans } = await server.ssrLoadModule('/src/model/geometry.ts');
 
 const L1 = 'lvl_p1';
@@ -139,6 +140,59 @@ test('pilastro isolato quotato e spostabile; lato del balcone che sporge oltre i
   assert.ok(near(col.p.x - 0.15 - 0.215, 2.0), `pilastro a 2,00 dalla faccia del muro (x=${col.p.x})`);
   const west = computeDimensions(p, 'lvl_p1').find((c) => c.marks.some((m) => m.ref.k === 'punto') && c.marks.some((m) => m.ref.k === 'vertice'));
   assert.ok(west && near(west.marks[1].s - west.marks[0].s, 2.6 - 0.215), 'sporgenza del balcone dal filo esterno del muro: 2,385');
+});
+
+// ───────── Disposizione delle catene ─────────
+
+const chainOf = (id, x, y0, y1, row = 1) => ({
+  id,
+  wallId: id,
+  origin: { x, y: y0 },
+  dir: { x: 0, y: 1 },
+  out: { x: -1, y: 0 },
+  row,
+  endFixed: false,
+  marks: [{ s: 0, ref: { k: 'punto' } }, { s: y1 - y0, ref: { k: 'punto' } }],
+});
+
+test('quote: catene parallele sovrapposte vanno su linee diverse, quelle che si toccano restano allineate', () => {
+  const u = 0.1; // 1 mm di carta = 10 cm
+  // due catene sullo stesso filo, che si sovrappongono tra y = 2 e y = 5
+  const placed = layoutDimensions([chainOf('a', 0, 0, 5), chainOf('b', 0, 2, 9)], u);
+  const off = Object.fromEntries(placed.map((x) => [x.chain.id, x.offset]));
+  assert.notEqual(off.a, off.b, 'non sulla stessa linea');
+  // una dopo l'altra: sulla stessa linea
+  const row = layoutDimensions([chainOf('a', 0, 0, 5), chainOf('b', 0, 5, 9)], u);
+  assert.equal(row[0].offset, row[1].offset);
+  // stessa misura da un elemento vicino: si dice una volta sola
+  assert.equal(layoutDimensions([chainOf('a', 0, 0, 5), chainOf('b', 0.3, 0, 5)], u).length, 1);
+  // una catena spostata a mano resta dove è stata messa, e le altre le girano attorno
+  const fixed = layoutDimensions([chainOf('a', 0, 0, 5), chainOf('b', 0, 2, 9)], u, { b: 6 });
+  const fo = Object.fromEntries(fixed.map((x) => [x.chain.id, x.offset]));
+  assert.equal(fo.b, 6);
+  assert.notEqual(fo.a, 6);
+});
+
+test('quote: l’esempio non ha catene sovrapposte', () => {
+  const p = sampleProject();
+  for (const lv of ['lvl_pt', L1]) {
+    const placed = layoutDimensions(computeDimensions(p, lv), 0.16);
+    const lines = placed.map(({ chain: c, offset }) => {
+      const ts = c.marks.map((m) => (c.origin.x + c.dir.x * m.s) * Math.abs(c.dir.x) + (c.origin.y + c.dir.y * m.s) * Math.abs(c.dir.y));
+      return { id: c.id, vert: Math.abs(c.dir.y) > 0.9, out: c.out, perp: c.origin.x * c.out.x + c.origin.y * c.out.y + offset * 0.16, t0: Math.min(...ts), t1: Math.max(...ts) };
+    });
+    for (const a of lines)
+      for (const b of lines)
+        if (a.id < b.id && a.vert === b.vert && a.out.x * b.out.x + a.out.y * b.out.y > 0.9 && Math.abs(a.perp - b.perp) < 0.4)
+          assert.ok(a.t1 <= b.t0 + 0.01 || b.t1 <= a.t0 + 0.01, `${a.id} e ${b.id} si sovrappongono`);
+  }
+});
+
+test('quote: le posizioni scelte a mano restano nel file', () => {
+  const p = sampleProject();
+  p.dimOffsets = { 'w1:1': 9.5, rotta: 'x' };
+  const { project } = validateProject(JSON.parse(JSON.stringify(p)));
+  assert.deepEqual(project.dimOffsets, { 'w1:1': 9.5 });
 });
 
 test.after(() => server.close());

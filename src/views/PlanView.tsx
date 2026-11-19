@@ -9,7 +9,7 @@ import { SectionMark } from './SectionView';
 import { Annotations, RoomLabels, StatusOverlay } from './PlanExtras';
 import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
-import { computeDimensions, segmentEdit, type DimChain } from '../model/dimensions';
+import { computeDimensions, DIM_FIRST, DIM_STEP, layoutDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
@@ -60,6 +60,10 @@ interface Props {
   activeDim?: string;
   /** Alt+clic su una cifra: nasconde la catena di quote */
   onDimHide?: (chainId: string) => void;
+  /** Pressione sulla linea di una catena di quote: inizia lo spostamento */
+  onDimMove?: (chain: DimChain, offset: number) => void;
+  /** Doppio clic sulla linea: la catena torna alla posizione automatica */
+  onDimReset?: (chainId: string) => void;
   /** Livello superiore mostrato in trasparenza */
   ghostAboveId?: string;
   /** Comparativa: demolizioni in giallo e costruzioni in rosso */
@@ -72,7 +76,7 @@ interface Props {
  */
 export const PlanView = memo(PlanViewImpl);
 
-function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim, onDimHide, ghostAboveId, comparativa }: Props) {
+function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, selectedIds = [], ghostLevelId, textScale = 1, onDimEdit, activeDim, onDimHide, onDimMove, onDimReset, ghostAboveId, comparativa }: Props) {
   const ts = textScale;
   const els = p.elements;
   const onLevel = <T extends { levelId: string }>(e: T) => e.levelId === levelId;
@@ -204,7 +208,7 @@ function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, sel
         </g>
       )}
 
-      {showDimensions && <DimChains project={p} levelId={levelId} mm={mm} ts={ts} onEdit={onDimEdit} activeKey={activeDim} onHide={onDimHide} />}
+      {showDimensions && <DimChains project={p} levelId={levelId} mm={mm} ts={ts} onEdit={onDimEdit} activeKey={activeDim} onHide={onDimHide} onMove={onDimMove} onReset={onDimReset} />}
       <RoomLabels project={p} levelId={levelId} mm={mm} ts={ts} selected={sel} />
       <Annotations project={p} levelId={levelId} mm={mm} ts={ts} selected={sel} />
 
@@ -900,6 +904,8 @@ function DimChains({
   onEdit,
   activeKey,
   onHide,
+  onMove,
+  onReset,
 }: {
   project: Project;
   levelId: string;
@@ -908,15 +914,22 @@ function DimChains({
   onEdit?: (t: DimTarget) => void;
   activeKey?: string;
   onHide?: (chainId: string) => void;
+  onMove?: (chain: DimChain, offset: number) => void;
+  onReset?: (chainId: string) => void;
 }) {
   const hidden = new Set(p.hiddenDims ?? []);
-  const chains = computeDimensions(p, levelId).filter((c) => !hidden.has(c.id));
+  // catene disposte su linee successive dove si sovrapporrebbero
+  const chains = layoutDimensions(
+    computeDimensions(p, levelId).filter((c) => !hidden.has(c.id)),
+    mm * ts,
+    p.dimOffsets,
+  );
   const font = 2 * mm * ts;
   const charW = font * 0.62;
   return (
     <g className="pv-dim" strokeWidth={0.13 * mm}>
-      {chains.map((c) => {
-        const off = (c.row === 1 ? 6 : 13) * mm * ts;
+      {chains.map(({ chain: c, offset }) => {
+        const off = offset * mm * ts;
         const P = (s: number, extra = 0) => add(add(c.origin, mul(c.dir, s)), mul(c.out, off + extra));
         const s0 = c.marks[0].s;
         const s1 = c.marks[c.marks.length - 1].s;
@@ -932,6 +945,29 @@ function DimChains({
         return (
           <g key={c.id}>
             <line x1={a.x} y1={-a.y} x2={b.x} y2={-b.y} />
+            {onMove && (
+              // fascia invisibile lungo la linea: si prende e si trascina per allontanare o avvicinare la catena
+              <line
+                x1={a.x}
+                y1={-a.y}
+                x2={b.x}
+                y2={-b.y}
+                className="pv-dim-grip"
+                strokeWidth={2.4 * mm}
+                onPointerDown={(e) => {
+                  if (e.button !== 0 || e.altKey) return;
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onMove(c, offset);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onReset?.(c.id);
+                }}
+              >
+                <title>Trascina per spostare la catena · doppio clic per rimetterla al suo posto</title>
+              </line>
+            )}
             {c.marks.map((m, i) => {
               const f = add(c.origin, mul(c.dir, m.s));
               const q = P(m.s);
@@ -941,7 +977,7 @@ function DimChains({
               const e1 = add(f, mul(c.out, 1.2 * mm));
               return (
                 <g key={i}>
-                  {c.row === 1 && <line x1={e1.x} y1={-e1.y} x2={e2.x} y2={-e2.y} className="pv-dim-ext" />}
+                  {(c.row === 1 || offset > DIM_FIRST + DIM_STEP) && <line x1={e1.x} y1={-e1.y} x2={e2.x} y2={-e2.y} className="pv-dim-ext" />}
                   <line x1={t1.x} y1={-t1.y} x2={t2.x} y2={-t2.y} strokeWidth={0.35 * mm} />
                 </g>
               );

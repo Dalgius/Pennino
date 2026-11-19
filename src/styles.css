@@ -2318,3 +2318,13 @@ select.chip:disabled {
 .issue-level {
   color: var(--text-3);
 }
+
+/* fascia per trascinare le catene di quote */
+.pv-dim-grip {
+  stroke: transparent;
+  cursor: ns-resize;
+  pointer-events: stroke;
+}
+.pv-dim-grip:hover {
+  stroke: color-mix(in srgb, var(--ochre) 25%, transparent);
+}

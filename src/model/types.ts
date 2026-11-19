@@ -456,6 +456,8 @@ export interface Project {
   annotations?: Annotation[];
   /** Quote automatiche nascoste: «id catena#segmento» */
   hiddenDims?: string[];
+  /** Distanza della linea di quota dall'elemento (mm di carta) scelta trascinandola: «id catena» → mm */
+  dimOffsets?: Record<string, number>;
   sheets: Sheet[];
   titleBlock: TitleBlock;
   prices: PriceItem[];
