@@ -10,6 +10,7 @@ import type { Project, Vec2, Wall } from './types';
 import { add, JOIN_TOL, dot, mul, norm, sortedLevels, sub } from './geometry';
 import { fitWallOpenings } from './openingFit';
 import { keepReferenceFaces } from './wallRef';
+import { followAnchors, hasAnchors } from './anchors';
 
 const TOL = JOIN_TOL;
 const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
@@ -51,6 +52,13 @@ export interface Constrained {
  * modifica è rifiutata: si restituisce prev con il motivo.
  */
 export function constrain(prev: Project, next0: Project): Constrained {
+  const r = constrainElements(prev, next0);
+  // le quote legate seguono gli elementi
+  if (r.refusal || r.project === prev || !hasAnchors(r.project)) return r;
+  return { project: produce(r.project, (d) => void followAnchors(d)), refusal: null };
+}
+
+function constrainElements(prev: Project, next0: Project): Constrained {
   // muri con un filo di riferimento: se cambia lo spessore il filo resta fermo
   const next = prev === next0 ? next0 : produce(next0, (d) => void keepReferenceFaces(prev, d));
   const out = followWallsInner(prev, next);

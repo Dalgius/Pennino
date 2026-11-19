@@ -26,6 +26,7 @@ import {
 import { HatchSwatch, hatchOf } from '../views/hatch';
 import { ALL_VISIBLE, deleteExtras, findAnnotation, findRoom, hitExtras, layerOf, layersWith, similarElements, translateExtras, withoutLayers, LAYER_LABEL, type Layers } from '../model/layers';
 import { roomShape } from '../model/rooms';
+import { anchorAt } from '../model/anchors';
 import { projectInState, STATUS_LABEL, VIEW_STATE_LABEL } from '../model/states';
 import { AnnotationInspector, ContextMenu, LayersPanel, RoomInspector, type MenuItem } from './ModellazioneExtras';
 import { applyHandle, dragEdge, dragHandle, dragMove, elementLevel, moveJoined, translated } from '../model/dragging';
@@ -372,7 +373,10 @@ export function Modellazione() {
       if (dist(draft[0], q) < 0.02) return;
       const id = uid('an');
       const a = draft[0];
-      edit((d) => void (d.annotations = [...(d.annotations ?? []), { id, kind: 'quota', levelId: lvlId, a, b: q, offset: 0.6 }]));
+      // ogni estremo si lega all'elemento su cui è stato agganciato: la quota lo seguirà
+      const aRef = anchorAt(viewProject, lvlId, a) ?? undefined;
+      const bRef = anchorAt(viewProject, lvlId, q) ?? undefined;
+      edit((d) => void (d.annotations = [...(d.annotations ?? []), { id, kind: 'quota', levelId: lvlId, a, b: q, offset: 0.6, ...(aRef ? { aRef } : {}), ...(bRef ? { bRef } : {}) }]));
       return done(id);
     }
     // testo: con Alt il primo clic è il punto indicato dalla linea di richiamo

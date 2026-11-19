@@ -9,6 +9,13 @@ import { Icon } from '../ui/icons';
 import { LAYER_KEYS, LAYER_LABEL, findAnnotation, findRoom, type LayerKey, type LayerMode, type Layers } from '../model/layers';
 import { HABITABLE_USES, MIN_LIGHT_RATIO, MIN_ROOM_HEIGHT, ROOM_USES, isHabitable, roomInfo } from '../model/rooms';
 import { VIEW_STATE_LABEL } from '../model/states';
+import { anchorLabel } from '../model/anchors';
+import { elementCode } from '../model/geometry';
+
+const codeOf = (p: Project, id: string) => {
+  const e = p.elements.find((x) => x.id === id);
+  return e ? elementCode(p, e) : '—';
+};
 
 const fmt = (v: number, d = 2) => v.toFixed(d).replace('.', ',');
 
@@ -193,7 +200,30 @@ export function AnnotationInspector({ id }: { id: string }) {
           <div className="kv-grid">
             <div><span>Misura</span><b className="mono">{fmt(Math.hypot(n.b.x - n.a.x, n.b.y - n.a.y))} m</b></div>
           </div>
-          <p className="note">La quota misura la distanza tra i due punti cliccati: non segue gli elementi se li sposti.</p>
+          {n.aRef || n.bRef ? (
+            <>
+              <div className="kv-grid kv-1">
+                <div><span>Inizio</span><b>{n.aRef ? `${anchorLabel(n.aRef)} · ${codeOf(project, n.aRef.id)}` : 'punto libero'}</b></div>
+                <div><span>Fine</span><b>{n.bRef ? `${anchorLabel(n.bRef)} · ${codeOf(project, n.bRef.id)}` : 'punto libero'}</b></div>
+              </div>
+              <p className="note">La quota segue gli elementi a cui è legata: se li sposti o li modifichi, si aggiorna. Se un elemento viene eliminato, quell’estremo resta dov’è.</p>
+              <button
+                className="btn"
+                onClick={() =>
+                  upd((x) => {
+                    if (x.kind !== 'quota') return;
+                    delete x.aRef;
+                    delete x.bRef;
+                  })
+                }
+              >
+                Sciogli dagli elementi
+              </button>
+            </>
+          ) : (
+            <p className="note">Quota tra due punti liberi: non segue gli elementi. Per legarla, ridisegnala agganciando gli estremi a muri, aperture, pilastri o vertici dei solai.</p>
+          )}
+          <p className="note">Trascina la linea per allontanarla o avvicinarla (si allinea alle altre quote); con Maiusc la sposti intera, sciogliendola.</p>
         </>
       )}
       {n.kind === 'testo' && (

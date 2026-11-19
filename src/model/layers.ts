@@ -91,6 +91,9 @@ export function translateExtras(d: Project, orig: Project, ids: string[], delta:
     if (n0.kind === 'quota' && n.kind === 'quota') {
       n.a = add(n0.a, delta);
       n.b = add(n0.b, delta);
+      // spostata intera non misura più gli stessi punti: si scioglie dagli elementi
+      delete n.aRef;
+      delete n.bRef;
     } else if (n0.kind === 'testo' && n.kind === 'testo') n.p = add(n0.p, delta);
     else if (n0.kind === 'altimetrica' && n.kind === 'altimetrica') n.p = add(n0.p, delta);
   }

@@ -346,10 +346,23 @@ export interface Room {
   use: string;
 }
 
+/**
+ * Elemento a cui è legato un estremo di una quota disegnata a mano, e punto su di esso.
+ * face: sul filo (±1, segue lo spessore) o scostamento v dall'asse (0).
+ */
+export type DimAnchor =
+  /** muro o trave: u lungo l'asse dall'estremo end (a: verso b; b: verso a, quindi negativo) */
+  | { k: 'muro'; id: ID; end: 'a' | 'b'; u: number; face: -1 | 0 | 1; v: number }
+  /** apertura: side −1/+1 = stipite iniziale/finale, 0 = centro; u scostamento lungo il muro */
+  | { k: 'apertura'; id: ID; side: -1 | 0 | 1; u: number; face: -1 | 0 | 1; v: number }
+  /** pilastro: frazioni del mezzo lato (±1 = sulla faccia) */
+  | { k: 'pilastro'; id: ID; fx: number; fy: number }
+  | { k: 'vertice'; id: ID; index: number };
+
 /** Annotazioni libere in pianta */
 export type Annotation =
   /** quota tra due punti; offset = distanza della linea di quota dai punti (a sinistra di a→b se positiva) */
-  | { id: ID; kind: 'quota'; levelId: ID; a: Vec2; b: Vec2; offset: number }
+  | { id: ID; kind: 'quota'; levelId: ID; a: Vec2; b: Vec2; offset: number; aRef?: DimAnchor; bRef?: DimAnchor }
   /** testo, con eventuale linea di richiamo verso il punto leader */
   | { id: ID; kind: 'testo'; levelId: ID; p: Vec2; text: string; leader?: Vec2 }
   /** quota altimetrica: quota del livello più dz */

@@ -125,7 +125,7 @@ export function validateProject(raw: unknown): ValidationResult {
             typeof n.id === 'string' &&
             typeof n.levelId === 'string' &&
             levelIds.has(n.levelId) &&
-            ((n.kind === 'quota' && isPt(n.a) && isPt(n.b) && isNum(n.offset)) || (n.kind === 'testo' && isPt(n.p) && typeof n.text === 'string') || (n.kind === 'altimetrica' && isPt(n.p) && isNum(n.dz))),
+            ((n.kind === 'quota' && isPt(n.a) && isPt(n.b) && isNum(n.offset) && (n.aRef === undefined || isObj(n.aRef)) && (n.bRef === undefined || isObj(n.bRef))) || (n.kind === 'testo' && isPt(n.p) && typeof n.text === 'string') || (n.kind === 'altimetrica' && isPt(n.p) && isNum(n.dz))),
         )
       : [],
     hiddenDims: Array.isArray(raw.hiddenDims) ? (raw.hiddenDims as unknown[]).filter((x): x is string => typeof x === 'string') : [],
