@@ -2363,3 +2363,11 @@ select.chip:disabled {
   border-color: var(--primary);
   color: var(--text);
 }
+.canvas2d .pv-dim-sel line,
+.canvas2d .pv-dim-sel text {
+  stroke: var(--primary);
+}
+.canvas2d .pv-dim-sel text {
+  fill: var(--primary);
+  stroke: none;
+}

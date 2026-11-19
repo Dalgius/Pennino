@@ -212,6 +212,8 @@ export function Modellazione() {
   const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
   /** quale estremo del segmento si sposta scrivendo la misura */
   const [dimSide, setDimSide] = useState<DimSide | null>(null);
+  /** catena di quote automatica selezionata (clic sulla sua linea): Canc la elimina */
+  const [dimSel, setDimSel] = useState<string | null>(null);
   const [dimText, setDimText] = useState('');
   // stabile tra i render: la pianta memorizzata non si ridisegna al movimento del cursore
   const openDim = useCallback((t: DimTarget) => {
@@ -235,7 +237,7 @@ export function Modellazione() {
   const hideDim = useCallback(
     (chainId: string) => {
       edit((d) => void (d.hiddenDims = [...new Set([...(d.hiddenDims ?? []), chainId])]));
-      setNotice('Catena di quote nascosta: si ripristina dal pannello Vista.');
+      setNotice('Quota eliminata: si ripristina con Ctrl+Z o dal pannello Vista.');
     },
     [edit, setNotice],
   );
@@ -574,6 +576,7 @@ export function Modellazione() {
 
   const handleSelect = (e: CanvasPointer, snap: Snap, tol: number) => {
     if (e.type === 'down' && e.button === 0) {
+      setDimSel(null);
       // maniglie dell'elemento selezionato
       for (const id of selectedIds) {
         const el = project.elements.find((x) => x.id === id);
@@ -668,7 +671,9 @@ export function Modellazione() {
           const c = dr.chain;
           const raw = dot(sub(e.world, c.origin), c.out);
           const sn = e.alt ? { value: raw, to: null } : snapDimLine(raw, c.origin, c.dir, c.out, dr.lines, c.id, tol);
-          const off = Math.max(2, sn.to ? sn.value / unit : Math.round((raw / unit) * 2) / 2);
+          // anche dall'altra parte dell'elemento (distanza negativa), ma non sopra di esso
+          let off = sn.to ? sn.value / unit : Math.round((raw / unit) * 2) / 2;
+          if (Math.abs(off) < 1.5) off = off < 0 ? -1.5 : 1.5;
           if (!dr.moved) {
             checkpoint();
             dr.moved = true;
@@ -779,6 +784,11 @@ export function Modellazione() {
     if (e.type === 'up') {
       // il segno «Allineata» non resta sullo schermo a trascinamento finito
       if (drag.current?.kind === 'quota' || drag.current?.kind === 'quota-man') setCursor(null);
+      // clic sulla linea senza trascinare: la catena si seleziona
+      if (drag.current?.kind === 'quota' && !drag.current.moved) {
+        setDimSel(drag.current.id);
+        select('modello', []);
+      }
       drag.current = null;
     }
   };
@@ -837,6 +847,12 @@ export function Modellazione() {
         else select('modello', []);
         return;
       }
+      if ((k === 'Delete' || k === 'Backspace') && dimSel) {
+        // le quote automatiche non si cancellano dal modello: si nascondono (ripristinabili da Vista)
+        hideDim(dimSel);
+        setDimSel(null);
+        return;
+      }
       if ((k === 'Delete' || k === 'Backspace') && selectedIds.length) {
         edit((d) => {
           deleteElements(d, selectedIds);
@@ -880,11 +896,20 @@ export function Modellazione() {
 
   const menuTitle = (id: string | null) => {
     if (!id) return level?.name ?? 'Pianta';
+    if (id.startsWith('quota:')) return 'Quota automatica';
     const el = project.elements.find((x) => x.id === id);
     if (el) return selectedIds.length > 1 && selectedIds.includes(id) ? `${selectedIds.length} elementi` : elementCode(project, el);
     return findRoom(project, id)?.name ?? 'Annotazione';
   };
   const menuItems = (id: string | null): MenuItem[] => {
+    if (id?.startsWith('quota:')) {
+      const cid = id.slice(6);
+      return [
+        { label: 'Elimina questa quota (Canc)', danger: true, onClick: () => (hideDim(cid), setDimSel(null)) },
+        { label: 'Rimetti al suo posto', disabled: !(project.dimOffsets ?? {})[cid], onClick: () => resetDim(cid) },
+        { label: 'Ripristina le quote eliminate', disabled: !(project.hiddenDims ?? []).length, onClick: () => edit((d) => void (d.hiddenDims = [])) },
+      ];
+    }
     const hideLayer = (k: keyof Layers, mode: 'bloccato' | 'nascosto') => {
       setLayers({ ...layers, [k]: mode });
       select('modello', []);
@@ -942,6 +967,25 @@ export function Modellazione() {
       ortho
       onMenu={(m) => {
         const tolM = 10 / m.zoom;
+        // tasto destro su una linea di quota automatica: menu della catena
+        if (layers.quote !== 'nascosto') {
+          const unit = (3 / m.zoom) * SCREEN_TEXT;
+          const hiddenSet = new Set(viewProject.hiddenDims ?? []);
+          const placed = layoutDimensions(computeDimensions(viewProject, lvlId).filter((c) => !hiddenSet.has(c.id)), unit, viewProject.dimOffsets);
+          const hit = placed.find(({ chain: c, offset }) => {
+            const s0 = c.marks[0].s;
+            const s1 = c.marks[c.marks.length - 1].s;
+            const a = add(add(c.origin, mul(c.dir, s0)), mul(c.out, offset * unit));
+            const b = add(add(c.origin, mul(c.dir, s1)), mul(c.out, offset * unit));
+            return projectOnSegment(m.world, a, b).d < tolM * 0.6;
+          });
+          if (hit) {
+            setDimSel(hit.chain.id);
+            select('modello', []);
+            setMenu({ x: m.x, y: m.y, id: `quota:${hit.chain.id}` });
+            return;
+          }
+        }
         const id = hitExtras(pickProject, lvlId, m.world, tolM) ?? hitTestModel(pickProject, m.world, lvlId, tolM);
         if (id && !selectedIds.includes(id)) select('modello', [id]);
         if (tool !== 'select') changeTool('select');
@@ -1005,6 +1049,7 @@ export function Modellazione() {
               onDimHide={tool === 'select' ? hideDim : undefined}
               onDimMove={tool === 'select' ? moveDim : undefined}
               onDimReset={tool === 'select' ? resetDim : undefined}
+              selectedDim={dimSel}
               activeDim={dimEdit ? `${dimEdit.chain.id}#${dimEdit.k}` : undefined}
             />
             <DraftOverlay
