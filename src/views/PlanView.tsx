@@ -1000,7 +1000,9 @@ function DimChains({
               const start = mid - w / 2;
               stagger = start < lastEnd + charW * 0.5 && segPaper < w * 1.1 ? (stagger ? 0 : 1) : 0;
               lastEnd = mid + w / 2;
-              const q = P(mid, font * 0.35 + stagger * font * 1.15);
+              // il centro della cifra sta a mezza altezza più uno stacco dalla linea, sempre dal lato esterno:
+              // con la linea di base, le cifre rivolte verso l'elemento finivano sopra la linea
+              const q = P(mid, font * 0.72 + stagger * font * 1.15);
               const editable = !!onEdit && !!segmentEdit(c, k);
               const key = `${c.id}#${k}`;
               return (
@@ -1010,6 +1012,7 @@ function DimChains({
                   y={-q.y}
                   fontSize={font}
                   textAnchor="middle"
+                  dominantBaseline="central"
                   className={`pv-dimtext ${c.row === 1 && c.marks.length > 2 ? 'pv-dimpartial' : ''} ${editable ? 'pv-dim-editable' : ''} ${activeKey === key ? 'pv-dim-active' : ''}`}
                   transform={`rotate(${ang} ${q.x} ${-q.y})`}
                   onPointerDown={

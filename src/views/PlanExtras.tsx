@@ -74,7 +74,8 @@ export function Annotations({ project: p, levelId, mm, ts, selected }: { project
           let ang = (Math.atan2(-g.d.y, g.d.x) * 180) / Math.PI;
           const flip = ang > 90 || ang <= -90;
           if (flip) ang += 180;
-          const t = add(g.mid, mul(g.out, (flip ? -1 : 1) * font * 0.35 * (n.offset < 0 ? -1 : 1)));
+          // cifra dal lato opposto ai punti misurati, centrata a mezza altezza più uno stacco dalla linea
+          const t = add(g.mid, mul(g.out, (n.offset < 0 ? -1 : 1) * font * 0.72));
           return (
             <g key={n.id} stroke={c} strokeWidth={0.13 * mm}>
               <line x1={n.a.x} y1={-n.a.y} x2={g.a.x} y2={-g.a.y} strokeWidth={0.09 * mm} />
@@ -83,7 +84,7 @@ export function Annotations({ project: p, levelId, mm, ts, selected }: { project
               {[g.a, g.b].map((q, i) => (
                 <line key={i} x1={q.x + diag.x} y1={-(q.y + diag.y)} x2={q.x - diag.x} y2={-(q.y - diag.y)} strokeWidth={0.35 * mm} />
               ))}
-              <text x={t.x} y={-t.y} fontSize={font} textAnchor="middle" fill={c} stroke="none" transform={`rotate(${ang} ${t.x} ${-t.y})`}>
+              <text x={t.x} y={-t.y} fontSize={font} textAnchor="middle" dominantBaseline="central" fill={c} stroke="none" transform={`rotate(${ang} ${t.x} ${-t.y})`}>
                 {(Math.round(g.len * 100 + 1e-6) / 100).toFixed(2)}
               </text>
             </g>
