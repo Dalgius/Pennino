@@ -39,7 +39,7 @@ import { Icon } from '../ui/icons';
 import { KeyHint, NumberField, Segmented, TextField } from '../ui/controls';
 import { SectionMark, SectionView, sectionLength } from '../views/SectionView';
 import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector';
-import { applyDimension, dimensionError, type DimChain } from '../model/dimensions';
+import { applyDimension, computeDimensions, defaultSide, dimensionError, dimLines, layoutDimensions, segmentEdits, snapDimLine, type DimChain, type DimLine, type DimSide } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
@@ -94,9 +94,11 @@ function readLayers(): Layers {
 const NO_IDS: string[] = [];
 
 interface Drag {
-  kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo' | 'quota';
+  kind: 'move' | 'handle' | 'lato' | 'opening' | 'sezione' | 'sezione-estremo' | 'quota' | 'quota-man';
   /** catena di quote trascinata */
   chain?: DimChain;
+  /** linee di quota del livello all'inizio del trascinamento, per allinearsi */
+  lines?: DimLine[];
   id: string;
   handle?: number;
   start: Vec2;
@@ -207,10 +209,13 @@ export function Modellazione() {
   // selezione a riquadro: da sinistra a destra = finestra, da destra a sinistra = intersezione
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2; add: boolean } | null>(null);
   const [dimEdit, setDimEdit] = useState<DimTarget | null>(null);
+  /** quale estremo del segmento si sposta scrivendo la misura */
+  const [dimSide, setDimSide] = useState<DimSide | null>(null);
   const [dimText, setDimText] = useState('');
   // stabile tra i render: la pianta memorizzata non si ridisegna al movimento del cursore
   const openDim = useCallback((t: DimTarget) => {
     setDimEdit(t);
+    setDimSide(defaultSide(t.chain, t.k));
     setDimText(t.value.toFixed(2));
   }, []);
   const moveDim = useCallback((chain: DimChain) => {
@@ -236,9 +241,9 @@ export function Modellazione() {
   const commitDim = () => {
     const v = parseFloat(dimText.replace(',', '.'));
     if (dimEdit) {
-      const why = dimensionError(project, dimEdit.chain, dimEdit.k, v);
+      const why = dimensionError(project, dimEdit.chain, dimEdit.k, v, dimSide);
       if (why) setNotice(why);
-      else edit((d) => applyDimension(d, dimEdit.chain, dimEdit.k, v));
+      else edit((d) => applyDimension(d, dimEdit.chain, dimEdit.k, v, dimSide));
     }
     setDimEdit(null);
   };
@@ -600,7 +605,9 @@ export function Modellazione() {
       if (extra) {
         if (e.shift) select('modello', selectedIds.includes(extra) ? selectedIds.filter((x) => x !== extra) : [...selectedIds, extra]);
         else if (!selectedIds.includes(extra)) select('modello', [extra]);
-        drag.current = { kind: 'move', id: extra, start: e.world, orig: project, moved: false };
+        // una quota disegnata a mano si sposta allontanando la sua linea: i punti misurati restano fermi
+        const isQuota = findAnnotation(project, extra)?.kind === 'quota';
+        drag.current = { kind: isQuota && !e.shift ? 'quota-man' : 'move', id: extra, start: e.world, orig: project, moved: false };
         setEditingType(null);
         return;
       }
@@ -643,16 +650,48 @@ export function Modellazione() {
       setCursor({ p: snap.p, kind: 'libero' });
       const dr = drag.current;
       if (!dr) return;
-      if (dr.kind === 'quota' && dr.chain) {
-        // catena di quote: la linea segue il cursore, a passi di mezzo millimetro di carta
-        const c = dr.chain;
+      if (dr.kind === 'quota' || dr.kind === 'quota-man') {
         const unit = (3 / e.zoom) * SCREEN_TEXT;
-        const off = Math.max(2, Math.round((dot(sub(e.world, c.origin), c.out) / unit) * 2) / 2);
+        if (!dr.lines) {
+          // le linee di quota come sono all'inizio, dove si vedono
+          const src = projectInState(dr.orig, viewState);
+          const hiddenSet = new Set(src.hiddenDims ?? []);
+          const placed = layers.quote === 'nascosto' ? [] : layoutDimensions(computeDimensions(src, lvlId).filter((c) => !hiddenSet.has(c.id)), unit, src.dimOffsets);
+          dr.lines = dimLines(placed, src.annotations, lvlId, unit);
+        }
+        if (dr.kind === 'quota' && dr.chain) {
+          // catena di quote: la linea segue il cursore, a passi di mezzo millimetro di carta, e si allinea alle altre
+          const c = dr.chain;
+          const raw = dot(sub(e.world, c.origin), c.out);
+          const sn = e.alt ? { value: raw, to: null } : snapDimLine(raw, c.origin, c.dir, c.out, dr.lines, c.id, tol);
+          const off = Math.max(2, sn.to ? sn.value / unit : Math.round((raw / unit) * 2) / 2);
+          if (!dr.moved) {
+            checkpoint();
+            dr.moved = true;
+          }
+          setCursor(sn.to ? { p: e.world, kind: 'allineamento' } : null);
+          editLive((d) => void (d.dimOffsets = { ...(d.dimOffsets ?? {}), [c.id]: off }));
+          return;
+        }
+        // quota disegnata a mano: cambia la distanza della linea dai punti misurati
+        const n0 = findAnnotation(dr.orig, dr.id);
+        if (!n0 || n0.kind !== 'quota') return;
         if (!dr.moved) {
+          if (dist(e.world, dr.start) < tol * 0.5) return;
           checkpoint();
           dr.moved = true;
         }
-        editLive((d) => void (d.dimOffsets = { ...(d.dimOffsets ?? {}), [c.id]: off }));
+        const d0 = norm(sub(n0.b, n0.a));
+        const nrm = { x: -d0.y, y: d0.x };
+        const raw = dot(sub(e.world, n0.a), nrm);
+        const sn = e.alt ? { value: raw, to: null } : snapDimLine(raw, n0.a, d0, nrm, dr.lines, n0.id, tol);
+        const step = grid > 0 ? grid : 0.05;
+        const off = sn.to ? sn.value : Math.round(raw / step) * step;
+        setCursor(sn.to ? { p: e.world, kind: 'allineamento' } : null);
+        editLive((d) => {
+          const x = findAnnotation(d, dr.id);
+          if (x && x.kind === 'quota') x.offset = +off.toFixed(4);
+        });
         return;
       }
       if (!dr.moved) {
@@ -733,7 +772,11 @@ export function Modellazione() {
       });
       return;
     }
-    if (e.type === 'up') drag.current = null;
+    if (e.type === 'up') {
+      // il segno «Allineata» non resta sullo schermo a trascinamento finito
+      if (drag.current?.kind === 'quota' || drag.current?.kind === 'quota-man') setCursor(null);
+      drag.current = null;
+    }
   };
 
   // ───────── Tastiera ─────────
@@ -1006,8 +1049,9 @@ export function Modellazione() {
             )}
             {dimEdit && (
               <g transform={`translate(${dimEdit.at.x} ${-dimEdit.at.y}) scale(${1 / z})`}>
-                <foreignObject x={-62} y={-17} width={124} height={34}>
-                  <div data-hud className="dim-input">
+                <foreignObject x={-110} y={-17} width={220} height={74}>
+                  <div data-hud className="dim-input dim-input-wide">
+                    <div className="dim-input-row">
                     <input
                       autoFocus
                       className="mono"
@@ -1021,6 +1065,34 @@ export function Modellazione() {
                       onBlur={() => setDimEdit(null)}
                     />
                     <span>m</span>
+                    </div>
+                    {(() => {
+                      const ed = segmentEdits(dimEdit.chain, dimEdit.k);
+                      const both = !!ed.inizio && !!ed.fine;
+                      const label = dimSide ? ed[dimSide] : null;
+                      return (
+                        <div className="dim-input-side">
+                          {both ? (
+                            (['inizio', 'fine'] as DimSide[]).map((sd) => (
+                              <button
+                                key={sd}
+                                className={dimSide === sd ? 'on' : ''}
+                                // il campo resta attivo: si sceglie e si conferma con Invio
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setDimSide(sd)}
+                                title={`Si sposta ${ed[sd]}, l’altro estremo resta fermo`}
+                              >
+                                {sd === 'inizio' ? '◀ ' : ''}
+                                {ed[sd]}
+                                {sd === 'fine' ? ' ▶' : ''}
+                              </button>
+                            ))
+                          ) : (
+                            <span>si sposta {label}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </foreignObject>
               </g>
@@ -1382,6 +1454,7 @@ const SNAP_LABEL: Partial<Record<Snap['kind'], string>> = {
   muro: 'Su muro',
   bordo: 'Su bordo',
   spigolo: 'Spigolo',
+  allineamento: 'Allineata',
 };
 
 /** Simbolo dell'aggancio attivo, con etichetta */

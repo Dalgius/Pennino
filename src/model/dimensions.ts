@@ -38,6 +38,8 @@ export interface DimChain {
   marks: DimMark[];
   /** L'estremo finale è innestato a T: la lunghezza non si cambia da qui */
   endFixed: boolean;
+  /** Lo stesso per l'estremo iniziale */
+  startFixed?: boolean;
 }
 
 export function isExteriorWall(p: Project, w: Wall) {
@@ -94,7 +96,7 @@ export function computeDimensions(p: Project, levelId: string): DimChain[] {
       inner.push({ s: j.s + j.half, ref: { k: 'giunto', wallId: j.wall.id, face: 1 } });
     }
     inner.sort((x, y) => x.s - y.s);
-    const base = { wallId: w.id, origin, dir: g.d, out, endFixed: g.b.kind === 'T' };
+    const base = { wallId: w.id, origin, dir: g.d, out, endFixed: g.b.kind === 'T', startFixed: g.a.kind === 'T' };
     if (inner.length) chains.push({ ...base, id: `${w.id}:1`, row: 1, marks: [start, ...inner, end] });
     chains.push({ ...base, id: `${w.id}:2`, row: inner.length ? 2 : 1, marks: [start, end] });
   }
@@ -301,17 +303,41 @@ function dropDuplicates(p: Project, walls: Wall[], chains: DimChain[]): DimChain
   return out.sort((x, y) => order.get(x.id)! - order.get(y.id)!);
 }
 
-/** Il segmento k (tra i segni k e k+1) è modificabile? Restituisce una descrizione */
-export function segmentEdit(chain: DimChain, k: number): string | null {
+/** Da quale lato del segmento sta l'elemento che si sposta scrivendo la misura */
+export type DimSide = 'inizio' | 'fine';
+
+/** Che cosa si sposta se il segno è l'estremo finale (fine) o iniziale (inizio) del segmento */
+function markEdit(chain: DimChain, ref: MarkRef, side: DimSide): string | null {
+  // all'estremo finale del segmento si sposta l'elemento che comincia lì, all'iniziale quello che finisce lì
+  const near = side === 'fine' ? 0 : 1;
+  if (ref.k === 'apertura' && ref.edge === near) return 'l’apertura';
+  if (ref.k === 'vertice') return 'il bordo del solaio';
+  if (ref.k === 'pilastro' && ref.edge === near) return 'il pilastro';
+  if (ref.k === 'giunto' && ref.face === near) return 'il muro innestato';
+  if (side === 'fine' && ref.k === 'fine' && !chain.endFixed) return 'la fine del muro';
+  if (side === 'inizio' && ref.k === 'inizio' && !chain.startFixed) return 'l’inizio del muro';
+  return null; // larghezza di un’apertura o spessore di un muro: si cambiano dalla tipologia; punti fissi
+}
+
+/** Elementi che si possono spostare scrivendo la misura del segmento k, da ciascun lato */
+export function segmentEdits(chain: DimChain, k: number): Record<DimSide, string | null> {
   const a = chain.marks[k]?.ref;
   const b = chain.marks[k + 1]?.ref;
-  if (!a || !b) return null;
-  if (b.k === 'apertura' && b.edge === 0) return 'sposta l’apertura';
-  if (b.k === 'vertice') return 'sposta il bordo del solaio';
-  if (b.k === 'pilastro' && b.edge === 0) return 'sposta il pilastro';
-  if (b.k === 'giunto' && b.face === 0) return 'sposta il muro';
-  if (b.k === 'fine' && !chain.endFixed) return 'allunga o accorcia il muro';
-  return null; // larghezza di un’apertura o spessore di un muro: si cambiano dalla tipologia
+  if (!a || !b) return { inizio: null, fine: null };
+  return { inizio: markEdit(chain, a, 'inizio'), fine: markEdit(chain, b, 'fine') };
+}
+
+/** Lato che si sposta se non si sceglie: quello finale, se si può, altrimenti l'iniziale */
+export function defaultSide(chain: DimChain, k: number): DimSide | null {
+  const e = segmentEdits(chain, k);
+  return e.fine ? 'fine' : e.inizio ? 'inizio' : null;
+}
+
+/** Il segmento k (tra i segni k e k+1) è modificabile? Restituisce una descrizione */
+export function segmentEdit(chain: DimChain, k: number): string | null {
+  const e = segmentEdits(chain, k);
+  if (e.fine && e.inizio) return `sposta ${e.fine} (o ${e.inizio})`;
+  return e.fine ? `sposta ${e.fine}` : e.inizio ? `sposta ${e.inizio}` : null;
 }
 
 // ───────── Applicazione delle modifiche ─────────
@@ -365,13 +391,13 @@ const fmt = (v: number) => v.toFixed(2).replace('.', ',');
  * Un'apertura deve restare intera nel tratto libero del muro (tra le facce dei muri d'angolo),
  * senza sovrapporsi ad altre aperture o ai muri innestati a T.
  */
-export function dimensionError(p: Project, chain: DimChain, k: number, value: number): string | null {
+export function dimensionError(p: Project, chain: DimChain, k: number, value: number, side: DimSide | null = defaultSide(chain, k)): string | null {
   if (!(value > 0) || !Number.isFinite(value)) return 'La misura deve essere un numero maggiore di zero.';
-  return openingError(p, chain, k, value);
+  return openingError(p, chain, k, value, side);
 }
 
 /** Allungando o accorciando un muro le sue aperture devono restarci dentro */
-function lengthError(p: Project, chain: DimChain, cur: number, value: number): string | null {
+function lengthError(p: Project, chain: DimChain, cur: number, value: number, side: DimSide): string | null {
   const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
   if (!host) return null;
   const g = wallGeom(p, host);
@@ -379,12 +405,15 @@ function lengthError(p: Project, chain: DimChain, cur: number, value: number): s
   const cuts = s0 + (g.L - s1);
   const need = openingSpans(p, host).reduce((t, x) => t + x.type.width, 0);
   const minL = Math.max(cuts + need, 0.05);
-  const newL = g.L + (value - cur) * dot(chain.dir, g.d);
+  // dalla fine il muro si allunga con la misura; dall'inizio si accorcia
+  const along = dot(chain.dir, g.d) || 1;
+  const newL = g.L + (side === 'fine' ? value - cur : cur - value) * along;
   if (newL >= minL - 1e-6) return null;
-  const vMin = cur + (minL - g.L) / (dot(chain.dir, g.d) || 1);
+  const vLim = side === 'fine' ? cur + (minL - g.L) / along : cur - (minL - g.L) / along;
+  const what = side === 'fine' ? 'minima' : 'massima';
   return need > 0
-    ? `Il muro diventerebbe troppo corto per le sue aperture: misura minima ${fmt(vMin)} m.`
-    : `Il muro diventerebbe troppo corto: misura minima ${fmt(vMin)} m.`;
+    ? `Il muro diventerebbe troppo corto per le sue aperture: misura ${what} ${fmt(vLim)} m.`
+    : `Il muro diventerebbe troppo corto: misura ${what} ${fmt(vLim)} m.`;
 }
 
 /** Riporta le aperture del muro dentro il suo tratto libero, senza sovrapporle (sulla bozza d) */
@@ -394,13 +423,14 @@ function refitOpenings(d: Project, host: Wall) {
   for (const e of d.elements) if (e.kind === 'opening' && fit.offsets.has(e.id)) e.offset = fit.offsets.get(e.id)!;
 }
 
-function openingError(p: Project, chain: DimChain, k: number, value: number): string | null {
+function openingError(p: Project, chain: DimChain, k: number, value: number, side: DimSide | null): string | null {
   const a = chain.marks[k];
   const b = chain.marks[k + 1];
-  if (!a || !b) return null;
-  const ref = b.ref;
-  if (ref.k === 'fine') return lengthError(p, chain, b.s - a.s, value);
-  if (ref.k !== 'apertura' || ref.edge !== 0) return null;
+  if (!a || !b || !side) return null;
+  const cur = b.s - a.s;
+  const ref = side === 'fine' ? b.ref : a.ref;
+  if (ref.k === 'fine' || ref.k === 'inizio') return lengthError(p, chain, cur, value, side);
+  if (ref.k !== 'apertura') return null;
   const host = p.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
   const sp = host && openingSpans(p, host).find((x) => x.opening.id === ref.id);
   if (!host || !sp) return null;
@@ -418,24 +448,25 @@ function openingError(p: Project, chain: DimChain, k: number, value: number): st
     if (o1 <= sp.start + 1e-6) lo = Math.max(lo, o1);
     else if (o0 >= sp.end - 1e-6) hi = Math.min(hi, o0);
   }
-  const width = sp.type.width;
-  const cur = b.s - a.s;
-  const vMin = cur + (lo - sp.start);
-  const vMax = cur + (hi - width - sp.start);
+  // spostamento ammesso lungo il muro, poi in misura del segmento
+  const mMin = lo - sp.start;
+  const mMax = hi - sp.type.width - sp.start;
+  const along = dot(chain.dir, g.d) || 1;
+  const toValue = (m: number) => (side === 'fine' ? cur + m / along : cur - m / along);
+  const v1 = toValue(mMin);
+  const v2 = toValue(mMax);
+  const vMin = Math.min(v1, v2);
+  const vMax = Math.max(v1, v2);
   if (value < vMin - 1e-4 || value > vMax + 1e-4)
-    return vMax < vMin
+    return mMax < mMin
       ? 'L’apertura non ha spazio per spostarsi: modifica annullata.'
       : `L’apertura uscirebbe dal tratto libero del muro o si sovrapporrebbe ad altri elementi: misura ammessa da ${fmt(Math.max(0, vMin))} a ${fmt(vMax)} m.`;
   return null;
 }
 
-export function applyDimension(d: Project, chain: DimChain, k: number, value: number) {
-  if (openingError(d, chain, k, value)) return;
-  const cur = chain.marks[k + 1].s - chain.marks[k].s;
-  const delta = value - cur;
-  if (Math.abs(delta) < 1e-6) return;
-  const ref = chain.marks[k + 1].ref;
-  const shift = mul(chain.dir, delta);
+/** Sposta l'elemento indicato dal segno lungo la catena di m (metri, verso chain.dir) */
+function moveMark(d: Project, chain: DimChain, ref: MarkRef, other: MarkRef, m: number) {
+  const shift = mul(chain.dir, m);
   if (ref.k === 'vertice') {
     // il vertice si sposta lungo la catena; i vertici dei lati perpendicolari lo seguono (forma conservata)
     const s = d.elements.find((e) => e.id === ref.slabId);
@@ -447,13 +478,12 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
       const e = norm(sub(s.points[nb], s.points[ref.index]));
       if (Math.abs(dot(e, chain.dir)) < 0.02 && !(nb === (ref.index - step + n) % n)) moved.add(nb);
     }
-    // non spostare l'altro estremo della catena
-    const startIdx = chain.marks[k].ref.k === 'vertice' ? (chain.marks[k].ref as { index: number }).index : -1;
-    moved.delete(startIdx);
+    // l'altro estremo del segmento resta fermo
+    if (other.k === 'vertice' && other.slabId === ref.slabId) moved.delete(other.index);
     for (const i of moved) s.points[i] = add(s.points[i], shift);
     return;
   }
-  if (ref.k === 'pilastro' && ref.edge === 0) {
+  if (ref.k === 'pilastro') {
     const c = d.elements.find((e) => e.id === ref.id);
     if (!c || c.kind !== 'column') return;
     const old = c.p;
@@ -466,34 +496,47 @@ export function applyDimension(d: Project, chain: DimChain, k: number, value: nu
       }
     return;
   }
-  const host = d.elements.find((e) => e.id === chain.wallId);
-  if (!host || host.kind !== 'wall') return;
-
-  if (ref.k === 'apertura' && ref.edge === 0) {
+  const host = d.elements.find((e): e is Wall => e.kind === 'wall' && e.id === chain.wallId);
+  if (!host) return;
+  if (ref.k === 'apertura') {
     const o = d.elements.find((e) => e.id === ref.id);
-    if (o && o.kind === 'opening') o.offset += delta;
+    if (o && o.kind === 'opening') o.offset += m * (dot(chain.dir, norm(sub(host.b, host.a))) || 1);
     return;
   }
-  if (ref.k === 'giunto' && ref.face === 0) {
+  if (ref.k === 'giunto') {
     const w = d.elements.find((e) => e.id === ref.wallId);
     if (w && w.kind === 'wall') translateWall(d, w, shift, new Set([host.id]));
     return;
   }
-  if (ref.k === 'fine') {
-    // l'estremo finale si sposta; un muro d'angolo collegato trasla insieme
-    const b0 = host.b;
+  if (ref.k === 'fine' || ref.k === 'inizio') {
+    // l'estremo si sposta; un muro d'angolo collegato trasla insieme (o, se allineato, segue l'estremo)
+    const end = ref.k === 'fine' ? 'b' : 'a';
+    const P0 = host[end];
     const corner = d.elements.find(
-      (e): e is Wall =>
-        e.kind === 'wall' && e.id !== host.id && e.levelId === host.levelId && (dist(e.a, b0) < JOIN_TOL || dist(e.b, b0) < JOIN_TOL),
+      (e): e is Wall => e.kind === 'wall' && e.id !== host.id && e.levelId === host.levelId && (dist(e.a, P0) < JOIN_TOL || dist(e.b, P0) < JOIN_TOL),
     );
-    host.b = add(host.b, shift);
+    setWallEnd(d, host, end, add(P0, shift));
     if (corner) {
       const cd = norm(sub(corner.b, corner.a));
       if (Math.abs(dot(cd, chain.dir)) < 0.98) translateWall(d, corner, shift, new Set([host.id]));
-      else setWallEnd(d, corner, dist(corner.a, b0) < JOIN_TOL ? 'a' : 'b', host.b);
+      else setWallEnd(d, corner, dist(corner.a, P0) < JOIN_TOL ? 'a' : 'b', host[end]);
     }
     refitOpenings(d, host);
   }
+}
+
+/**
+ * Scrive la misura del segmento k. side dice quale elemento si sposta: quello alla fine del segmento
+ * (predefinito, se si può) o quello all'inizio; l'altro resta fermo.
+ */
+export function applyDimension(d: Project, chain: DimChain, k: number, value: number, side: DimSide | null = defaultSide(chain, k)) {
+  if (!side || !segmentEdits(chain, k)[side]) return;
+  if (openingError(d, chain, k, value, side)) return;
+  const cur = chain.marks[k + 1].s - chain.marks[k].s;
+  const delta = value - cur;
+  if (Math.abs(delta) < 1e-6) return;
+  if (side === 'fine') moveMark(d, chain, chain.marks[k + 1].ref, chain.marks[k].ref, delta);
+  else moveMark(d, chain, chain.marks[k].ref, chain.marks[k + 1].ref, -delta);
 }
 
 // ───────── Disposizione delle catene in pianta ─────────
@@ -551,4 +594,39 @@ export function layoutDimensions(chains: DimChain[], unit: number, fixed: Record
     result.push({ chain: c, offset });
   }
   return result;
+}
+
+// ───────── Allineamento delle linee di quota ─────────
+
+/** Linea di quota in pianta: un suo punto e la direzione */
+export interface DimLine {
+  id: string;
+  q: Vec2;
+  d: Vec2;
+}
+
+/** Linee di quota del livello: catene automatiche (dove sono disposte) e quote disegnate a mano */
+export function dimLines(placed: PlacedChain[], annotations: Project['annotations'], levelId: string, unit: number): DimLine[] {
+  const out: DimLine[] = placed.map(({ chain: c, offset }) => ({ id: c.id, q: add(c.origin, mul(c.out, offset * unit)), d: c.dir }));
+  for (const n of annotations ?? []) {
+    if (n.kind !== 'quota' || n.levelId !== levelId) continue;
+    const d = norm(sub(n.b, n.a));
+    out.push({ id: n.id, q: add(n.a, mul({ x: -d.y, y: d.x }, n.offset)), d });
+  }
+  return out;
+}
+
+/**
+ * Distanza di una linea di quota (lungo la normale nrm, dal punto base) aggancia­ta alle linee
+ * parallele vicine: entro tol si allinea. Restituisce la distanza e la linea a cui si è allineata.
+ */
+export function snapDimLine(raw: number, base: Vec2, dir: Vec2, nrm: Vec2, lines: DimLine[], skip: string, tol: number): { value: number; to: string | null } {
+  let best: { value: number; to: string; err: number } | null = null;
+  for (const l of lines) {
+    if (l.id === skip || Math.abs(l.d.x * dir.y - l.d.y * dir.x) > 0.01) continue;
+    const v = dot(sub(l.q, base), nrm);
+    const err = Math.abs(v - raw);
+    if (err < tol && (!best || err < best.err)) best = { value: v, to: l.id, err };
+  }
+  return best ? { value: best.value, to: best.to } : { value: raw, to: null };
 }

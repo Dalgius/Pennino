@@ -8,7 +8,7 @@ import { produce } from 'immer';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 const { followWalls, constrain } = await server.ssrLoadModule('/src/model/constraints.ts');
-const { computeDimensions, applyDimension, dimensionError, layoutDimensions } = await server.ssrLoadModule('/src/model/dimensions.ts');
+const { computeDimensions, applyDimension, dimensionError, layoutDimensions, segmentEdits, snapDimLine } = await server.ssrLoadModule('/src/model/dimensions.ts');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 const { validateProject } = await server.ssrLoadModule('/src/model/validate.ts');
 const { openingSpans } = await server.ssrLoadModule('/src/model/geometry.ts');
@@ -193,6 +193,47 @@ test('quote: le posizioni scelte a mano restano nel file', () => {
   p.dimOffsets = { 'w1:1': 9.5, rotta: 'x' };
   const { project } = validateProject(JSON.parse(JSON.stringify(p)));
   assert.deepEqual(project.dimOffsets, { 'w1:1': 9.5 });
+});
+
+// ───────── Quale elemento si sposta ─────────
+
+test('quota tra due aperture: si sceglie quale spostare, l’altra resta ferma', () => {
+  const p = freeWall();
+  const door = p.catalog.opening.find((t) => near(t.width, 0.8));
+  p.elements.push({ id: 'ox2', kind: 'opening', wallId: 'wx', typeId: door.id, offset: 1, flip: false });
+  // aperture a 0,6–1,4 e 2,6–3,4: il segmento tra le due è lungo 1,20
+  const chain = computeDimensions(p, 'lvl_pt').find((c) => c.wallId === 'wx' && c.marks.length > 2);
+  const k = chain.marks.findIndex((m, i) => i > 0 && m.ref.k === 'apertura' && m.ref.edge === 1 && chain.marks[i + 1]?.ref.k === 'apertura');
+  assert.ok(k > 0, 'segmento tra le aperture');
+  const ed = segmentEdits(chain, k);
+  assert.ok(ed.inizio && ed.fine, 'si può spostare l’una o l’altra');
+  const off = (q, id) => q.elements.find((e) => e.id === id).offset;
+  const qEnd = apply(p, (d) => applyDimension(d, chain, k, 1.5, 'fine'));
+  assert.ok(near(off(qEnd, 'ox2'), 1) && near(off(qEnd, 'ox'), 3.3), 'con «fine» si sposta quella dopo');
+  const qStart = apply(p, (d) => applyDimension(d, chain, k, 1.5, 'inizio'));
+  assert.ok(near(off(qStart, 'ox'), 3) && near(off(qStart, 'ox2'), 0.7), 'con «inizio» si sposta quella prima');
+  // il primo segmento parte dall'inizio del muro: si può accorciare il muro dall'inizio
+  const e0 = segmentEdits(chain, 0);
+  assert.ok(e0.inizio && e0.fine);
+  const qWall = apply(p, (d) => applyDimension(d, chain, 0, 0.3, 'inizio'));
+  const w = qWall.elements.find((e) => e.id === 'wx');
+  assert.ok(near(w.a.x, 20.3), 'l’inizio del muro avanza di 30 cm');
+  assert.ok(near(w.a.x + off(qWall, 'ox2'), 21), 'le aperture restano ferme in pianta');
+  // spessore di un'apertura: nessuno dei due
+  const wk = chain.marks.findIndex((m, i) => m.ref.k === 'apertura' && m.ref.edge === 0 && chain.marks[i + 1]?.ref.k === 'apertura' && chain.marks[i + 1].ref.edge === 1);
+  assert.deepEqual(segmentEdits(chain, wk), { inizio: null, fine: null });
+});
+
+test('linee di quota: si allineano alle parallele vicine', () => {
+  const lines = [
+    { id: 'a', q: { x: 0, y: -1.2 }, d: { x: 1, y: 0 } },
+    { id: 'b', q: { x: 0, y: -3 }, d: { x: 0, y: 1 } }, // perpendicolare: non conta
+  ];
+  // catena orizzontale con base y = 0 e normale verso sud: la linea a y = −1,2 è a 1,2
+  const nrm = { x: 0, y: -1 };
+  assert.deepEqual(snapDimLine(1.15, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'x', 0.1), { value: 1.2, to: 'a' });
+  assert.equal(snapDimLine(1.5, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'x', 0.1).to, null);
+  assert.equal(snapDimLine(1.15, { x: 5, y: 0 }, { x: 1, y: 0 }, nrm, lines, 'a', 0.1).to, null, 'non con sé stessa');
 });
 
 test.after(() => server.close());

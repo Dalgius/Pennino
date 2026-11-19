@@ -2328,3 +2328,38 @@ select.chip:disabled {
 .pv-dim-grip:hover {
   stroke: color-mix(in srgb, var(--ochre) 25%, transparent);
 }
+
+/* scelta dell'estremo che si sposta scrivendo una quota */
+.dim-input-wide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.dim-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dim-input-side {
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.dim-input-side button {
+  flex: 1;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dim-input-side button.on {
+  border-color: var(--primary);
+  color: var(--text);
+}

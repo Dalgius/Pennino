@@ -175,7 +175,7 @@ export function hitTestSite(items: (SiteItem | ContextItem)[], w: Vec2, tol: num
   return null;
 }
 
-export type SnapKind = 'estremo' | 'spigolo' | 'medio' | 'intersezione' | 'perpendicolare' | 'muro' | 'bordo' | 'griglia' | 'libero';
+export type SnapKind = 'estremo' | 'spigolo' | 'medio' | 'intersezione' | 'perpendicolare' | 'muro' | 'bordo' | 'allineamento' | 'griglia' | 'libero';
 
 export interface Snap {
   p: Vec2;
