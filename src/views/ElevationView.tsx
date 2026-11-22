@@ -230,6 +230,14 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       // timpano: la sommità del muro segue l'intradosso delle falde
       const L = wallLength(e);
       const prof = wallTopProfile(p, e, z1, ...wallSpan(p, e));
+      // muro visto di taglio: conta solo la parte oltre il piano di sezione (la cima può salire o scendere
+      // sotto le falde, e la parte davanti al piano è stata tolta)
+      const visTop = (() => {
+        if (!prof) return z1;
+        const Lw = wallLength(e) || 1;
+        const vis = prof.filter((q) => frame.near === undefined || D({ x: e.a.x + ((e.b.x - e.a.x) * q.s) / Lw, y: e.a.y + ((e.b.y - e.a.y) * q.s) / Lw }) >= frame.near - 1e-6);
+        return vis.length ? Math.max(...vis.map((q) => q.z)) : z1;
+      })();
       // contorno: fianchi e sommità sempre; base e sommità piana solo dove non c'è un muro contiguo
       const sw = 0.25 * mm;
       const lines: React.ReactNode[] = [];
@@ -246,7 +254,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         const last = at(prof[prof.length - 1].s);
         outer = `M${first},${Z(zf)} L${last},${Z(zf)} ` + [...prof].reverse().map((q) => `L${at(q.s)},${Z(q.z)}`).join(' ') + ' Z';
       } else if (prof) {
-        const zmax = Math.max(...prof.map((q) => q.z));
+        const zmax = visTop;
         outer = `M${u0},${Z(zf)} L${u1},${Z(zf)} L${u1},${Z(zmax)} L${u0},${Z(zmax)} Z`;
       }
       if (prof && facing) {
@@ -262,7 +270,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           />,
         );
       } else {
-        const zt = prof ? Math.max(...prof.map((q) => q.z)) : z1;
+        const zt = prof ? visTop : z1;
         lines.push(<line key="l" x1={u0} y1={Z(zf)} x2={u0} y2={Z(zt)} className="ev-wall-line" strokeWidth={sw} />);
         lines.push(<line key="r" x1={u1} y1={Z(zf)} x2={u1} y2={Z(zt)} className="ev-wall-line" strokeWidth={sw} />);
         if (prof) lines.push(hLine(u0, u1, zt, 't'));
@@ -352,7 +360,11 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       }
       // falde viste: quelle che salgono allontanandosi da chi guarda (estradosso, th sopra l'intradosso)
       g.fragments.forEach((fr, k) => {
-        if (dot(fr.plane.n, frame.depth) <= 1e-6) return;
+        // falde che salgono allontanandosi: se ne vede l'estradosso; nelle sezioni anche quelle che scendono
+        // allontanandosi, viste da sotto (intradosso): sporti e gronde oltre il piano di taglio
+        const facingUp = dot(fr.plane.n, frame.depth) > 1e-6;
+        if (!facingUp && frame.near === undefined) return;
+        const lift = facingUp ? th : 0;
         // la falda si divide dove passano i muri: la parte sopra l'edificio sta dietro le facciate,
         // lo sporto di gronda davanti, e copre la cima dei muri
         const inner = g.pieces.map((pc) => clipConvex(fr.poly, pc.poly)).filter((x) => x.length >= 3);
@@ -365,7 +377,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
             node: (
               <polygon
                 key={key}
-                points={poly.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')}
+                points={poly.map((q) => P2(q, planeAt(fr.plane, q) + lift)).join(' ')}
                 className="ev-roof"
                 // tra le due parti non si disegna il bordo: si vede una falda sola (lo stile batte l'attributo)
                 style={{ stroke: 'none' }}
@@ -380,7 +392,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         if (whole.length >= 3)
           items.push({
             depth: Math.min(...whole.map(D)) - 0.015,
-            node: <polygon key={`${e.id}f${k}c`} points={whole.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')} fill="none" className="ev-roof-outline" style={{ fill: 'none' }} strokeWidth={0.25 * mm} />,
+            node: <polygon key={`${e.id}f${k}c`} points={whole.map((q) => P2(q, planeAt(fr.plane, q) + lift)).join(' ')} fill="none" className="ev-roof-outline" style={{ fill: 'none' }} strokeWidth={0.25 * mm} />,
           });
       });
       // bordi verso chi guarda: fascia di gronda e profilo delle falde sui timpani (spessore th)
