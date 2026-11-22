@@ -489,6 +489,7 @@ export const SHEET_CSS = `
 .sheet-svg .ev-wall-line { fill: none; stroke: #111; }
 .sheet-svg .ev-slab { fill: #cfcfcf; stroke: #111; }
 .sheet-svg .ev-roof { fill: #8d8d8d; stroke: #111; }
+.sheet-svg .ev-roof-outline { fill: none; stroke: #111; }
 .sheet-svg .ev-glass { fill: #e4e4e4; stroke: #111; }
 .sheet-svg .ev-door { fill: #cfcfcf; stroke: #111; }
 .sheet-svg .ev-frame { stroke: #111; }

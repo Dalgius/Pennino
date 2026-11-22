@@ -1,9 +1,10 @@
 // Prospetto ortogonale generato dal modello: muri, aperture, solai, copertura e quote dei livelli.
 
-import { clipHalf, planeAt, roofGeom, roofTop } from '../model/roofs';
+import { clipHalf, planeAt, roofGeom, roofTop, subtractConvex } from '../model/roofs';
 import type { Project, Vec2, Wall } from '../model/types';
 import {
   byId,
+  clipConvex,
   columnQuad,
   dot,
   fmtLevel,
@@ -348,12 +349,35 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       // falde viste: quelle che salgono allontanandosi da chi guarda (estradosso, th sopra l'intradosso)
       g.fragments.forEach((fr, k) => {
         if (dot(fr.plane.n, frame.depth) <= 1e-6) return;
-        const poly = cut(fr.poly);
-        if (!poly.length) return;
-        items.push({
-          depth: poly.reduce((s, q) => s + D(q), 0) / poly.length,
-          node: <polygon key={`${e.id}f${k}`} points={poly.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')} className="ev-roof" strokeWidth={0.25 * mm} />,
-        });
+        // la falda si divide dove passano i muri: la parte sopra l'edificio sta dietro le facciate,
+        // lo sporto di gronda davanti, e copre la cima dei muri
+        const inner = g.pieces.map((pc) => clipConvex(fr.poly, pc.poly)).filter((x) => x.length >= 3);
+        const outer = g.pieces.reduce<Vec2[][]>((acc, pc) => acc.flatMap((x) => subtractConvex(x, pc.poly)), [fr.poly]);
+        const draw = (poly0: Vec2[], key: string, front: boolean) => {
+          const poly = cut(poly0);
+          if (poly.length < 3) return;
+          items.push({
+            depth: front ? Math.min(...poly.map(D)) - 0.02 : poly.reduce((t, q) => t + D(q), 0) / poly.length,
+            node: (
+              <polygon
+                key={key}
+                points={poly.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')}
+                className="ev-roof"
+                // tra le due parti non si disegna il bordo: si vede una falda sola (lo stile batte l'attributo)
+                style={{ stroke: 'none' }}
+              />
+            ),
+          });
+        };
+        inner.forEach((x, i) => draw(x, `${e.id}f${k}i${i}`, false));
+        outer.forEach((x, i) => draw(x, `${e.id}f${k}o${i}`, true));
+        // contorno della falda intera, sopra tutto ciò che sta dietro
+        const whole = cut(fr.poly);
+        if (whole.length >= 3)
+          items.push({
+            depth: Math.min(...whole.map(D)) - 0.015,
+            node: <polygon key={`${e.id}f${k}c`} points={whole.map((q) => P2(q, planeAt(fr.plane, q) + th)).join(' ')} fill="none" className="ev-roof-outline" style={{ fill: 'none' }} strokeWidth={0.25 * mm} />,
+          });
       });
       // bordi verso chi guarda: fascia di gronda e profilo delle falde sui timpani (spessore th)
       const ol = g.outline;

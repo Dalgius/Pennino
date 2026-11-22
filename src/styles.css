@@ -1082,6 +1082,10 @@ button.chip:hover {
   fill: var(--surface-3);
   stroke: var(--ink);
 }
+.canvas2d .ev-roof-outline {
+  fill: none;
+  stroke: var(--ink);
+}
 .canvas2d .ev-glass {
   fill: #dcdcdc;
   stroke: var(--ink);
