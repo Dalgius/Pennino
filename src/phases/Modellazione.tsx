@@ -44,6 +44,9 @@ import { Inspector, TypeEditor, type CatalogKey } from './ModellazioneInspector'
 import { applyDimension, computeDimensions, defaultSide, dimensionError, dimLines, layoutDimensions, segmentEdits, snapDimLine, type DimChain, type DimLine, type DimSide } from '../model/dimensions';
 import { SCREEN_TEXT } from './Inquadramento';
 
+/** Punto q riportato sull'orizzontale o sulla verticale per from, quella più vicina */
+const alignOrtho = (from: Vec2, q: Vec2): Vec2 => (Math.abs(q.x - from.x) >= Math.abs(q.y - from.y) ? { x: q.x, y: from.y } : { x: from.x, y: q.y });
+
 export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
 
 type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
@@ -390,7 +393,8 @@ export function Modellazione() {
     done(id);
   };
 
-  const commitPoint = (q: Vec2) => {
+  /** free: Maiusc premuto, l'ortogonale si inverte */
+  const commitPoint = (q: Vec2, free = false) => {
     const pts2 = [...draft, q];
     if (tool === 'wall') {
       if (draft.length >= 1) {
@@ -462,6 +466,8 @@ export function Modellazione() {
       } else setDraft([q]);
     } else if (tool === 'section') {
       if (draft.length === 1) {
+        // anche se il punto si è agganciato a un oggetto fuori asse, la traccia resta ortogonale
+        if (ortho !== free) q = alignOrtho(draft[0], q);
         if (dist(draft[0], q) > 0.5) {
           const id = uid('sez');
           const name = nextSectionName(project);
@@ -571,7 +577,7 @@ export function Modellazione() {
     }
 
     setCursor(snap);
-    if (e.type === 'down' && e.button === 0) commitPoint(snap.p);
+    if (e.type === 'down' && e.button === 0) commitPoint(snap.p, e.shift);
     if (e.type === 'dblclick') {
       if (tool === 'slab' || tool === 'roof') finishPolygon(draft.slice(0, -1).length >= 3 ? draft.slice(0, -1) : draft);
       else resetDraft();
@@ -742,8 +748,12 @@ export function Modellazione() {
           if (dr.kind === 'sezione') {
             x.a = add(src.a, delta);
             x.b = add(src.b, delta);
-          } else if (dr.handle === 0) x.a = snap.p;
-          else x.b = snap.p;
+          } else {
+            // con l'ortogonale la traccia resta orizzontale o verticale rispetto all'altro estremo
+            const q = ortho !== e.shift ? alignOrtho(dr.handle === 0 ? src.b : src.a, snap.p) : snap.p;
+            if (dr.handle === 0) x.a = q;
+            else x.b = q;
+          }
         });
         return;
       }
@@ -1093,7 +1103,7 @@ export function Modellazione() {
             {tool === 'section' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.05 && (
               <g className="sm-preview" pointerEvents="none">
                 <SectionMark
-                  section={{ id: 'anteprima', name: nextSectionName(project), a: draft[0], b: cursor.p, depth: 40, flip: false }}
+                  section={{ id: 'anteprima', name: nextSectionName(project), a: draft[0], b: ortho ? alignOrtho(draft[0], cursor.p) : cursor.p, depth: 40, flip: false }}
                   mm={mm}
                   ts={SCREEN_TEXT}
                   selected
