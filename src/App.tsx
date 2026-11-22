@@ -159,8 +159,11 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <svg width="22" height="22" viewBox="0 0 24 24" className="brand-mark" aria-hidden>
-            <path d="M4 20 L14 4 L18 6 L8 22 Z M14 4 L16 1 L20 3 L18 6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          {/* penna con la testa a mattoni (dall'icona «pen-line» di Lucide, licenza ISC) */}
+          <svg width="22" height="22" viewBox="0 0 24 24" className="brand-mark" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M13 21h8" className="brand-line" />
+            <path d="M21.174 6.812L22.589 5.399L18.601 1.411L17.188 2.825L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+            <path d="M16.763 3.249 L20.751 7.237 M14.924 5.088 L18.912 9.076 M13.086 6.926 L17.074 10.914 M20.595 3.405 L18.757 5.243 M16.918 7.082 L15.080 8.920" strokeWidth="1.2" />
           </svg>
           <div className="brand-text">
             <div className="brand-name">PENNINO</div>
