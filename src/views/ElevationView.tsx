@@ -18,10 +18,9 @@ import {
   wallLength,
   wallTopProfile,
   wallSegmentQuad,
-  wallThickness,
 } from '../model/geometry';
 import { fixtureSpec, leafSpans } from '../model/openings';
-import { wallGeom } from '../model/walls';
+import { endAt, startAt, wallGeom, wallOutline } from '../model/walls';
 
 export type Direction = 'sud' | 'nord' | 'est' | 'ovest';
 
@@ -87,6 +86,12 @@ interface Props {
   extents?: { min: number; max: number };
 }
 
+/** Tratto del muro lungo l'asse compresi i tagli d'estremità (angoli e innesti) */
+function wallSpan(p: Project, w: Wall): [number, number] {
+  const g = wallGeom(p, w);
+  return [Math.min(startAt(g, g.half), startAt(g, -g.half)), Math.max(endAt(g, g.half), endAt(g, -g.half))];
+}
+
 export function ElevationView({ project: p, direction, mm, textScale = 1, extents }: Props) {
   const ts = textScale;
   const frame = typeof direction === 'string' ? frameOf(direction) : direction;
@@ -103,8 +108,8 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
     if (e.kind !== 'wall') continue;
     const lv = byId(p.levels, e.levelId);
     if (!lv) continue;
-    const th = wallThickness(byId(p.catalog.wall, e.typeId));
-    const q = wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2);
+    // ingombro vero del muro, con i tagli degli angoli e degli innesti (non un rettangolo allungato di mezzo spessore)
+    const q = wallOutline(wallGeom(p, e));
     // nelle sezioni contano solo i muri oltre il piano (stesso filtro del disegno)
     const dq = q.map(D);
     if (frame.near !== undefined && Math.max(...dq) < frame.near) continue;
@@ -119,7 +124,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       // muro in facciata: profondità della faccia vista; muro visto di taglio: profondità media,
       // così sta dietro la facciata anche se ne tocca lo spigolo
       d: Math.abs(dot(norm(sub(e.b, e.a)), u)) > 0.7 ? Math.min(...q.map(D)) : q.map(D).reduce((t, x) => t + x, 0) / q.length,
-      flatTop: !wallTopProfile(p, e, z1, -th / 2, wallLength(e) + th / 2),
+      flatTop: !wallTopProfile(p, e, z1, ...wallSpan(p, e)),
     });
   }
   /** tratti di un bordo orizzontale (quota z) di una faccia non coperti da una faccia contigua sopra o sotto */
@@ -152,8 +157,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         )
       )
         continue;
-      const th = wallThickness(byId(p.catalog.wall, e.typeId));
-      const quad = wallSegmentQuad(e, th, -th / 2, wallLength(e) + th / 2);
+      const quad = wallOutline(wallGeom(p, e));
       const us = quad.map(U);
       const u0 = Math.min(...us);
       const u1 = Math.max(...us);
@@ -225,7 +229,7 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
       }
       // timpano: la sommità del muro segue l'intradosso delle falde
       const L = wallLength(e);
-      const prof = wallTopProfile(p, e, z1, -th / 2, L + th / 2);
+      const prof = wallTopProfile(p, e, z1, ...wallSpan(p, e));
       // contorno: fianchi e sommità sempre; base e sommità piana solo dove non c'è un muro contiguo
       const sw = 0.25 * mm;
       const lines: React.ReactNode[] = [];
