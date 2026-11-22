@@ -159,11 +159,9 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          {/* penna con la testa a mattoni (dall'icona «pen-line» di Lucide, licenza ISC) */}
-          <svg width="22" height="22" viewBox="0 0 24 24" className="brand-mark" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M13 21h8" className="brand-line" />
-            <path d="M21.174 6.812L22.589 5.399L18.601 1.411L17.188 2.825L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-            <path d="M16.763 3.249 L20.751 7.237 M14.924 5.088 L18.912 9.076 M13.086 6.926 L17.074 10.914 M20.595 3.405 L18.757 5.243 M16.918 7.082 L15.080 8.920" strokeWidth="1.2" />
+          {/* logo di Pennino (public/favicon.svg) senza sfondo né bordo */}
+          <svg width="22" height="22" viewBox="24 24 464 464" className="brand-mark" aria-hidden>
+            <path d="M465,475.42,49.16,473.85a13.25,13.25,0,0,1-12.92-15.91L62.87,328.43,301.15,48c6.32-7.44,16-12.08,25.59-10.46,54.94,9.24,85.44,36.18,94.68,78.53,1.77,8.09-1.53,16.5-6.88,22.83L158,442.74H466C480,443.17,479,475.86,465,475.42Z" fill="currentColor" />
           </svg>
           <div className="brand-text">
             <div className="brand-name">PENNINO</div>

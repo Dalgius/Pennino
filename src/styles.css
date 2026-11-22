@@ -168,9 +168,6 @@ kbd {
 .brand-mark {
   color: var(--primary);
 }
-.brand-line {
-  stroke: var(--ochre);
-}
 .brand-name {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 600;
