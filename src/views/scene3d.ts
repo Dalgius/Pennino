@@ -182,10 +182,16 @@ function buildWall(
   sel: Set<string>,
 ) {
   const t = byId(p.catalog.wall, w.typeId);
-  const H = wallHeight(p, w);
   const L = wallLength(w);
   if (L < 1e-3) return;
   const g = wallGeom(p, w);
+  // sotto le falde la cima del muro segue l'intradosso: il corpo arriva al punto più basso,
+  // sopra si aggiunge il profilo (timpano, muretto d'imposta)
+  const Hn = wallHeight(p, w);
+  const s0 = Math.min(startAt(g, g.half), startAt(g, -g.half));
+  const s1 = Math.max(endAt(g, g.half), endAt(g, -g.half));
+  const prof = wallTopProfile(p, w, z0 + Hn, s0, s1);
+  const H = prof ? Math.max(0.05, Math.min(Hn, Math.min(...prof.map((q) => q.z)) - z0)) : Hn;
   const isConcrete = t?.layers.length === 1 && t.layers[0].role === 'struttura';
   const wallMat = pick(w.id, isConcrete ? M('column', COLORS.column) : M('wall', COLORS.wall));
   // tratti con le estremità tagliate secondo le giunzioni (angolo, T)
@@ -206,11 +212,8 @@ function buildWall(
     cur = s.end;
   }
   if (cur === 'inizio' || Math.max(endAt(g, g.half), endAt(g, -g.half)) > cur + 1e-3) add(cur, 'fine', 0, H);
-  // Timpano: sotto le falde il muro sale fino all'intradosso, con il suo spessore (a filo della facciata)
-  const s0 = Math.min(startAt(g, g.half), startAt(g, -g.half));
-  const s1 = Math.max(endAt(g, g.half), endAt(g, -g.half));
-  const prof = wallTopProfile(p, w, z0 + H, s0, s1);
-  if (prof) {
+  // Timpano o falda del sottotetto: sopra il corpo il muro segue l'intradosso, con il suo spessore
+  if (prof && prof.some((q) => q.z > z0 + H + 1e-3)) {
     const sh = new THREE.Shape();
     sh.moveTo(s1, z0 + H);
     sh.lineTo(s0, z0 + H);

@@ -1,4 +1,4 @@
-import { roofOutlineOf, roofSurfaceAt, roofTop } from './roofs';
+import { roofBases, roofOutlineOf, roofSurfaceAt, roofTop } from './roofs';
 import type {
   BuildingElement,
   Roof,
@@ -253,14 +253,14 @@ export function wallTopProfile(p: Project, w: Wall, zTop: number, s0: number, s1
   const d = { x: (w.b.x - w.a.x) / L, y: (w.b.y - w.a.y) / L };
   const n = 48;
   const out: { s: number; z: number }[] = [];
-  let rises = false;
+  let changes = false;
   for (let i = 0; i <= n; i++) {
     const s = s0 + ((s1 - s0) * i) / n;
-    const z = roofUndersideAt(p, { x: w.a.x + d.x * s, y: w.a.y + d.y * s }, zTop) ?? zTop;
-    if (z > zTop + 1e-3) rises = true;
-    out.push({ s, z: Math.max(zTop, z) });
+    const z = wallTopAt(p, w, { x: w.a.x + d.x * s, y: w.a.y + d.y * s }, zTop);
+    if (Math.abs(z - zTop) > 1e-3) changes = true;
+    out.push({ s, z });
   }
-  if (!rises) return null;
+  if (!changes) return null;
   // toglie i punti allineati
   return out.filter((q, i) => {
     if (i === 0 || i === out.length - 1) return true;
@@ -268,6 +268,33 @@ export function wallTopProfile(p: Project, w: Wall, zTop: number, s0: number, s1
     const b = out[i + 1];
     return Math.abs((q.z - a.z) * (b.s - a.s) - (b.z - a.z) * (q.s - a.s)) > 1e-6;
   });
+}
+
+/** Altezza minima di un muro tagliato da una falda (m) */
+const MIN_WALL_UNDER_ROOF = 0.05;
+
+/**
+ * Cima di un muro nel punto X (sul suo asse):
+ * - sotto una copertura impostata alla cima del muro, sale fino all'intradosso (timpani);
+ * - sotto una copertura impostata più in basso della cima ma sopra la base del muro (sottotetti,
+ *   mansarde), segue l'intradosso, scendendo o salendo: muretti d'imposta e tramezzi sotto le falde.
+ * Dove nessuna copertura lo copre resta alla sua quota.
+ */
+export function wallTopAt(p: Project, w: Wall, X: Vec2, zTop: number): number {
+  const zBase = byId(p.levels, w.levelId)?.elevation ?? 0;
+  let z = zTop;
+  // falde impostate alla cima del muro: solo verso l'alto (agli spigoli lo sporto scenderebbe sotto)
+  const up = roofSurfaceAt(p, X, zTop);
+  if (up !== null && up > z) z = up;
+  // falde impostate dentro l'altezza del muro: il muro le segue
+  let cut: number | null = null;
+  for (const base of roofBases(p)) {
+    if (base <= zBase + 0.3 || base >= zTop - 0.05) continue;
+    const c = roofSurfaceAt(p, X, base);
+    if (c !== null) cut = cut === null ? c : Math.max(cut, c);
+  }
+  if (cut !== null) z = Math.max(zBase + MIN_WALL_UNDER_ROOF, cut);
+  return z;
 }
 
 export function roofUndersideAt(p: Project, X: Vec2, zTop: number): number | null {

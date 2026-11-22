@@ -4,7 +4,7 @@
 
 import { roofGeom } from '../model/roofs';
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
-import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofWithEave, roofUndersideAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
+import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofWithEave, roofUndersideAt, wallTopAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec, isBareOpening } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
@@ -145,7 +145,8 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         hit = openingSpans(p, e).find((sp) => sAt >= sp.start && sAt <= sp.end);
       }
       // sotto le falde il muro sale fino all'intradosso della copertura (timpano)
-      const topAt = (uu: number) => roofUndersideAt(p, add(f.origin, mul(f.u, uu)), z0 + H) ?? z0 + H;
+      // e sotto le falde impostate più in basso (sottotetti) segue l'intradosso anche scendendo
+      const topAt = (uu: number) => wallTopAt(p, e, add(f.origin, mul(f.u, uu)), z0 + H);
       // strati: lo scostamento o dall'asse cade in u = uX + o·k lungo la sezione
       const t = byId(p.catalog.wall, e.typeId);
       const cn = dot(f.u, g.n);

@@ -92,4 +92,28 @@ test('computo: superficie di falda dalla geometria, anche per le nuove forme', (
   }
 });
 
+test('muri sotto le falde: timpani verso l’alto, muri più alti tagliati all’intradosso', () => {
+  const { p, g } = withRoof({});
+  const L1 = 'lvl_p1';
+  const lvl = p.levels.find((l) => l.id === L1);
+  const top = lvl.elevation + lvl.height; // = imposta della copertura
+  const west = p.elements.find((e) => e.kind === 'wall' && e.levelId === L1 && Math.abs(e.a.x) < 1e-6 && Math.abs(e.b.x) < 1e-6);
+  // timpano: il muro di testata sale fino al colmo, sotto la gronda resta all'imposta
+  assert.ok(near(G.wallTopAt(p, west, { x: 0, y: 4.5 }, top), g.base + g.rise));
+  assert.ok(near(G.wallTopAt(p, west, { x: 0, y: 0 }, top), top));
+  // un muro del piano primo alto 4 m (oltre l'imposta) segue l'intradosso: giù sulla gronda, su al colmo
+  const wt = p.elements.find((e) => e.kind === 'wall').typeId;
+  const tall = { id: 'alto', kind: 'wall', levelId: L1, typeId: wt, a: { x: 3, y: 0 }, b: { x: 3, y: 9 }, height: 4 };
+  p.elements.push(tall);
+  const tallTop = lvl.elevation + 4;
+  assert.ok(near(G.wallTopAt(p, tall, { x: 3, y: 0 }, tallTop), top), 'sulla linea di gronda: all’imposta');
+  assert.ok(near(G.wallTopAt(p, tall, { x: 3, y: 4.5 }, tallTop), g.base + g.rise), 'al colmo: fino all’intradosso');
+  const prof = G.wallTopProfile(p, tall, tallTop, 0, 9);
+  assert.ok(prof && Math.min(...prof.map((q) => q.z)) < tallTop - 0.5, 'il profilo scende sotto la cima nominale');
+  // fuori dalla copertura il muro resta alla sua altezza
+  const out = { ...tall, id: 'fuori', a: { x: 30, y: 0 }, b: { x: 30, y: 9 } };
+  p.elements.push(out);
+  assert.equal(G.wallTopProfile(p, out, tallTop, 0, 9), null);
+});
+
 test.after(() => server.close());

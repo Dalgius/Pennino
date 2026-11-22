@@ -458,3 +458,12 @@ export function roofSlopeArrows(g: RoofGeom): { at: Vec2; down: Vec2; size: numb
       return { at: c, down: { x: -x.plane.n.x, y: -x.plane.n.y }, size: Math.max(0.6, Math.min(2.5, Math.sqrt(polygonArea(x.best)) * 0.35)), slope: x.plane.slope };
     });
 }
+
+/** Quote d'imposta delle coperture del progetto (una per quota) */
+export function roofBases(p: Project): number[] {
+  return cached(p, 'roofBases', () => {
+    const out: number[] = [];
+    for (const g of roofGeometries(p).values()) if (!out.some((b) => Math.abs(b - g.base) < 0.05)) out.push(g.base);
+    return out;
+  });
+}
