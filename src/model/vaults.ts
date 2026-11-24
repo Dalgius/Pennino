@@ -6,7 +6,17 @@
 import type { Project, Vault, VaultShape, VaultType, Vec2 } from './types';
 import { add, byId, dist, dot, mul, norm, sub } from './geometry';
 
-export const VAULT_SHAPE_LABEL: Record<VaultShape, string> = { botte: 'Volta a botte', crociera: 'Volta a crociera' };
+export const VAULT_SHAPE_LABEL: Record<VaultShape, string> = { botte: 'Volta a botte', crociera: 'Volta a crociera', padiglione: 'Volta a padiglione', vela: 'Volta a vela' };
+
+/** Come è fatta ciascuna forma, per l'ispettore */
+export const VAULT_NOTE: Record<VaultShape, string> = {
+  botte: 'Gli archi sono di cerchio: a tutto sesto con la freccia pari a metà della luce, ribassati se minore.',
+  crociera:
+    'Le due botti hanno la stessa chiave: sul lato corto l’arco è di cerchio, sul lato lungo è lo stesso arco allungato (ellittico), così i costoloni stanno sulle diagonali. Sui muri restano le lunette.',
+  padiglione:
+    'Quattro fusi salgono dai muri con l’arco della luce minore e si incontrano negli spigoli a 45° dagli angoli; su pianta rettangolare in mezzo resta un tratto di botte con il colmo. L’imposta corre su tutti i lati.',
+  vela: 'Calotta sferica che passa per i quattro angoli all’imposta: sui muri si formano gli archi di testata. A tutto sesto la freccia è metà della diagonale del campo.',
+};
 
 export interface VaultFrame {
   o: Vec2;
@@ -48,15 +58,36 @@ export function vaultSpans(v: Vault, fr = vaultFrame(v)) {
   return { generatrix, span: generatrix === 0 ? fr.L2 : fr.L1 };
 }
 
-/** Freccia effettiva: mai oltre metà della luce più corta che la regge */
+/** Freccia massima (a tutto sesto): metà della luce che regge la volta; per la vela metà della diagonale */
+export function vaultMaxRise(v: Pick<Vault, 'shape' | 'axis' | 'points'>, fr = vaultFrame(v)): number {
+  if (v.shape === 'vela') return Math.hypot(fr.L1, fr.L2) / 2;
+  if (v.shape === 'botte') return vaultSpans(v as Vault, fr).span / 2;
+  return Math.min(fr.L1, fr.L2) / 2;
+}
+
+/** Freccia effettiva: mai oltre quella a tutto sesto */
 export function vaultRise(v: Vault, fr = vaultFrame(v)): number {
-  const lim = v.shape === 'crociera' ? Math.min(fr.L1, fr.L2) / 2 : vaultSpans(v, fr).span / 2;
-  return Math.max(0, Math.min(v.rise, lim));
+  return Math.max(0, Math.min(v.rise, vaultMaxRise(v, fr)));
 }
 
 /** Altezza dell'intradosso sopra l'imposta nel punto locale (a, b) del campo */
 export function vaultHeightLocal(v: Vault, a: number, b: number, fr = vaultFrame(v)): number {
   const f = vaultRise(v, fr);
+  if (v.shape === 'vela') {
+    // calotta sferica per i quattro angoli (all'imposta) e la chiave al centro
+    const d = Math.hypot(fr.L1, fr.L2) / 2;
+    if (f < 1e-6) return 0;
+    const R = (d * d + f * f) / (2 * f);
+    const r = Math.hypot(a - fr.L1 / 2, b - fr.L2 / 2);
+    return Math.max(0, Math.sqrt(Math.max(0, R * R - r * r)) - (R - f));
+  }
+  if (v.shape === 'padiglione') {
+    // fusi che salgono da ogni lato con l'arco della luce minore: dove i due si incontrano lo
+    // spigolo (a 45° dagli angoli); sul lato lungo, oltre i fusi di testata, prosegue la botte
+    const s = Math.min(fr.L1, fr.L2);
+    const g = (x: number) => arcRise(Math.min(x, s / 2) - s / 2, s, f);
+    return Math.min(g(Math.min(a, fr.L1 - a)), g(Math.min(b, fr.L2 - b)));
+  }
   if (v.shape === 'crociera') {
     // le due botti si compenetrano: l'arco del lato corto è di cerchio, quello del lato lungo lo
     // stesso arco stirato (ellittico), così i costoloni stanno sulle diagonali del campo
@@ -112,6 +143,31 @@ export function vaultEdges(p: Project, v: Vault, n = 24): { kind: 'imposta' | 'a
   const P = (a: number, b: number) => ({ q: vaultPoint(fr, a, b), z: z0 + vaultHeightLocal(v, a, b, fr) });
   const line = (fn: (t: number) => [number, number]) => Array.from({ length: n + 1 }, (_, i) => P(...fn(i / n)));
   const out: ReturnType<typeof vaultEdges> = [];
+  const sides = () => [
+    { kind: 'arco' as const, pts: line((t) => [t * fr.L1, 0]) },
+    { kind: 'arco' as const, pts: line((t) => [t * fr.L1, fr.L2]) },
+    { kind: 'arco' as const, pts: line((t) => [0, t * fr.L2]) },
+    { kind: 'arco' as const, pts: line((t) => [fr.L1, t * fr.L2]) },
+  ];
+  if (v.shape === 'vela') {
+    // archi di testata sui quattro lati e costoloni diagonali (linee della calotta sopra le diagonali)
+    out.push({ kind: 'unghia', pts: line((t) => [t * fr.L1, t * fr.L2]) }, { kind: 'unghia', pts: line((t) => [t * fr.L1, (1 - t) * fr.L2]) });
+    out.push(...sides());
+    return out;
+  }
+  if (v.shape === 'padiglione') {
+    // imposte su tutti i lati (archi a quota d'imposta), spigoli a 45° dagli angoli e colmo sul lato lungo
+    out.push(...sides());
+    const s = Math.min(fr.L1, fr.L2) / 2;
+    const long1 = fr.L1 >= fr.L2;
+    const r0: [number, number] = long1 ? [s, fr.L2 / 2] : [fr.L1 / 2, s];
+    const r1: [number, number] = long1 ? [fr.L1 - s, fr.L2 / 2] : [fr.L1 / 2, fr.L2 - s];
+    const seg = (A: [number, number], B: [number, number]) => line((t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]);
+    out.push({ kind: 'unghia', pts: seg([0, 0], r0) }, { kind: 'unghia', pts: seg(long1 ? [0, fr.L2] : [fr.L1, 0], r0) });
+    out.push({ kind: 'unghia', pts: seg([fr.L1, fr.L2], r1) }, { kind: 'unghia', pts: seg(long1 ? [fr.L1, 0] : [0, fr.L2], r1) });
+    if (Math.hypot(r1[0] - r0[0], r1[1] - r0[1]) > 1e-6) out.push({ kind: 'chiave', pts: seg(r0, r1) });
+    return out;
+  }
   if (v.shape === 'crociera') {
     out.push({ kind: 'unghia', pts: line((t) => [t * fr.L1, t * fr.L2]) });
     out.push({ kind: 'unghia', pts: line((t) => [t * fr.L1, (1 - t) * fr.L2]) });
@@ -171,7 +227,7 @@ export function defaultVault(p: Project, levelId: string, points: Vec2[], shape:
   const lv = byId(p.levels, levelId);
   const H = lv?.height ?? 3;
   const th = byId(p.catalog.vault ?? [], typeId)?.thickness ?? 0.12;
-  const span = shape === 'crociera' ? Math.min(fr.L1, fr.L2) : Math.min(fr.L1, fr.L2);
+  const span = 2 * vaultMaxRise({ shape, points }, fr);
   // tutto sesto se ci sta con l'imposta ad almeno 2,20 m; altrimenti ribassata
   const room = H - th - 0.1; // chiave: spessore e 10 cm di riempimento sotto il solaio sopra
   const rise = Math.round(Math.max(0.1, Math.min(span / 2, room - 2.2)) * 100) / 100;

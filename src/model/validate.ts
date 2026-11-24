@@ -97,7 +97,7 @@ export function validateProject(raw: unknown): ValidationResult {
           types.vault.has(e.typeId as string) &&
           isPts(e.points, 4) &&
           (e.points as unknown[]).length === 4 &&
-          (e.shape === 'botte' || e.shape === 'crociera') &&
+          (e.shape === 'botte' || e.shape === 'crociera' || e.shape === 'padiglione' || e.shape === 'vela') &&
           isNum(e.spring) &&
           isNum(e.rise)
         );

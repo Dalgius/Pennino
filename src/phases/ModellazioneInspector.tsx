@@ -31,7 +31,7 @@ import {
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { isConvexPolygon, isOrthogonal, ROOF_SHAPE_LABEL, roofTop } from '../model/roofs';
-import { VAULT_SHAPE_LABEL, vaultFrame, vaultLevels, vaultQuantities, vaultSpans, vaultType } from '../model/vaults';
+import { VAULT_NOTE, VAULT_SHAPE_LABEL, vaultMaxRise, vaultFrame, vaultLevels, vaultQuantities, vaultSpans, vaultType } from '../model/vaults';
 import { ARCH_LABEL, archRise, defaultRise, fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf, openingAreaIn } from '../model/openings';
 import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
@@ -518,7 +518,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
         const lv = vaultLevels(project, e);
         const q = vaultQuantities(project, e);
         const lvl = byId(project.levels, e.levelId);
-        const half = (e.shape === 'crociera' ? Math.min(fr.L1, fr.L2) : sp.span) / 2;
+        const half = vaultMaxRise(e, fr);
         const keyOver = lvl && lv.top > lvl.elevation + lvl.height + 1e-3;
         return (
           <>
@@ -555,7 +555,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
             </div>
             {keyOver && <p className="note warn">La volta in chiave, con il suo spessore, supera l’altezza del piano: abbassa l’imposta o la freccia.</p>}
             <p className="note">
-              Quote dal piano del livello. {e.shape === 'crociera' ? 'Le due botti hanno la stessa chiave: sul lato corto l’arco è di cerchio, sul lato lungo è lo stesso arco allungato (ellittico), così i costoloni stanno sulle diagonali.' : 'Gli archi sono di cerchio: a tutto sesto con la freccia pari a metà della luce, ribassati se minore.'} Trascina gli angoli per cambiare il campo.
+              Quote dal piano del livello. {VAULT_NOTE[e.shape]} Trascina gli angoli per cambiare il campo.
             </p>
           </>
         );

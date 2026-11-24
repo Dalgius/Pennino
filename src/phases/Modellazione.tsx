@@ -1327,6 +1327,8 @@ export function Modellazione() {
                 options={[
                   { value: 'botte', label: 'A botte' },
                   { value: 'crociera', label: 'A crociera' },
+                  { value: 'padiglione', label: 'A padiglione' },
+                  { value: 'vela', label: 'A vela' },
                 ]}
                 onChange={setVaultShape}
               />

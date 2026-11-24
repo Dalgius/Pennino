@@ -200,8 +200,12 @@ export interface VaultType {
   fillPriceCode?: string;
 }
 
-/** botte: cilindro con le generatrici lungo un lato; crociera: due botti che si incrociano */
-export type VaultShape = 'botte' | 'crociera';
+/**
+ * botte: cilindro con le generatrici lungo un lato; crociera: due botti che si incrociano (si
+ * somma lo spazio); padiglione: due botti di cui resta la parte comune (fusi che salgono da tutti
+ * i lati); vela: calotta sferica tagliata dai piani dei quattro lati
+ */
+export type VaultShape = 'botte' | 'crociera' | 'padiglione' | 'vela';
 
 /**
  * Volta su un campo rettangolare (points: quattro vertici in ordine). L'intradosso parte

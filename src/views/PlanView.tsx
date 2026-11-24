@@ -11,7 +11,7 @@ import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, DIM_FIRST, DIM_STEP, layoutDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
-import { vaultEdges, vaultLevels, vaultOutline } from '../model/vaults';
+import { VAULT_SHAPE_LABEL, vaultEdges, vaultFrame, vaultLevels, vaultOutline } from '../model/vaults';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
@@ -1158,7 +1158,8 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
 
 /**
  * Volta in pianta: sta sopra il piano di taglio e si disegna tratteggiata. Botte: imposte e linea di
- * chiave; crociera: costoloni diagonali e lati. Al centro le quote d'imposta e di chiave.
+ * chiave; crociera e vela: diagonali (la vela con il cerchio inscritto); padiglione: spigoli a 45°
+ * e colmo. Al centro forma e quote d'imposta e di chiave.
  */
 function VaultSymbol({ project: p, vault: v, mm, ts }: { project: Project; vault: Extract<Project['elements'][number], { kind: 'vault' }>; mm: number; ts: number }) {
   const lv = vaultLevels(p, v);
@@ -1182,8 +1183,12 @@ function VaultSymbol({ project: p, vault: v, mm, ts }: { project: Project; vault
             strokeDasharray={e.kind === 'chiave' ? dashDot : dash}
           />
         ))}
+      {v.shape === 'vela' && (
+        // vela: il cerchio inscritto nel campo, dove la calotta tocca gli archi di testata
+        <circle cx={c.x} cy={-c.y} r={Math.min(vaultFrame(v).L1, vaultFrame(v).L2) / 2} className="pv-vault-line" fill="none" strokeWidth={0.13 * mm} strokeDasharray={dash} />
+      )}
       <text x={c.x} y={-c.y - font * 0.7} fontSize={font} textAnchor="middle" dominantBaseline="central" className="pv-vault-text">
-        {v.shape === 'crociera' ? 'volta a crociera' : 'volta a botte'}
+        {VAULT_SHAPE_LABEL[v.shape].toLowerCase()}
       </text>
       <text x={c.x} y={-c.y + font * 0.7} fontSize={font * 0.85} textAnchor="middle" dominantBaseline="central" className="pv-vault-text">
         imp. {z(lv.spring)} · chiave {z(lv.key)}

@@ -66,6 +66,48 @@ test('volte: crociera, due botti con la stessa chiave', () => {
   assert.ok(near(V.vaultRise({ ...v, rise: 3 }), 2));
 });
 
+test('volte: padiglione, fusi dai quattro lati con spigoli a 45° e colmo sul lato lungo', () => {
+  const { v } = withVault({ shape: 'padiglione', rise: 2 }); // campo 4 × 6, tutto sesto sulla luce 4
+  // l'imposta corre su tutti i lati
+  for (const [a, b] of [[2, 0], [2, 6], [0, 3], [4, 3], [0, 0]]) assert.ok(near(V.vaultHeightLocal(v, a, b), 0), `imposta in ${a},${b}`);
+  // in mezzo il colmo, in piano lungo il lato lungo tra i due fusi di testata
+  assert.ok(near(V.vaultHeightLocal(v, 2, 3), 2) && near(V.vaultHeightLocal(v, 2, 2.2), 2) && near(V.vaultHeightLocal(v, 2, 3.8), 2));
+  // sezione trasversale nel tratto di botte: l'arco a tutto sesto
+  assert.ok(near(V.vaultHeightLocal(v, 1, 3), Math.sqrt(3)));
+  // spigolo a 45° dall'angolo: i due fusi alla stessa altezza
+  assert.ok(near(V.vaultHeightLocal(v, 1, 1), Math.sqrt(3)));
+  assert.ok(V.vaultHeightLocal(v, 1, 1.2) < V.vaultHeightLocal(v, 1.2, 1.2) + 1e-9);
+  // freccia limitata dal lato corto
+  assert.ok(near(V.vaultMaxRise(v), 2));
+});
+
+test('volte: vela, calotta sferica per i quattro angoli', () => {
+  const { v } = withVault({ shape: 'vela', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }], rise: 9 });
+  const d = Math.SQRT2 * 2;
+  // a tutto sesto: emisfero di raggio metà diagonale
+  assert.ok(near(V.vaultMaxRise(v), d) && near(V.vaultRise(v), d));
+  assert.ok(near(V.vaultHeightLocal(v, 0, 0), 0) && near(V.vaultHeightLocal(v, 4, 4), 0));
+  assert.ok(near(V.vaultHeightLocal(v, 2, 2), d));
+  // a metà dei lati la chiave degli archi di testata
+  assert.ok(near(V.vaultHeightLocal(v, 2, 0), 2) && near(V.vaultHeightLocal(v, 0, 2), 2));
+  // ribassata: la chiave scende, gli angoli restano all'imposta
+  const low = { ...v, rise: 1 };
+  assert.ok(near(V.vaultHeightLocal(low, 2, 2), 1) && near(V.vaultHeightLocal(low, 0, 0), 0));
+});
+
+test('volte: crociera e padiglione si dividono le due botti', () => {
+  // su un campo quadrato a tutto sesto le superfici delle due volte sommano quelle delle due botti:
+  // il padiglione (parte comune) vale 8 r², la crociera il resto
+  const r = 2;
+  const sq = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }];
+  const pad = withVault({ shape: 'padiglione', points: sq, rise: r });
+  const cro = withVault({ shape: 'crociera', points: sq, rise: r });
+  const aPad = V.vaultQuantities(pad.p, pad.v, 256).area;
+  const aCro = V.vaultQuantities(cro.p, cro.v, 256).area;
+  assert.ok(near(aPad, 8 * r * r, 0.1), `padiglione ${aPad}`);
+  assert.ok(near(aPad + aCro, 2 * Math.PI * r * 2 * r, 0.2), `somma ${aPad + aCro}`);
+});
+
 test('volte: superficie d’intradosso e rinfianco', () => {
   // botte a tutto sesto r = 2 lunga 6: mezzo cilindro
   const { p, v } = withVault({ axis: 1, rise: 2 });
@@ -116,6 +158,12 @@ test('volte: salvate nel file; i progetti precedenti si aprono senza avvisi', ()
   assert.ok(r.project.catalog.vault.length > 0);
   assert.ok(r.project.prices.some((x) => x.code === 'VOL.01'));
   assert.ok(!r.warnings.some((w) => /vault/.test(w)), r.warnings.join(' · '));
+  // le nuove forme restano nel file
+  for (const shape of ['padiglione', 'vela']) {
+    const q = JSON.parse(JSON.stringify(p));
+    q.elements.find((e) => e.id === 'v1').shape = shape;
+    assert.equal(validateProject(q).project.elements.find((e) => e.id === 'v1').shape, shape);
+  }
   // volte non valide si scartano
   const bad = JSON.parse(JSON.stringify(p));
   bad.elements.find((e) => e.id === 'v1').shape = 'cupola';
@@ -163,6 +211,15 @@ test('volte: in pianta tratteggiate con imposte e chiave; in sezione il guscio t
   assert.equal(lines.length, 4);
   assert.ok(lines.every((m) => /stroke-dasharray/.test(m[0])));
   assert.match(plan, /imp\. \+1,80 · chiave \+2,80/);
+  // vela: il cerchio inscritto; padiglione su campo rettangolare: quattro spigoli e il colmo
+  v.shape = 'vela';
+  const pv = renderToStaticMarkup(React.createElement('svg', null, React.createElement(PlanView, { project: p, levelId: L0, mm: 0.1 })));
+  assert.match(pv, /<circle[^>]*r="2"[^>]*class="pv-vault-line"/);
+  assert.match(pv, /volta a vela/);
+  v.shape = 'padiglione';
+  const pp = renderToStaticMarkup(React.createElement('svg', null, React.createElement(PlanView, { project: p, levelId: L0, mm: 0.1 })));
+  assert.equal([...pp.matchAll(/<(?:polyline|polygon)[^>]*class="pv-vault-line"/g)].length, 1 + 4 + 1);
+  v.shape = 'botte';
   // sezione trasversale a metà del campo (y = 4), guardando verso +y
   const sec = { id: 's', name: 'S', a: { x: 0, y: 4 }, b: { x: 12, y: 4 }, depth: 0.5, flip: false };
   const svg = renderToStaticMarkup(React.createElement('svg', null, React.createElement(SectionView, { project: p, section: sec, mm: 0.1 })));
