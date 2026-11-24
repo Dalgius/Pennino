@@ -5,6 +5,7 @@ import { roofGeom } from './roofs';
 import { statusOf, usesStates } from './states';
 import type { PriceItem, Project, Roof, WbsCategory } from './types';
 import { wallGeom, wallOutline } from './walls';
+import { openingArea, openingAreaIn } from './openings';
 import {
   bbox,
   byId,
@@ -110,7 +111,7 @@ export function computeComputo(p: Project): ComputoLine[] {
       const H = wallHeight(p, e);
       const th = wallThickness(t);
       const holes = openingSpans(p, e).reduce(
-        (s, o) => s + (o.end - o.start) * Math.max(0, Math.min(o.type.height, H - o.type.sill)),
+        (s, o) => s + openingAreaIn(o.type, H, o.end - o.start),
         0,
       );
       const net = L * H - holes;
@@ -423,7 +424,7 @@ export function openingSchedule(p: Project): OpeningScheduleRow[] {
         height: t.height,
         sill: t.sill,
         count: inst.length,
-        area: inst.length * t.width * t.height,
+        area: inst.length * openingArea(t),
         uw: t.uw,
         levels: [...levels].join(', '),
         ids: inst.map((x) => x.id),
@@ -453,7 +454,7 @@ export function wallSchedule(p: Project): WallScheduleRow[] {
     const H = wallHeight(p, e);
     const th = wallThickness(t);
     const spans = openingSpans(p, e);
-    const holes = spans.reduce((s, o) => s + (o.end - o.start) * Math.max(0, Math.min(o.type.height, H - o.type.sill)), 0);
+    const holes = spans.reduce((s, o) => s + openingAreaIn(o.type, H, o.end - o.start), 0);
     return [
       {
         id: e.id,

@@ -19,6 +19,7 @@ const { SheetView, PAPER } = await server.ssrLoadModule('/src/views/SheetView.ts
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 const G = await server.ssrLoadModule('/src/model/geometry.ts');
 const R = await server.ssrLoadModule('/src/model/roofs.ts');
+const O = await server.ssrLoadModule('/src/model/openings.ts');
 
 const L1 = 'lvl_p1';
 const MM = 0.1; // scala 1:100
@@ -212,6 +213,60 @@ test('piante: le scale del piano sotto si vedono solo dai fori del solaio', () =
   const svg2 = renderToStaticMarkup(React.createElement('svg', null, React.createElement(PlanView, { project: p, levelId: L1, mm: MM })));
   const mask2 = svg2.match(/<mask id="([^"]+-arr)"[\s\S]*?<\/mask>/);
   assert.ok(mask2 && (mask2[0].match(/fill="#fff"/g) ?? []).length === 1, 'solo lo sfondo bianco: nessun foro');
+});
+
+// ───────── Archi ─────────
+
+test('prospetti: le aperture ad arco hanno il vano e la lunetta ad arco', () => {
+  const p = sampleProject();
+  const win = p.catalog.opening.find((t) => t.id === 'ot_fin');
+  win.head = 'tutto-sesto';
+  const svg = renderToStaticMarkup(React.createElement('svg', null, React.createElement(ElevationView, { project: p, direction: 'sud', mm: MM })));
+  // fori dei muri: i sottopercorsi dopo il primo (il contorno)
+  const holes = [...svg.matchAll(/<path d="([^"]+)"[^>]*class="ev-wall"/g)].flatMap((m) => m[1].split(/Z/i).slice(1)).filter((d) => d.trim());
+  const arcs = holes.map((d) => (d.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(Number)).filter((v) => v.length > 20);
+  assert.ok(arcs.length > 0, 'vani ad arco nei muri');
+  for (const v of arcs) {
+    const xs = v.filter((_, k) => k % 2 === 0);
+    const ys = v.filter((_, k) => k % 2 === 1);
+    const w = Math.max(...xs) - Math.min(...xs);
+    const top = -Math.min(...ys);
+    const bottom = -Math.max(...ys);
+    assert.ok(Math.abs(w - win.width) < 1e-6, 'luce');
+    assert.ok(Math.abs(top - bottom - win.height) < 1e-6, 'altezza in chiave');
+    // ogni punto della testa sta sul cerchio dell'arco
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const zc = bottom + win.height - win.width / 2;
+    for (let k = 0; k < xs.length; k++) if (-ys[k] > zc + 1e-6) assert.ok(Math.abs(Math.hypot(xs[k] - cx, -ys[k] - zc) - win.width / 2) < 1e-6);
+  }
+  // le finestre hanno una lunetta vetrata sopra le ante
+  const glass = parse(svg).filter((e) => e.tag === 'polygon' && /ev-glass/.test(e.cls));
+  assert.ok(glass.length >= arcs.length, 'lunette');
+});
+
+test('sezioni: il piano che passa per un arco taglia il muro all’intradosso', () => {
+  const p = sampleProject();
+  const win = p.catalog.opening.find((t) => t.id === 'ot_fin');
+  win.head = 'tutto-sesto';
+  const o = p.elements.find((e) => e.kind === 'opening' && e.typeId === 'ot_fin');
+  const w = p.elements.find((e) => e.id === o.wallId);
+  const lvl = p.levels.find((l) => l.id === w.levelId);
+  const d = G.norm(G.sub(w.b, w.a));
+  const n = { x: -d.y, y: d.x };
+  const zKey = lvl.elevation + win.sill + win.height;
+  for (const dx of [0, 0.3]) {
+    const c = G.add(w.a, G.mul(d, o.offset + dx));
+    const sec = { id: 'sa', name: 'A', a: G.add(c, G.mul(n, -3)), b: G.add(c, G.mul(n, 3)), depth: 0.5, flip: false };
+    const svg = renderToStaticMarkup(React.createElement('svg', null, React.createElement(SectionView, { project: p, section: sec, mm: MM })));
+    // contorno del muro tagliato sopra la finestra: il punto più basso sta all'intradosso
+    const expect = lvl.elevation + win.sill + O.headAt(win, dx);
+    const ok = [...svg.matchAll(/points="([^"]+)"/g)].some((m) => {
+      const v = m[1].split(/[ ,]/).map(Number);
+      const zs = v.filter((_, k) => k % 2 === 1).map((y) => -y);
+      return Math.abs(Math.min(...zs) - expect) < 1e-6 && Math.max(...zs) > zKey;
+    });
+    assert.ok(ok, `muro tagliato a ${expect.toFixed(3)} m a ${dx} m dalla chiave`);
+  }
 });
 
 // ───────── Tavole ─────────

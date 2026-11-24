@@ -4,6 +4,7 @@
 import type { Project, Room, Vec2, Wall } from './types';
 import { cached } from './cache';
 import { byId, dist, JOIN_TOL, levelAbove, offsetPolygon, pointInPolygon, polygonArea, polygonPerimeter, projectOnSegment, slabOutline, wallThickness } from './geometry';
+import { openingArea } from './openings';
 
 export interface RoomShape {
   /** contorno sugli assi dei muri, antiorario */
@@ -195,7 +196,7 @@ export function roomInfo(p: Project, room: Room): RoomInfo {
       if (shape.wallIds[i] !== w.id) continue;
       const pr = projectOnSegment(c, shape.axis[i], shape.axis[(i + 1) % n]);
       if (pr.d < JOIN_TOL && pr.t > 0 && pr.t < 1) {
-        windowArea += t.width * t.height;
+        windowArea += openingArea(t);
         break;
       }
     }

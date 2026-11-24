@@ -5,7 +5,7 @@ import { planeAt, roofGeom, type RoofGeom } from '../model/roofs';
 import * as THREE from 'three';
 import { sceneBounds } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
-import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
+import { archProfile, archRise, fixtureSpec, leafSpans, springHeight, THRESHOLD_NOSE } from '../model/openings';
 import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
 import {
   add,
@@ -73,6 +73,35 @@ function shapeFrom(points: Vec2[]) {
   points.forEach((p, i) => (i ? s.lineTo(p.x, p.y) : s.moveTo(p.x, p.y)));
   s.closePath();
   return s;
+}
+
+/**
+ * Figura nel piano del muro (s lungo l'asse da a, z quota assoluta) estrusa attraverso lo spessore
+ * tra gli scostamenti o0 < o1 dall'asse, con eventuali fori.
+ */
+function wallShapeMesh(w: Wall, g: WallGeom, outline: { s: number; z: number }[], o0: number, o1: number, material: THREE.Material, holes: { s: number; z: number }[][] = []) {
+  const sh = new THREE.Shape();
+  outline.forEach((q, i) => (i ? sh.lineTo(q.s, q.z) : sh.moveTo(q.s, q.z)));
+  sh.closePath();
+  for (const h of holes) {
+    const path = new THREE.Path();
+    h.forEach((q, i) => (i ? path.lineTo(q.s, q.z) : path.moveTo(q.s, q.z)));
+    path.closePath();
+    sh.holes.push(path);
+  }
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: o1 - o0, bevelEnabled: false });
+  // assi locali: x lungo il muro, y verso l'alto, z attraverso lo spessore
+  const xA = new THREE.Vector3(g.d.x, 0, -g.d.y);
+  const yA = new THREE.Vector3(0, 1, 0);
+  const zA = new THREE.Vector3().crossVectors(xA, yA);
+  const m = new THREE.Matrix4().makeBasis(xA, yA, zA);
+  // zA punta verso −n: si parte dalla faccia o1
+  m.setPosition(w.a.x + g.n.x * o1, 0, -(w.a.y + g.n.y * o1));
+  geo.applyMatrix4(m);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function extrudePolygon(points: Vec2[], zTop: number, thickness: number, material: THREE.Material, holes: Vec2[][] = []) {
@@ -207,28 +236,21 @@ function buildWall(
     const sill = Math.min(s.type.sill, H);
     const head = Math.min(H, s.type.sill + s.type.height);
     add(s.start, s.end, 0, sill);
-    add(s.start, s.end, head, H);
-    buildFixture(p, w, g, s.opening, s.type, s.start, s.end, z0 + sill, z0 + head, root, M, sel, wallMat, pick);
+    if (archRise(s.type) > 1e-6 && head > sill + 1e-3) {
+      // sopra l'arco il muro segue l'intradosso, dall'imposta alla cima
+      const arc = archProfile(s.type).map((q) => ({ s: Math.min(s.end, Math.max(s.start, s.opening.offset + q.x)), z: z0 + Math.min(H, sill + q.h) }));
+      root.add(tag(wallShapeMesh(w, g, [...arc, { s: s.end, z: z0 + H }, { s: s.start, z: z0 + H }], -g.half, g.half, wallMat), w.id));
+    } else add(s.start, s.end, head, H);
+    // sotto un arco il serramento arriva all'imposta (traverso), sopra c'è la lunetta
+    const fsp = fixtureSpec(p, w, g, s.opening, s.type);
+    const zs = archRise(s.type) > 1e-6 ? Math.min(head, sill + springHeight(s.type) + (fsp.ct + fsp.tf) / 2) : head;
+    buildFixture(p, w, g, s.opening, s.type, s.start, s.end, z0 + sill, z0 + zs, root, M, sel, wallMat, pick, z0 + head);
     cur = s.end;
   }
   if (cur === 'inizio' || Math.max(endAt(g, g.half), endAt(g, -g.half)) > cur + 1e-3) add(cur, 'fine', 0, H);
   // Timpano o falda del sottotetto: sopra il corpo il muro segue l'intradosso, con il suo spessore
   if (prof && prof.some((q) => q.z > z0 + H + 1e-3)) {
-    const sh = new THREE.Shape();
-    sh.moveTo(s1, z0 + H);
-    sh.lineTo(s0, z0 + H);
-    for (const q of prof) sh.lineTo(q.s, q.z);
-    sh.closePath();
-    const geo = new THREE.ExtrudeGeometry(sh, { depth: 2 * g.half, bevelEnabled: false });
-    // assi locali: x lungo il muro, y verso l'alto, z attraverso lo spessore
-    const xA = new THREE.Vector3(g.d.x, 0, -g.d.y);
-    const yA = new THREE.Vector3(0, 1, 0);
-    const zA = new THREE.Vector3().crossVectors(xA, yA);
-    const m = new THREE.Matrix4().makeBasis(xA, yA, zA);
-    // zA punta verso −n: si parte dalla faccia +n
-    m.setPosition(w.a.x + g.n.x * g.half, 0, -(w.a.y + g.n.y * g.half));
-    geo.applyMatrix4(m);
-    root.add(tag(new THREE.Mesh(geo, wallMat), w.id));
+    root.add(tag(wallShapeMesh(w, g, [{ s: s1, z: z0 + H }, { s: s0, z: z0 + H }, ...prof], -g.half, g.half, wallMat), w.id));
   }
 }
 
@@ -250,6 +272,8 @@ function buildFixture(
   sel: Set<string>,
   wallMat: THREE.Material,
   pick: (id: string, m: THREE.Material) => THREE.Material,
+  /** sotto un arco: quota dell'intradosso in chiave (il serramento arriva a zt, sopra la lunetta) */
+  zKey?: number,
 ) {
   const spec = fixtureSpec(p, w, g, o, t);
   const stoneMat = M('sill', 0xd8d4cc);
@@ -308,6 +332,22 @@ function buildFixture(
     box(l.s0, l.s1, spec.fc, spec.leafT, lz0, lz0 + pr, frameMat);
     box(l.s0, l.s1, spec.fc, spec.leafT, lz1 - pr, lz1, frameMat);
     box(l.s0 + pr, l.s1 - pr, spec.fc, 0.024, lz0 + pr, lz1 - pr, glassMat, false);
+  }
+  // lunetta sopra l'imposta: telaio ad arco attorno al vetro
+  if (zKey !== undefined && zKey > zt + 1e-3) {
+    const above = (inset: number) =>
+      archProfile(t, inset).map((q) => ({ s: Math.min(end, Math.max(start, o.offset + q.x)), z: Math.min(zKey - inset, Math.max(zt, zb + q.h)) }));
+    const outer = above(0);
+    const inner = above(tf).filter((q) => q.z > zt + 1e-4);
+    const frame = wallShapeMesh(w, g, outer, spec.fc - spec.fd / 2, spec.fc + spec.fd / 2, frameMat, inner.length > 2 ? [inner] : []);
+    frame.userData.id = o.id;
+    root.add(frame);
+    if (inner.length > 2) {
+      const glass = wallShapeMesh(w, g, inner, spec.fc - 0.012, spec.fc + 0.012, glassMat);
+      glass.castShadow = false;
+      glass.userData.id = o.id;
+      root.add(glass);
+    }
   }
   // davanzale o soglia
   const sg = g.extSign;

@@ -31,13 +31,13 @@ import {
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { isConvexPolygon, isOrthogonal, ROOF_SHAPE_LABEL, roofTop } from '../model/roofs';
-import { fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf } from '../model/openings';
+import { ARCH_LABEL, archRise, defaultRise, fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf, openingAreaIn } from '../model/openings';
 import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Roof, Stair, WallRef } from '../model/types';
+import type { ArchHead, BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Roof, Stair, WallRef } from '../model/types';
 import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
@@ -593,7 +593,7 @@ function WallInspector({
   const H = wallHeight(project, w);
   const th = wallThickness(t);
   const spans = openingSpans(project, w);
-  const holes = spans.reduce((s, o) => s + (o.end - o.start) * Math.max(0, Math.min(o.type.height, H - o.type.sill)), 0);
+  const holes = spans.reduce((s, o) => s + openingAreaIn(o.type, H, o.end - o.start), 0);
   const upd = (fn: (x: Wall) => void) =>
     edit((d) => {
       const x = d.elements.find((q) => q.id === id);
@@ -1028,6 +1028,29 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
               <NumberField label="Davanzale" unit="cm" digits={0} step={5} value={ot.sill * 100} min={0} onChange={(v) => upd((x: { sill: number }) => (x.sill = v / 100))} />
               {ot.category === 'finestra' && <NumberField label="Uw" unit="W/m²K" value={ot.uw ?? 1.3} min={0.3} onChange={(v) => upd((x: { uw?: number }) => (x.uw = v))} />}
             </div>
+            <div className="fields fields-2">
+              <SelectField
+                label="Testa"
+                value={ot.head ?? 'piana'}
+                options={(Object.keys(ARCH_LABEL) as ArchHead[]).map((h) => ({ value: h, label: ARCH_LABEL[h] }))}
+                onChange={(v) =>
+                  upd((x: { head?: ArchHead; rise?: number; width: number }) => {
+                    if (v === 'piana') delete x.head;
+                    else x.head = v;
+                    if (v === 'ribassato' && x.rise === undefined) x.rise = defaultRise(x.width);
+                  })
+                }
+              />
+              {ot.head === 'ribassato' && (
+                <NumberField label="Freccia" unit="cm" digits={0} step={5} value={archRise(ot) * 100} min={1} max={(ot.width / 2) * 100} onChange={(v) => upd((x: { rise?: number }) => (x.rise = v / 100))} />
+              )}
+            </div>
+            {ot.head && ot.head !== 'piana' && (
+              <p className="note">
+                L’altezza è misurata in chiave: l’arco parte dall’imposta a {fmt(ot.sill + ot.height - archRise(ot))} m dal pavimento, con una freccia di {fmt(archRise(ot))} m
+                {ot.head === 'tutto-sesto' ? ' (metà della luce)' : ''}.{ot.leaves !== 0 ? ' Sopra l’imposta il serramento ha una lunetta fissa.' : ''}
+              </p>
+            )}
             <SelectField label="Voce di computo" value={ot.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
           </>
         );

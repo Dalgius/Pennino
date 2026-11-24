@@ -5,7 +5,7 @@
 import { roofGeom } from '../model/roofs';
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
 import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofWithEave, roofUndersideAt, wallTopAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
-import { fixtureSpec, isBareOpening } from '../model/openings';
+import { fixtureSpec, headAt, isBareOpening, springHeight } from '../model/openings';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -138,11 +138,14 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       const db = D(e.b);
       let hit: ReturnType<typeof openingSpans>[number] | undefined;
       let X: Vec2 | undefined;
+      // altezza dell'intradosso del vano dove passa il piano (sotto un arco dipende dal punto)
+      let headH = 0;
       if ((da > 0) !== (db > 0)) {
         const t = da / (da - db);
         const sAt = t * wallLength(e);
         X = add(e.a, mul(g.d, sAt));
         hit = openingSpans(p, e).find((sp) => sAt >= sp.start && sAt <= sp.end);
+        if (hit) headH = headAt(hit.type, sAt - hit.opening.offset);
       }
       // sotto le falde il muro sale fino all'intradosso della copertura (timpano)
       // e sotto le falde impostate più in basso (sottotetti) segue l'intradosso anche scendendo
@@ -233,7 +236,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
       ivs.forEach(([u0, u1], i) => {
         if (!hit) return piece(`${e.id}${i}`, u0, u1, z0, topAt(u0), topAt(u1), true);
         const h0 = z0 + hit.type.sill;
-        const h1 = Math.min(z0 + H, h0 + hit.type.height);
+        const h1 = Math.min(z0 + H, h0 + headH);
         if (h0 > z0 + 1e-3) piece(`${e.id}${i}b`, u0, u1, z0, h0, h0);
         // sopra l'architrave il muro arriva fino alla copertura
         piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1), true);
@@ -242,7 +245,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale
         const spec = fixtureSpec(p, e, g, hit.opening, hit.type);
         const h0 = z0 + hit.type.sill;
-        const h1 = Math.min(z0 + H, h0 + hit.type.height);
+        const h1 = Math.min(z0 + H, h0 + headH);
         const uc = U(add(X, mul(g.n, spec.fc)));
         const half = spec.fd / 2;
         const tf = spec.ct + spec.tf;
@@ -250,9 +253,16 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         cuts.push(
           <g key={`${e.id}f`} className="sc-fixture" strokeWidth={0.18 * mm}>
             <rect x={uc - half} y={Z(h1)} width={spec.fd} height={tf} />
+            {/* sotto un arco: traverso all'imposta, sotto la lunetta */}
+            {h0 + springHeight(hit.type) < h1 - 1.5 * tf && <rect x={uc - half} y={Z(h0 + springHeight(hit.type) + tf / 2)} width={spec.fd} height={tf} />}
             {!isDoor && <rect x={uc - half} y={Z(h0 + tf)} width={spec.fd} height={tf} />}
             {isDoor ? (
-              <rect x={uc - spec.leafT / 2} y={Z(h1 - tf)} width={spec.leafT} height={h1 - tf - h0} className="sc-leaf" />
+              (() => {
+                // l'anta arriva al traverso dell'imposta, se c'è
+                const zs = h0 + springHeight(hit.type);
+                const top = zs < h1 - 1.5 * tf ? zs - tf / 2 : h1 - tf;
+                return <rect x={uc - spec.leafT / 2} y={Z(top)} width={spec.leafT} height={top - h0} className="sc-leaf" />;
+              })()
             ) : (
               <line x1={uc} y1={Z(h1 - tf)} x2={uc} y2={Z(h0 + tf)} className="sc-glass" strokeWidth={0.3 * mm} />
             )}

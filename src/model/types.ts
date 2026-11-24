@@ -160,7 +160,13 @@ export interface OpeningType {
   uw?: number;
   /** Numero di ante; se assente si deduce dalla larghezza. 0 = vano senza serramento (solo porte) */
   leaves?: 0 | 1 | 2;
+  /** Forma della testa; assente = piana (architrave o piattabanda). L'altezza è misurata in chiave */
+  head?: ArchHead;
+  /** Freccia dell'arco ribassato (m), dall'imposta alla chiave */
+  rise?: number;
 }
+
+export type ArchHead = 'piana' | 'tutto-sesto' | 'ribassato';
 
 export interface RoofType {
   id: ID;

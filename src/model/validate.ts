@@ -48,6 +48,14 @@ export function validateProject(raw: unknown): ValidationResult {
     const vano = base.catalog.opening.find((t) => t.category === 'porta' && t.leaves === 0);
     if (vano) catalog.opening = [...catalog.opening, { ...vano, id: catalog.opening.some((t) => t.id === vano.id) ? `${vano.id}_${catalog.opening.length}` : vano.id }];
   }
+  // testa delle aperture: valori sconosciuti tornano alla testa piana, frecce non valide all'automatica
+  catalog.opening = catalog.opening.map((t) => {
+    const head = t.head === 'tutto-sesto' || t.head === 'ribassato' ? t.head : undefined;
+    const rise = head === 'ribassato' && typeof t.rise === 'number' && t.rise > 0 ? t.rise : undefined;
+    if (head === t.head && rise === t.rise) return t;
+    const { head: _h, rise: _r, ...rest } = t;
+    return { ...rest, ...(head ? { head } : {}), ...(rise !== undefined ? { rise } : {}) };
+  });
   const siteRaw = isObj(raw.site) ? raw.site : {};
   if (!isObj(raw.site)) warnings.push('Dati del sito mancanti: sono stati usati quelli predefiniti.');
   const site = {

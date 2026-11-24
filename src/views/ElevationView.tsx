@@ -19,7 +19,7 @@ import {
   wallTopProfile,
   wallSegmentQuad,
 } from '../model/geometry';
-import { fixtureSpec, leafSpans } from '../model/openings';
+import { archProfile, archRise, fixtureSpec, leafSpans, springHeight } from '../model/openings';
 import { endAt, startAt, wallGeom, wallOutline } from '../model/walls';
 
 export type Direction = 'sud' | 'nord' | 'est' | 'ovest';
@@ -175,17 +175,26 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           const x1 = Math.max(a, b);
           const h0 = z0 + s.type.sill;
           const h1 = Math.min(z1, h0 + s.type.height);
-          holes.push(`M${x0},${Z(h0)} L${x1},${Z(h0)} L${x1},${Z(h1)} L${x0},${Z(h1)} Z`);
+          const US = (sv: number) => U({ x: e.a.x + g.d.x * sv, y: e.a.y + g.d.y * sv });
+          // contorno del vano: davanzale, stipiti e testa (piana o ad arco), entro la cima del muro
+          const arched = archRise(s.type) > 1e-6;
+          const vano = [
+            `${US(s.start)},${Z(h0)}`,
+            `${US(s.end)},${Z(h0)}`,
+            ...archProfile(s.type)
+              .reverse()
+              .map((q) => `${US(Math.min(s.end, Math.max(s.start, s.opening.offset + q.x)))},${Z(Math.min(z1, h0 + q.h))}`),
+          ];
+          holes.push(`M${vano.join(' L')} Z`);
           const isDoor = s.type.category === 'porta';
           const spec = fixtureSpec(p, e, g, s.opening, s.type);
-          const US = (sv: number) => U({ x: e.a.x + g.d.x * sv, y: e.a.y + g.d.y * sv });
           const tf = spec.ct + spec.tf; // telaio in vista
           const dash = `${1.2 * mm} ${0.8 * mm}`;
           if (spec.bare) {
             // vano senza porta: si vede solo il contorno del varco
             glass.push(
               <g key={s.opening.id}>
-                <rect x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame" fill="none" strokeWidth={0.25 * mm} />
+                <polygon points={vano.join(' ')} className="ev-frame" fill="none" strokeWidth={0.25 * mm} />
                 {spec.hasThreshold && <line x1={x0} y1={Z(h0)} x2={x1} y2={Z(h0)} className="ev-frame" strokeWidth={0.35 * mm} />}
               </g>,
             );
@@ -194,14 +203,22 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
           glass.push(
             <g key={s.opening.id}>
               {/* telaio fisso */}
-              <rect x={x0} y={Z(h1)} width={x1 - x0} height={h1 - h0} className="ev-frame-fill" strokeWidth={0.25 * mm} />
+              <polygon points={vano.join(' ')} className="ev-frame-fill" strokeWidth={0.25 * mm} />
+              {arched &&
+                (() => {
+                  // lunetta fissa sopra l'imposta: traverso all'imposta e vetro dentro il telaio
+                  const zs = h0 + springHeight(s.type) + tf / 2;
+                  const arc = archProfile(s.type, tf).map((q) => `${US(s.opening.offset + q.x)},${Z(Math.min(h1 - tf, Math.max(zs, h0 + q.h)))}`);
+                  return arc.length > 2 && <polygon points={arc.join(' ')} className="ev-glass" strokeWidth={0.13 * mm} />;
+                })()}
               {leafSpans(spec, s.start, s.end).map((l, i) => {
                 const la = US(l.s0);
                 const lb = US(l.s1);
                 const lx0 = Math.min(la, lb);
                 const lx1 = Math.max(la, lb);
                 const lz0 = isDoor ? h0 + 0.01 : h0 + tf;
-                const lz1 = h1 - tf;
+                // sotto un arco le ante arrivano al traverso dell'imposta
+                const lz1 = arched ? Math.min(h1, h0 + springHeight(s.type)) - tf / 2 : h1 - tf;
                 const prof = isDoor ? 0 : 0.06; // profilo dell'anta attorno al vetro
                 const hx = US(l.hinge);
                 const fx = US(l.free);

@@ -2,7 +2,7 @@
 // Le misure sono convenzionali (sezioni tipiche di serramenti in legno-alluminio e porte interne)
 // e servono al disegno; la luce dell'apertura è la larghezza della tipologia.
 
-import type { FramePosition, Opening, OpeningType, Project, Wall } from './types';
+import type { ArchHead, FramePosition, Opening, OpeningType, Project, Wall } from './types';
 import { byId } from './geometry';
 import { isExteriorWall } from './dimensions';
 import { layerBands, type WallGeom } from './walls';
@@ -29,6 +29,86 @@ export interface FixtureSpec {
   mirror: boolean;
   hasSill: boolean;
   hasThreshold: boolean;
+}
+
+// ───────── Archi ─────────
+
+export const ARCH_LABEL: Record<ArchHead, string> = { piana: 'Piana (architrave)', 'tutto-sesto': 'Arco a tutto sesto', ribassato: 'Arco ribassato' };
+
+type ArchShape = Pick<OpeningType, 'width' | 'height' | 'head' | 'rise'>;
+
+/** Freccia proposta per un arco ribassato: un quinto della luce */
+export const defaultRise = (width: number) => Math.round((width / 5) * 100) / 100;
+
+/** Freccia dell'arco (m): 0 per la testa piana; mai oltre metà luce né oltre l'altezza */
+export function archRise(t: ArchShape): number {
+  if (!t.head || t.head === 'piana') return 0;
+  const half = t.width / 2;
+  const f = t.head === 'tutto-sesto' ? half : (t.rise ?? defaultRise(t.width));
+  return Math.max(0, Math.min(f, half, t.height));
+}
+
+/** Raggio dell'intradosso: la corda è la luce, la freccia f */
+const archRadius = (half: number, f: number) => (half * half + f * f) / (2 * f);
+
+/** Altezza dell'imposta sopra il davanzale */
+export const springHeight = (t: ArchShape) => t.height - archRise(t);
+
+/** Altezza dell'intradosso sopra il davanzale a distanza x dal centro dell'apertura */
+export function headAt(t: ArchShape, x: number): number {
+  const f = archRise(t);
+  if (f < 1e-6) return t.height;
+  const half = t.width / 2;
+  const R = archRadius(half, f);
+  const xx = Math.min(Math.abs(x), half);
+  return t.height - f + Math.sqrt(Math.max(0, R * R - xx * xx)) - (R - f);
+}
+
+/**
+ * Intradosso da un'imposta all'altra: punti (x dal centro, h sopra il davanzale) da sinistra a destra.
+ * inset restringe l'arco verso l'interno (telaio): resta la parte sopra l'imposta.
+ */
+export function archProfile(t: ArchShape, inset = 0, n = 32): { x: number; h: number }[] {
+  const f = archRise(t);
+  const half = t.width / 2;
+  if (f < 1e-6) return [{ x: -half + inset, h: t.height - inset }, { x: half - inset, h: t.height - inset }];
+  const R = archRadius(half, f);
+  const r = R - inset;
+  const zc = t.height - R; // centro dell'arco sopra il davanzale
+  const spring = t.height - f;
+  if (r <= spring - zc) return [];
+  // angoli tra cui l'arco ristretto sta sopra l'imposta
+  const a0 = Math.asin(Math.max(-1, Math.min(1, (spring - zc) / r)));
+  const out: { x: number; h: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = Math.PI - a0 - ((Math.PI - 2 * a0) * i) / n;
+    out.push({ x: r * Math.cos(a), h: zc + r * Math.sin(a) });
+  }
+  return out;
+}
+
+/** Area del vano (m²): il rettangolo fino all'imposta più il segmento d'arco */
+export function openingArea(t: ArchShape): number {
+  const f = archRise(t);
+  const rect = t.width * t.height;
+  if (f < 1e-6) return rect;
+  const half = t.width / 2;
+  const R = archRadius(half, f);
+  const segment = R * R * Math.acos((R - f) / R) - (R - f) * half;
+  return rect - (t.width * f - segment);
+}
+
+/** Area del vano in un muro alto H sopra il davanzale (le aperture più alte del muro si tagliano) */
+export function openingAreaIn(t: ArchShape & { sill: number }, H: number, span = t.width): number {
+  const h = Math.max(0, H - t.sill);
+  const k = span / t.width;
+  if (h >= t.height) return openingArea(t) * k;
+  if (h <= springHeight(t)) return span * h;
+  // arco tagliato dalla cima del muro: integrazione per strisce
+  const n = 64;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.min(h, headAt(t, -t.width / 2 + ((i + 0.5) * t.width) / n));
+  return (a * t.width) / n * k;
 }
 
 /** Vano senza porta: una porta con zero ante */
