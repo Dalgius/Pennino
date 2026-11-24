@@ -240,6 +240,11 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         if (h0 > z0 + 1e-3) piece(`${e.id}${i}b`, u0, u1, z0, h0, h0);
         // sopra l'architrave il muro arriva fino alla copertura
         piece(`${e.id}${i}t`, u0, u1, h1, topAt(u0), topAt(u1), true);
+        // arco tagliato fuori dall'imposta: oltre il piano l'intradosso scende fino all'imposta,
+        // dove si vede lo spigolo con le spalle del vano
+        const zs = h0 + springHeight(hit.type);
+        if (h1 > zs + 1e-3)
+          wallCuts.push(<line key={`${e.id}${i}imp`} x1={u0} y1={Z(zs)} x2={u1} y2={Z(zs)} className="sc-view-line" strokeWidth={0.18 * mm} />);
       });
       if (hit && X && !isBareOpening(hit.type)) {
         // serramento tagliato: telaio in alto e in basso, vetro o anta, davanzale
@@ -490,6 +495,9 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
     lay.landings.forEach((l, k) => {
       if (!visible(l.poly) || cutIntervals(l.poly, f).length) return;
       const us = l.poly.map(U);
+      // la rampa che arriva sale allontanandosi: del pianerottolo si vede anche l'ultima alzata
+      const arriving = lay.flights.find((fl) => Math.abs(fl.base + (fl.steps + 1) * lay.h - l.z) < 1e-6);
+      const face = arriving && dot(arriving.d, f.depth) > 0 ? Math.max(LANDING_THICKNESS, lay.h) : LANDING_THICKNESS;
       views.push({
         depth: mean(l.poly),
         node: (
@@ -498,7 +506,7 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
             x={Math.min(...us)}
             y={Z(l.z)}
             width={Math.max(...us) - Math.min(...us)}
-            height={LANDING_THICKNESS}
+            height={face}
             className="sc-view"
             strokeWidth={0.18 * mm}
           />

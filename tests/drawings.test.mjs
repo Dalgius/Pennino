@@ -266,7 +266,40 @@ test('sezioni: il piano che passa per un arco taglia il muro all’intradosso', 
       return Math.abs(Math.min(...zs) - expect) < 1e-6 && Math.max(...zs) > zKey;
     });
     assert.ok(ok, `muro tagliato a ${expect.toFixed(3)} m a ${dx} m dalla chiave`);
+    // oltre il piano l'intradosso scende all'imposta: se ne vede lo spigolo
+    const zs = lvl.elevation + win.sill + O.springHeight(win);
+    const imp = [...svg.matchAll(/<line [^>]*class="sc-view-line"[^>]*>/g)].filter((m) => Math.abs(-Number(m[0].match(/y1="([^"]+)"/)[1]) - zs) < 1e-6);
+    assert.ok(imp.length > 0, `linea d'imposta a ${zs.toFixed(3)} m`);
   }
+});
+
+test('sezioni: scala a L vista di fronte, nessun vuoto tra gradini e pianerottolo', () => {
+  const p = sampleProject();
+  const st = p.elements.find((e) => e.kind === 'stair');
+  st.shape = 'L';
+  st.turn = 'sinistra';
+  // alzate più alte dello spessore del pianerottolo: l'ultima alzata va disegnata per intero
+  st.risers = 13;
+  const lay = G.stairLayout(p, st);
+  assert.ok(lay.h > 0.2);
+  const landing = lay.landings[0];
+  let checked = 0;
+  for (const flip of [false, true]) {
+    // piano davanti alla partenza, perpendicolare alla prima rampa
+    const sec = { id: 'sl', name: 'C', a: { x: 0.5, y: 12 }, b: { x: 0.5, y: 4 }, depth: 30, flip };
+    const els = section(p, sec);
+    const rects = els.filter((e) => e.tag === 'rect' && /sc-view/.test(e.cls));
+    // alzate della prima rampa (rettangoli alti un'alzata) e faccia del pianerottolo
+    const risers = rects.filter((r) => Math.abs(r.box.y1 - r.box.y0 - lay.h) < 1e-6);
+    if (risers.length < lay.flights[0].steps) continue;
+    checked++;
+    // dalla base al pianerottolo le facce coprono tutta l'altezza, senza interruzioni
+    const spans = rects.map((r) => [-r.box.y1, -r.box.y0]).sort((x, y) => x[0] - y[0]);
+    let reach = 0;
+    for (const [z0, z1] of spans) if (z0 <= reach + 1e-6) reach = Math.max(reach, z1);
+    assert.ok(reach >= landing.z - 1e-6, `facce continue fino al pianerottolo (arrivano a ${reach.toFixed(3)} su ${landing.z.toFixed(3)})`);
+  }
+  assert.equal(checked, 1, 'da un solo lato si vedono le alzate');
 });
 
 // ───────── Tavole ─────────
