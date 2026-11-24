@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { sceneBounds } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
 import { archProfile, archRise, fixtureSpec, leafSpans, springHeight, THRESHOLD_NOSE } from '../model/openings';
-import type { Opening, OpeningType, Project, Vec2, Wall } from '../model/types';
+import { vaultFrame, vaultHeightLocal, vaultLevels, vaultPoint, vaultThickness } from '../model/vaults';
+import type { Opening, OpeningType, Project, Vault, Vec2, Wall } from '../model/types';
 import {
   add,
   bbox,
@@ -46,6 +47,7 @@ const COLORS = {
   roof: 0x9a5b45,
   roofFlat: 0x7e8f6a,
   stair: 0xcfcac0,
+  vault: 0xd9cdb8,
   ground: 0xd9dcc9,
   lot: 0xc4c9b0,
   context: 0xd4d4d4,
@@ -183,6 +185,8 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       });
       for (const l of lay.landings) g.add(tag(extrudePolygon(l.poly, l.z, LANDING_THICKNESS, mat), e.id));
       root.add(g);
+    } else if (e.kind === 'vault') {
+      root.add(tag(vaultMesh(p, e, pick(e.id, M('vault', COLORS.vault, { side: THREE.DoubleSide }))), e.id));
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;
@@ -363,6 +367,65 @@ function buildFixture(
  * Copertura a falde: per ogni falda visibile l'estradosso (th sopra) e l'intradosso, più le fasce
  * verticali lungo il contorno (gronde e profili sui timpani).
  */
+/** Volta: guscio tra intradosso ed estradosso su una griglia del campo, con i bordi */
+function vaultMesh(p: Project, v: Vault, material: THREE.Material, n = 32) {
+  const fr = vaultFrame(v);
+  const z0 = vaultLevels(p, v).spring;
+  const th = vaultThickness(p, v);
+  const pos: number[] = [];
+  const P = (i: number, j: number, up: boolean) => {
+    const a = (fr.L1 * i) / n;
+    const b = (fr.L2 * j) / n;
+    const q = vaultPoint(fr, a, b);
+    pos.push(q.x, z0 + vaultHeightLocal(v, a, b, fr) + (up ? th : 0), -q.y);
+  };
+  const quad = (c: [number, number, boolean][], diag: boolean) => {
+    const [A, B, C, D] = c;
+    const tri = diag ? [A, B, C, A, C, D] : [A, B, D, B, C, D];
+    for (const x of tri) P(...x);
+  };
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) {
+      // celle divise lungo la diagonale del campo più vicina: i costoloni della crociera restano netti
+      const diag = Math.abs(i - j) <= Math.abs(i + j - (n - 1));
+      for (const up of [false, true])
+        quad(
+          [
+            [i, j, up],
+            [i + 1, j, up],
+            [i + 1, j + 1, up],
+            [i, j + 1, up],
+          ],
+          diag,
+        );
+    }
+  // bordi: il guscio visto di taglio lungo i quattro lati
+  for (let k = 0; k < n; k++) {
+    for (const [i0, j0, i1, j1] of [
+      [k, 0, k + 1, 0],
+      [k, n, k + 1, n],
+      [0, k, 0, k + 1],
+      [n, k, n, k + 1],
+    ])
+      quad(
+        [
+          [i0, j0, false],
+          [i1, j1, false],
+          [i1, j1, true],
+          [i0, j0, true],
+        ],
+        true,
+      );
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, material);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
 function roofMesh(g: RoofGeom, material: THREE.Material) {
   const pos: number[] = [];
   const V = (q: Vec2, z: number) => pos.push(q.x, z, -q.y);

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { BuildingElement, ElementStatus, Project, Vec2, ViewState, WallRef } from '../model/types';
+import type { BuildingElement, ElementStatus, Project, Vec2, VaultShape, ViewState, WallRef } from '../model/types';
+import { defaultVault } from '../model/vaults';
 import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
   add,
@@ -45,9 +46,38 @@ import { applyDimension, computeDimensions, defaultSide, dimensionError, dimLine
 import { SCREEN_TEXT } from './Inquadramento';
 
 /** Punto q riportato sull'orizzontale o sulla verticale per from, quella più vicina */
+/** Rettangolo con i lati paralleli agli assi tra due angoli opposti, in senso antiorario */
+const axisRect = (a: Vec2, b: Vec2): Vec2[] => {
+  const x0 = Math.min(a.x, b.x);
+  const x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const y1 = Math.max(a.y, b.y);
+  return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+};
+
+/** Il contorno è un rettangolo (tolti i vertici allineati)? Ne restituisce i quattro vertici */
+function rectangleOf(poly: Vec2[] | undefined): Vec2[] | null {
+  if (!poly || poly.length < 4) return null;
+  const pts = poly.filter((q, i) => {
+    const a = poly[(i + poly.length - 1) % poly.length];
+    const b = poly[(i + 1) % poly.length];
+    return Math.abs((q.x - a.x) * (b.y - q.y) - (q.y - a.y) * (b.x - q.x)) > 1e-6;
+  });
+  if (pts.length !== 4) return null;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[(i + 3) % 4];
+    const q = pts[i];
+    const b = pts[(i + 1) % 4];
+    const d1 = norm(sub(q, a));
+    const d2 = norm(sub(b, q));
+    if (Math.abs(dot(d1, d2)) > 1e-3) return null;
+  }
+  return pts;
+}
+
 const alignOrtho = (from: Vec2, q: Vec2): Vec2 => (Math.abs(q.x - from.x) >= Math.abs(q.y - from.y) ? { x: q.x, y: from.y } : { x: from.x, y: q.y });
 
-export type Tool = 'select' | 'wall' | 'slab' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
+export type Tool = 'select' | 'wall' | 'slab' | 'vault' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
 
 type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
 
@@ -61,10 +91,11 @@ const TOOLS: ToolDef[] = [
   { id: 'window', label: 'Finestra', key: 'F', icon: 'window', catalog: 'opening', hint: 'Avvicinati a un muro e clicca per inserire la finestra.' },
   { id: 'stair', label: 'Scala', key: 'G', icon: 'stair', hint: 'Clic su partenza e arrivo della rampa: la scala sale al livello superiore.' },
   { id: 'roof', label: 'Copertura', key: 'C', icon: 'roof', catalog: 'roof', hint: 'Clic sui vertici della copertura, oppure usa «Copertura sull’edificio».' },
+  { id: 'vault', label: 'Volta', key: 'B', icon: 'vault', catalog: 'vault', hint: 'Clic dentro un vano rettangolare chiuso dai muri, oppure clic su due angoli opposti del campo.' },
 ];
 
 /** Strumenti non disponibili sul livello delle coperture */
-const ROOF_LEVEL_OFF: Tool[] = ['door', 'window', 'stair'];
+const ROOF_LEVEL_OFF: Tool[] = ['door', 'window', 'stair', 'vault'];
 /** Altezza dei parapetti disegnati sul livello delle coperture */
 const ROOF_PARAPET = 1.1;
 
@@ -135,6 +166,7 @@ export function Modellazione() {
     beam: project.catalog.beam[0]?.id ?? '',
     opening: project.catalog.opening[0]?.id ?? '',
     roof: project.catalog.roof[0]?.id ?? '',
+    vault: project.catalog.vault?.[0]?.id ?? '',
   });
   const [editingType, setEditingType] = useState<{ key: CatalogKey; id: string } | null>(null);
   // se una tipologia attiva viene eliminata, lo strumento passa alla prima disponibile
@@ -189,6 +221,7 @@ export function Modellazione() {
   const [mirrorNext, setMirrorNext] = useState(false);
   // forma delle nuove scale
   const [stairShape, setStairShape] = useState<'dritta' | 'L' | 'U'>('dritta');
+  const [vaultShape, setVaultShape] = useState<VaultShape>('botte');
   // linea di riferimento dei muri disegnati (ricordata tra le sessioni)
   const [wallRef, setWallRefState] = useState<WallRef>(() => {
     try {
@@ -444,6 +477,16 @@ export function Modellazione() {
     } else if (tool === 'slab' || tool === 'roof') {
       if (draft.length >= 3 && dist(q, draft[0]) < 0.01) return finishPolygon(draft);
       setDraft(pts2);
+    } else if (tool === 'vault') {
+      if (!draft.length) {
+        // clic dentro un vano rettangolare: la volta prende il filo interno dei muri
+        const field = rectangleOf(roomShape(viewProject, lvlId, q)?.net);
+        if (field) return addVault(field);
+        return setDraft([q]);
+      }
+      // secondo angolo: campo con i lati paralleli agli assi
+      if (Math.abs(q.x - draft[0].x) > 0.3 && Math.abs(q.y - draft[0].y) > 0.3) addVault(axisRect(draft[0], q));
+      resetDraft();
     } else if (tool === 'beam' || tool === 'stair') {
       if (draft.length === 1) {
         if (dist(draft[0], q) > 0.1) {
@@ -483,6 +526,11 @@ export function Modellazione() {
       addElement({ id: uid('c'), kind: 'column', levelId: lvlId, typeId: activeType.column, p: q });
     }
     setTyped('');
+  };
+
+  const addVault = (points: Vec2[]) => {
+    const id = addElement({ id: uid('v'), kind: 'vault', levelId: lvlId, typeId: activeType.vault, ...defaultVault(project, lvlId, points, vaultShape, activeType.vault) });
+    select('modello', [id]);
   };
 
   const finishPolygon = (poly: Vec2[]) => {
@@ -1081,6 +1129,12 @@ export function Modellazione() {
                   : undefined
               }
             />
+            {tool === 'vault' && draft.length === 1 && cursor && (
+              // anteprima del campo della volta
+              <g className="draft" pointerEvents="none">
+                <polygon points={pts(axisRect(draft[0], cursor.p))} className="draft-poly" strokeWidth={0.35 * mm} />
+              </g>
+            )}
             {tool === 'stair' && draft.length === 1 && cursor && dist(draft[0], cursor.p) > 0.1 && (
               // anteprima della scala: rampe e pianerottolo
               <g className="draft" pointerEvents="none">
@@ -1261,6 +1315,23 @@ export function Modellazione() {
                 {wallRef === 'asse'
                   ? 'Si disegna sull’asse del muro.'
                   : `Si disegna sul ${wallRef === 'sinistra' ? 'filo sinistro' : 'filo destro'}, guardando nel verso di disegno: il muro cresce dall’altra parte e quel filo resta fermo se cambi spessore.`}
+              </p>
+            </>
+          )}
+          {tool === 'vault' && (
+            <>
+              <div className="subhead">Forma della volta</div>
+              <Segmented<VaultShape>
+                small
+                value={vaultShape}
+                options={[
+                  { value: 'botte', label: 'A botte' },
+                  { value: 'crociera', label: 'A crociera' },
+                ]}
+                onChange={setVaultShape}
+              />
+              <p className="note">
+                Clic dentro un vano rettangolare chiuso dai muri (la volta prende il filo interno), oppure su due angoli opposti del campo. Imposta e freccia si propongono con la chiave sotto il solaio superiore e si cambiano nell’ispettore.
               </p>
             </>
           )}

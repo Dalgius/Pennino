@@ -142,7 +142,7 @@ export function RoomInspector({ id }: { id: string }) {
         <div className="kv-grid">
           <div><span>Superficie netta</span><b className="mono">{fmt(info.area)} m²</b></div>
           <div><span>Perimetro</span><b className="mono">{fmt(info.perimeter)} m</b></div>
-          <div><span>Altezza netta</span><b className={`mono ${habitable && !heightOk ? 'warn' : ''}`}>{fmt(info.height)} m</b></div>
+          <div><span>{info.vaulted ? 'Altezza media (volta)' : 'Altezza netta'}</span><b className={`mono ${habitable && !heightOk ? 'warn' : ''}`}>{fmt(info.height)} m</b></div>
           <div><span>Volume</span><b className="mono">{fmt(info.area * info.height)} m³</b></div>
           <div><span>Finestre</span><b className="mono">{fmt(info.windowArea)} m²</b></div>
           <div>

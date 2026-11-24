@@ -4,6 +4,9 @@ import { roofOutlineOf } from './roofs';
 import type { BuildingElement, ContextItem, Project, SiteItem, Vec2 } from './types';
 import {
   add,
+  dot,
+  mul,
+  norm,
   bbox,
   roofBase,
   roofEave,
@@ -37,6 +40,10 @@ export function getHandles(o: Editable): Vec2[] {
 }
 
 export function setHandle(o: Editable, i: number, v: Vec2) {
+  if ('kind' in o && o.kind === 'vault') {
+    o.points = dragRectCorner(o.points, i, v);
+    return;
+  }
   if ('a' in o && 'b' in o) {
     if (i === 0) o.a = v;
     else o.b = v;
@@ -50,6 +57,29 @@ export function translate(o: Editable, d: Vec2) {
     o.b = add(o.b, d);
   } else if ('points' in o) o.points = o.points.map((q) => add(q, d));
   else if ('p' in o) o.p = add(o.p, d);
+}
+
+/**
+ * Rettangolo con il vertice i portato verso v: il vertice opposto resta fermo e i lati restano
+ * paralleli a quelli di prima (le volte stanno su campi rettangolari)
+ */
+export function dragRectCorner(pts: Vec2[], i: number, v: Vec2): Vec2[] {
+  const c = pts[(i + 2) % 4];
+  const e1 = norm(sub(pts[1], pts[0]));
+  const e2 = { x: -e1.y, y: e1.x };
+  const r = sub(v, c);
+  const sign = (x: number, ref: number) => (Math.abs(x) < 0.1 ? (Math.sign(ref) || 1) * 0.1 : x);
+  const old = sub(pts[i], c);
+  const d1 = sign(dot(r, e1), dot(old, e1));
+  const d2 = sign(dot(r, e2), dot(old, e2));
+  const out = [...pts];
+  out[i] = add(c, add(mul(e1, d1), mul(e2, d2)));
+  // il vicino che differiva lungo e1 ora sta sulla retta di c lungo e2, e viceversa
+  for (const k of [(i + 1) % 4, (i + 3) % 4]) {
+    const alongE1 = Math.abs(dot(sub(pts[k], pts[i]), e1)) > Math.abs(dot(sub(pts[k], pts[i]), e2));
+    out[k] = alongE1 ? add(c, mul(e2, d2)) : add(c, mul(e1, d1));
+  }
+  return out;
 }
 
 /** Elimina elementi e tutto ciò che ospitano (aperture nei muri) */
@@ -126,6 +156,10 @@ export function hitTestModel(p: Project, w: Vec2, levelId: string, tol: number):
     }
   for (const e of p.elements) {
     if (e.kind === 'roof' && e.levelId === levelId && distToPolyline(w, e.points, true) < tol * 2) return e.id;
+  }
+  // volte: dentro il campo, sopra il pavimento del vano
+  for (const e of [...p.elements].reverse()) {
+    if (e.kind === 'vault' && e.levelId === levelId && (pointInPolygon(w, e.points) || distToPolyline(w, e.points, true) < tol)) return e.id;
   }
   for (const e of [...p.elements].reverse()) {
     if (e.kind === 'slab' && e.levelId === levelId && pointInPolygon(w, e.points) && !slabHoles(p, e).some((h) => pointInPolygon(w, h))) return e.id;
@@ -468,6 +502,7 @@ function footprintOf(p: Project, e: BuildingElement): Vec2[] {
     }
     case 'slab':
     case 'roof':
+    case 'vault':
       return e.points;
     case 'column':
       return columnQuad(e, byId(p.catalog.column, e.typeId));

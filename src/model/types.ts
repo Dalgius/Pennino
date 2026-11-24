@@ -185,6 +185,43 @@ export interface Catalog {
   beam: BeamType[];
   opening: OpeningType[];
   roof: RoofType[];
+  vault: VaultType[];
+}
+
+/** Tipologia di volta: spessore della volta e riempimento dei rinfianchi */
+export interface VaultType {
+  id: ID;
+  name: string;
+  /** Spessore della volta (m) */
+  thickness: number;
+  /** Volta, computata per superficie d'intradosso */
+  priceCode: string;
+  /** Rinfianco fino all'estradosso in chiave, computato a volume; vuoto = senza riempimento */
+  fillPriceCode?: string;
+}
+
+/** botte: cilindro con le generatrici lungo un lato; crociera: due botti che si incrociano */
+export type VaultShape = 'botte' | 'crociera';
+
+/**
+ * Volta su un campo rettangolare (points: quattro vertici in ordine). L'intradosso parte
+ * dall'imposta (quota dal piano del livello) e sale della freccia fino alla chiave.
+ */
+export interface Vault {
+  id: ID;
+  kind: 'vault';
+  /** Stato dell'elemento nelle ristrutturazioni; assente = nuovo */
+  status?: ElementStatus;
+  levelId: ID;
+  typeId: ID;
+  points: Vec2[];
+  shape: VaultShape;
+  /** botte: generatrici parallele al lato 0→1 (0) o al lato 1→2 (1) */
+  axis?: 0 | 1;
+  /** Quota d'imposta dal piano del livello (m) */
+  spring: number;
+  /** Freccia (m) */
+  rise: number;
 }
 
 export interface Wall {
@@ -374,7 +411,7 @@ export type Annotation =
   /** quota altimetrica: quota del livello più dz */
   | { id: ID; kind: 'altimetrica'; levelId: ID; p: Vec2; dz: number };
 
-export type BuildingElement = Wall | Opening | Slab | Column | Beam | Stair | Roof;
+export type BuildingElement = Wall | Opening | Slab | Column | Beam | Stair | Roof | Vault;
 export type ElementKind = BuildingElement['kind'];
 
 // ───────────────────────── 03 · Layout ─────────────────────────
@@ -433,6 +470,7 @@ export type WbsCategory =
   | 'Strutture'
   | 'Murature'
   | 'Solai'
+  | 'Volte'
   | 'Coperture'
   | 'Serramenti'
   | 'Scale'

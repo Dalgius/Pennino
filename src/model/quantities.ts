@@ -6,6 +6,7 @@ import { statusOf, usesStates } from './states';
 import type { PriceItem, Project, Roof, WbsCategory } from './types';
 import { wallGeom, wallOutline } from './walls';
 import { openingArea, openingAreaIn } from './openings';
+import { vaultFrame, vaultQuantities, vaultThickness, vaultType } from './vaults';
 import {
   bbox,
   byId,
@@ -49,6 +50,7 @@ export const WBS: WbsCategory[] = [
   'Strutture',
   'Murature',
   'Solai',
+  'Volte',
   'Coperture',
   'Serramenti',
   'Scale',
@@ -187,12 +189,19 @@ export function computeComputo(p: Project): ComputoLine[] {
       push(
         t?.priceCode,
         { ...base, level: wl ?? '—' },
-        { area: (t?.width ?? 0) * (t?.height ?? 0), f: { m2: `${n2(t?.width ?? 0)} × ${n2(t?.height ?? 0)}` } },
+        { area: t ? openingArea(t) : 0, f: { m2: t && t.head && t.head !== 'piana' ? `${n2(t.width)} × ${n2(t.height)} con l’arco` : `${n2(t?.width ?? 0)} × ${n2(t?.height ?? 0)}` } },
       );
     } else if (e.kind === 'stair') {
       const lay = stairLayout(p, e);
       const Ls = lay.flights.reduce((t, f) => t + f.len, 0);
       push('SCA.01', base, { length: Ls, f: { m: lay.flights.length > 1 ? `rampe ${lay.flights.map((f) => n2(f.len)).join(' + ')}` : `L ${n2(Ls)}` } });
+    } else if (e.kind === 'vault') {
+      // volta: superficie d'intradosso sviluppata; rinfianco a volume fino all'orizzontale della chiave
+      const t = vaultType(p, e);
+      const q = vaultQuantities(p, e);
+      const fr = vaultFrame(e);
+      push(t?.priceCode, base, { area: q.area, volume: q.volume, f: { m2: `intradosso su ${n2(fr.L1)} × ${n2(fr.L2)}`, m3: `${n2(q.area)} × ${n2(vaultThickness(p, e))}` } });
+      if (t?.fillPriceCode) push(t.fillPriceCode, { ...base, label: `${label} · rinfianco` }, { volume: q.fill, f: { m3: 'tra estradosso e orizzontale della chiave' } });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const A = roofSurface(p, e);

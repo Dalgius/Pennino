@@ -1,10 +1,11 @@
 // Locali: il contorno di un vano si ricava dagli assi dei muri che lo chiudono attorno a un punto.
 // Dal contorno d'asse si ottiene la superficie netta arretrando ogni lato di mezzo spessore del muro.
 
-import type { Project, Room, Vec2, Wall } from './types';
+import type { Project, Room, Vault, Vec2, Wall } from './types';
 import { cached } from './cache';
 import { byId, dist, JOIN_TOL, levelAbove, offsetPolygon, pointInPolygon, polygonArea, polygonPerimeter, projectOnSegment, slabOutline, wallThickness } from './geometry';
 import { openingArea } from './openings';
+import { vaultLevels, vaultQuantities } from './vaults';
 
 export interface RoomShape {
   /** contorno sugli assi dei muri, antiorario */
@@ -154,8 +155,10 @@ export interface RoomInfo {
   /** superficie netta (m²) */
   area: number;
   perimeter: number;
-  /** altezza netta: interpiano meno il solaio soprastante */
+  /** altezza netta: interpiano meno il solaio soprastante; sotto una volta l'altezza media */
   height: number;
+  /** coperto da una volta: height è l'altezza media dell'intradosso */
+  vaulted?: boolean;
   /** superficie delle finestre sui muri del locale (m²) */
   windowArea: number;
   /** rapporto aeroilluminante: finestre / pavimento */
@@ -179,8 +182,12 @@ export function roomInfo(p: Project, room: Room): RoomInfo {
   if (next)
     for (const e of p.elements)
       if (e.kind === 'slab' && e.levelId === next.id && pointInPolygon(room.p, slabOutline(p, e))) slab = byId(p.catalog.slab, e.typeId)?.thickness ?? slab;
-  const height = Math.max(0, (lvl?.height ?? 0) - slab);
-  if (!shape) return { room, shape, area: 0, perimeter: 0, height, windowArea: 0, ratio: 0 };
+  // sotto una volta: altezza media dell'intradosso (imposta più la media dell'arco sul campo)
+  const vault = p.elements.find((e): e is Vault => e.kind === 'vault' && e.levelId === room.levelId && pointInPolygon(room.p, e.points));
+  const vq = vault && vaultQuantities(p, vault, 40);
+  const height = vault && vq ? Math.max(0, vault.spring + vaultLevels(p, vault).rise - vq.fill / vq.plan) : Math.max(0, (lvl?.height ?? 0) - slab);
+  const vaulted = !!vault;
+  if (!shape) return { room, shape, area: 0, perimeter: 0, height, vaulted, windowArea: 0, ratio: 0 };
   const area = Math.abs(polygonArea(shape.net));
   // finestre: quelle dei muri del contorno il cui centro cade sul tratto che affaccia sul locale
   let windowArea = 0;
@@ -201,7 +208,7 @@ export function roomInfo(p: Project, room: Room): RoomInfo {
       }
     }
   }
-  return { room, shape, area, perimeter: polygonPerimeter(shape.net), height, windowArea, ratio: area > 0 ? windowArea / area : 0 };
+  return { room, shape, area, perimeter: polygonPerimeter(shape.net), height, vaulted, windowArea, ratio: area > 0 ? windowArea / area : 0 };
 }
 
 export const isHabitable = (r: Room) => HABITABLE_USES.includes(r.use);

@@ -20,6 +20,7 @@ import {
   wallSegmentQuad,
 } from '../model/geometry';
 import { archProfile, archRise, fixtureSpec, leafSpans, springHeight } from '../model/openings';
+import { vaultEdges } from '../model/vaults';
 import { endAt, startAt, wallGeom, wallOutline } from '../model/walls';
 
 export type Direction = 'sud' | 'nord' | 'est' | 'ovest';
@@ -54,7 +55,7 @@ export function frameOf(dir: Direction): ViewFrame {
 /** Punti in pianta di un elemento (per estensioni e filtri di profondità) */
 function elementPoints(e: Project['elements'][number]): Vec2[] {
   if (e.kind === 'wall' || e.kind === 'beam' || e.kind === 'stair') return [e.a, e.b];
-  if (e.kind === 'slab' || e.kind === 'roof') return e.points;
+  if (e.kind === 'slab' || e.kind === 'roof' || e.kind === 'vault') return e.points;
   if (e.kind === 'column') return [e.p];
   return [];
 }
@@ -355,6 +356,20 @@ export function ElevationView({ project: p, direction, mm, textScale = 1, extent
         depth: Math.min(...q.map(D)),
         node: <rect key={e.id} x={Math.min(...us)} y={Z(top)} width={Math.max(...us) - Math.min(...us)} height={h} className="ev-wall" strokeWidth={0.25 * mm} />,
       });
+    } else if (e.kind === 'vault') {
+      // volte viste oltre il piano di sezione: imposte, chiave, archi di testata e costoloni
+      // (nei prospetti stanno dentro l'edificio)
+      const near = frame.near;
+      if (near === undefined) continue;
+      for (const [k, ed] of vaultEdges(p, e).entries()) {
+        const vis = ed.pts.filter((x) => D(x.q) >= near - 1e-6);
+        if (vis.length < 2) continue;
+        items.push({
+          // davanti al muro su cui poggia: lo spigolo si vede sulla sua faccia
+          depth: vis.reduce((t, x) => t + D(x.q), 0) / vis.length - 0.03,
+          node: <polyline key={`${e.id}v${k}`} points={vis.map((x) => `${U(x.q)},${Z(x.z)}`).join(' ')} className="ev-vault-line" fill="none" strokeWidth={(ed.kind === 'chiave' ? 0.13 : 0.18) * mm} />,
+        });
+      }
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;

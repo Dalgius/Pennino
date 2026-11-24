@@ -194,6 +194,10 @@ export function sampleProject(): Project {
         { id: 'ct_40', name: 'Pilastro c.a. 30×50', width: 0.3, depth: 0.5, material: 'C30/37', priceCode: 'STR.01' },
       ],
       beam: [{ id: 'bt_30', name: 'Trave c.a. 30×40', width: 0.3, height: 0.4, material: 'C30/37', priceCode: 'STR.02' }],
+      vault: [
+        { id: 'vt_mattoni', name: 'Volta in mattoni pieni in foglio', thickness: 0.06, priceCode: 'VOL.01', fillPriceCode: 'VOL.03' },
+        { id: 'vt_mattoni12', name: 'Volta in mattoni pieni a una testa', thickness: 0.12, priceCode: 'VOL.02', fillPriceCode: 'VOL.03' },
+      ],
       opening: [
         { id: 'ot_int', category: 'porta', name: 'Porta interna 80×210', width: 0.8, height: 2.1, sill: 0, priceCode: 'SER.01' },
         { id: 'ot_ing', category: 'porta', name: 'Portoncino 100×220', width: 1.0, height: 2.2, sill: 0, priceCode: 'SER.02' },
@@ -328,6 +332,9 @@ export function sampleProject(): Project {
       { code: 'SER.03', description: 'Finestra in legno-alluminio triplo vetro', unit: 'm²', price: 640, category: 'Serramenti' },
       { code: 'SER.04', description: 'Portafinestra in legno-alluminio triplo vetro', unit: 'm²', price: 660, category: 'Serramenti' },
       { code: 'SCA.01', description: 'Scala a rampa in c.a. con rivestimento in pietra', unit: 'cad', price: 5200, category: 'Scale' },
+      { code: 'VOL.01', description: 'Volta in mattoni pieni in foglio, compresa centinatura (superficie d’intradosso)', unit: 'm²', price: 190, category: 'Volte' },
+      { code: 'VOL.02', description: 'Volta in mattoni pieni a una testa, compresa centinatura (superficie d’intradosso)', unit: 'm²', price: 260, category: 'Volte' },
+      { code: 'VOL.03', description: 'Riempimento dei rinfianchi in calcestruzzo alleggerito', unit: 'm³', price: 165, category: 'Volte' },
       { code: 'FIN.01', description: 'Intonaco civile per interni a base calce', unit: 'm²', price: 24, category: 'Finiture' },
       { code: 'FIN.02', description: 'Rasatura armata e finitura per cappotto', unit: 'm²', price: 36, category: 'Finiture' },
       { code: 'FIN.03', description: 'Pavimento in gres porcellanato', unit: 'm²', price: 58, category: 'Finiture' },

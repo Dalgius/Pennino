@@ -31,13 +31,14 @@ import {
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { isConvexPolygon, isOrthogonal, ROOF_SHAPE_LABEL, roofTop } from '../model/roofs';
+import { VAULT_SHAPE_LABEL, vaultFrame, vaultLevels, vaultQuantities, vaultSpans, vaultType } from '../model/vaults';
 import { ARCH_LABEL, archRise, defaultRise, fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf, openingAreaIn } from '../model/openings';
 import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
 import { NumberField, Segmented, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
 import { HATCH_KINDS, HATCH_LABEL, HatchSwatch, hatchOf } from '../views/hatch';
-import type { ArchHead, BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Roof, Stair, WallRef } from '../model/types';
+import type { ArchHead, VaultShape, BuildingElement, ElementStatus, FramePosition, HatchKind, Opening, OpeningType, Roof, Stair, WallRef } from '../model/types';
 import { STATUS_LABEL, statusOf } from '../model/states';
 
 export type CatalogKey = keyof Catalog;
@@ -507,6 +508,55 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <b>2a + p = {fmt(blondel * 100, 1)} cm</b>
               <span>{ok ? 'Regola di Blondel rispettata (60–66 cm)' : 'Fuori dall’intervallo 60–66 cm: modifica alzate o pedata'}</span>
             </div>
+          </>
+        );
+      })()}
+
+      {e.kind === 'vault' && (() => {
+        const fr = vaultFrame(e);
+        const sp = vaultSpans(e, fr);
+        const lv = vaultLevels(project, e);
+        const q = vaultQuantities(project, e);
+        const lvl = byId(project.levels, e.levelId);
+        const half = (e.shape === 'crociera' ? Math.min(fr.L1, fr.L2) : sp.span) / 2;
+        const keyOver = lvl && lv.top > lvl.elevation + lvl.height + 1e-3;
+        return (
+          <>
+            {typeSelect('vault', e.typeId)}
+            <SelectField<VaultShape>
+              label="Forma"
+              value={e.shape}
+              options={(Object.keys(VAULT_SHAPE_LABEL) as VaultShape[]).map((v) => ({ value: v, label: VAULT_SHAPE_LABEL[v] }))}
+              onChange={(v) => upd((x) => x.kind === 'vault' && (x.shape = v))}
+            />
+            {e.shape === 'botte' && (
+              <SelectField<'0' | '1'>
+                label="Generatrici"
+                value={String(sp.generatrix) as '0' | '1'}
+                options={[
+                  { value: '0', label: `Lungo il lato di ${fmt(fr.L1)} m (luce ${fmt(fr.L2)} m)` },
+                  { value: '1', label: `Lungo il lato di ${fmt(fr.L2)} m (luce ${fmt(fr.L1)} m)` },
+                ]}
+                onChange={(v) => upd((x) => x.kind === 'vault' && (x.axis = Number(v) as 0 | 1))}
+              />
+            )}
+            <div className="fields fields-2">
+              <NumberField label="Imposta dal piano" unit="m" value={e.spring} step={0.05} min={0} onChange={(v) => upd((x) => x.kind === 'vault' && (x.spring = v))} />
+              <NumberField label="Freccia" unit="cm" digits={0} step={5} value={lv.rise * 100} min={5} max={half * 100} onChange={(v) => upd((x) => x.kind === 'vault' && (x.rise = v / 100))} />
+            </div>
+            <button className="link" onClick={() => upd((x) => x.kind === 'vault' && (x.rise = half))}>
+              Tutto sesto (freccia {fmt(half)} m)
+            </button>
+            <div className="kv-grid">
+              <div><span>Campo</span><b className="mono">{fmt(fr.L1)} × {fmt(fr.L2)} m</b></div>
+              <div><span>Chiave (intradosso)</span><b className={`mono ${keyOver ? 'warn' : ''}`}>{fmt(lv.key - (lvl?.elevation ?? 0))} m</b></div>
+              <div><span>Superficie d’intradosso</span><b className="mono">{fmt(q.area)} m²</b></div>
+              <div><span>Rinfianco</span><b className="mono">{vaultType(project, e)?.fillPriceCode ? `${fmt(q.fill)} m³` : '—'}</b></div>
+            </div>
+            {keyOver && <p className="note warn">La volta in chiave, con il suo spessore, supera l’altezza del piano: abbassa l’imposta o la freccia.</p>}
+            <p className="note">
+              Quote dal piano del livello. {e.shape === 'crociera' ? 'Le due botti hanno la stessa chiave: sul lato corto l’arco è di cerchio, sul lato lungo è lo stesso arco allungato (ellittico), così i costoloni stanno sulle diagonali.' : 'Gli archi sono di cerchio: a tutto sesto con la freccia pari a metà della luce, ribassati se minore.'} Trascina gli angoli per cambiare il campo.
+            </p>
           </>
         );
       })()}
@@ -1079,6 +1129,23 @@ export function TypeEditor({ catKey, id, onClose }: { catKey: CatalogKey; id: st
               <NumberField label="Altezza" unit="cm" digits={0} step={5} value={bt.height * 100} min={10} onChange={(v) => upd((x: { height: number }) => (x.height = v / 100))} />
             </div>
             <SelectField label="Voce di computo" value={bt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+          </>
+        );
+      })()}
+
+      {catKey === 'vault' && (() => {
+        const vt = byId(project.catalog.vault, id)!;
+        return (
+          <>
+            <NumberField label="Spessore della volta" unit="cm" digits={0} step={1} value={vt.thickness * 100} min={3} onChange={(v) => upd((x: { thickness: number }) => (x.thickness = v / 100))} />
+            <SelectField label="Voce di computo (volta, m² d’intradosso)" value={vt.priceCode} options={priceOptions} onChange={(v) => upd((x: { priceCode: string }) => (x.priceCode = v))} />
+            <SelectField
+              label="Rinfianco (m³)"
+              value={vt.fillPriceCode ?? ''}
+              options={[{ value: '', label: '— senza riempimento —' }, ...priceOptions.slice(1)]}
+              onChange={(v) => upd((x: { fillPriceCode?: string }) => (x.fillPriceCode = v || undefined))}
+            />
+            <p className="note">Il rinfianco riempie lo spazio tra l’estradosso e il piano orizzontale per la chiave della volta.</p>
           </>
         );
       })()}

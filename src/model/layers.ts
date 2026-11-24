@@ -5,7 +5,7 @@ import type { Annotation, BuildingElement, Project, Room, Vec2 } from './types';
 import { cached } from './cache';
 import { add, dist, mul, norm, projectOnSegment, sub } from './geometry';
 
-export type LayerKey = 'muri' | 'solai' | 'strutture' | 'scale' | 'coperture' | 'locali' | 'annotazioni' | 'quote';
+export type LayerKey = 'muri' | 'solai' | 'strutture' | 'scale' | 'volte' | 'coperture' | 'locali' | 'annotazioni' | 'quote';
 export type LayerMode = 'visibile' | 'bloccato' | 'nascosto';
 export type Layers = Record<LayerKey, LayerMode>;
 
@@ -14,6 +14,7 @@ export const LAYER_LABEL: Record<LayerKey, string> = {
   solai: 'Solai',
   strutture: 'Pilastri e travi',
   scale: 'Scale',
+  volte: 'Volte',
   coperture: 'Coperture',
   locali: 'Locali',
   annotazioni: 'Annotazioni',
@@ -34,6 +35,8 @@ export function layerOf(e: BuildingElement): LayerKey {
       return 'strutture';
     case 'stair':
       return 'scale';
+    case 'vault':
+      return 'volte';
     default:
       return 'coperture';
   }

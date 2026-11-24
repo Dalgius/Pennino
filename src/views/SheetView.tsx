@@ -472,6 +472,8 @@ export const SHEET_CSS = `
 .sheet-svg .pv-dim-ext { stroke: #555; }
 .sheet-svg .pv-column { fill: #1a1a1a; stroke: #111; }
 .sheet-svg .pv-beam { fill: none; stroke: #333; }
+.sheet-svg .pv-vault-line { fill: none; stroke: #333; }
+.sheet-svg .pv-vault-text { fill: #333; }
 .sheet-svg .pv-roof { fill: none; stroke: #555; }
 .sheet-svg .pv-stair { fill: #fff; stroke: #222; }
 .sheet-svg .pv-stair polyline { fill: none; }
@@ -505,6 +507,7 @@ export const SHEET_CSS = `
 .sheet-svg .sc-cut { fill: #111; stroke: #111; }
 .sheet-svg .sc-view { fill: #fff; stroke: #444; }
 .sheet-svg .sc-view-line { fill: none; stroke: #444; }
+.sheet-svg .ev-vault-line { fill: none; stroke: #444; }
 .sheet-svg .sc-outline { fill: none; stroke: #111; }
 .sheet-svg .sc-layer-line, .sheet-svg .sc-layer-outline { fill: none; stroke: #444; }
 .sheet-svg .sc-earth { fill: #ddd; }

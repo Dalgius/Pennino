@@ -11,6 +11,7 @@ import { RoofSymbols } from './SiteView';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { computeDimensions, DIM_FIRST, DIM_STEP, layoutDimensions, segmentEdit, type DimChain } from '../model/dimensions';
 import { fixtureSpec, leafSpans, THRESHOLD_NOSE } from '../model/openings';
+import { vaultEdges, vaultLevels, vaultOutline } from '../model/vaults';
 import { bandPolygon, endAt, layerBands, levelCenter, startAt, wallGeom, wallOutline, wallPieces, type WallGeom } from '../model/walls';
 import {
   add,
@@ -224,6 +225,9 @@ function PlanViewImpl({ project: p, levelId, mm, showDimensions, showLabels, sel
           />
         );
       })}
+
+      {/* volte: sopra il piano di taglio, proiezione tratteggiata */}
+      {els.map((v) => v.kind === 'vault' && onLevel(v) && <VaultSymbol key={v.id} project={p} vault={v} mm={mm} ts={ts} />)}
 
       {comparativa && <StatusOverlay project={p} levelId={levelId} mm={mm} />}
       {ghostAboveId && (
@@ -1119,6 +1123,15 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
           ))}
         </g>
       );
+    case 'vault':
+      return (
+        <g className="pv-sel" strokeWidth={sw}>
+          <polygon points={pts(vaultOutline(e))} />
+          {e.points.map((q, i) => (
+            <circle key={i} cx={q.x} cy={-q.y} r={1.2 * mm} className="pv-handle" />
+          ))}
+        </g>
+      );
     case 'column':
       return (
         <g className="pv-sel" strokeWidth={sw}>
@@ -1141,4 +1154,40 @@ function SelectionOutline({ project: p, id, mm, levelId }: { project: Project; i
       );
     }
   }
+}
+
+/**
+ * Volta in pianta: sta sopra il piano di taglio e si disegna tratteggiata. Botte: imposte e linea di
+ * chiave; crociera: costoloni diagonali e lati. Al centro le quote d'imposta e di chiave.
+ */
+function VaultSymbol({ project: p, vault: v, mm, ts }: { project: Project; vault: Extract<Project['elements'][number], { kind: 'vault' }>; mm: number; ts: number }) {
+  const lv = vaultLevels(p, v);
+  const ol = vaultOutline(v);
+  const c = { x: ol.reduce((t, q) => t + q.x, 0) / 4, y: ol.reduce((t, q) => t + q.y, 0) / 4 };
+  const dash = `${1.6 * mm} ${1 * mm}`;
+  const dashDot = `${4 * mm} ${1 * mm} ${0.6 * mm} ${1 * mm}`;
+  const font = 2 * mm * ts;
+  const z = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2).replace('.', ',')}`;
+  return (
+    <g className="pv-vault" pointerEvents="none">
+      <polygon points={pts(ol)} className="pv-vault-line" strokeWidth={0.13 * mm} strokeDasharray={dash} />
+      {vaultEdges(p, v, 2)
+        .filter((e) => e.kind !== 'arco')
+        .map((e, i) => (
+          <polyline
+            key={i}
+            points={pts(e.pts.map((x) => x.q))}
+            className="pv-vault-line"
+            strokeWidth={(e.kind === 'chiave' ? 0.13 : 0.18) * mm}
+            strokeDasharray={e.kind === 'chiave' ? dashDot : dash}
+          />
+        ))}
+      <text x={c.x} y={-c.y - font * 0.7} fontSize={font} textAnchor="middle" dominantBaseline="central" className="pv-vault-text">
+        {v.shape === 'crociera' ? 'volta a crociera' : 'volta a botte'}
+      </text>
+      <text x={c.x} y={-c.y + font * 0.7} fontSize={font * 0.85} textAnchor="middle" dominantBaseline="central" className="pv-vault-text">
+        imp. {z(lv.spring)} · chiave {z(lv.key)}
+      </text>
+    </g>
+  );
 }

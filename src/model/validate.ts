@@ -41,6 +41,8 @@ export function validateProject(raw: unknown): ValidationResult {
   for (const k of Object.keys(base.catalog) as (keyof Project['catalog'])[]) {
     const list = catalogRaw[k];
     if (Array.isArray(list) && list.length && list.every((t) => isObj(t) && typeof t.id === 'string')) (catalog[k] as unknown[]) = list;
+    // progetti precedenti alle volte: le tipologie predefinite, senza avvisi
+    else if (k === 'vault' && list === undefined) continue;
     else warnings.push(`Tipologie «${k}» mancanti: sono state usate quelle predefinite.`);
   }
   // progetti precedenti al vano senza porta: la tipologia si aggiunge al catalogo
@@ -72,7 +74,7 @@ export function validateProject(raw: unknown): ValidationResult {
   // elementi: forma minima e riferimenti a livelli e tipologie esistenti
   const levelIds = new Set(levels.map((l) => l.id));
   const typeIds = (k: keyof Project['catalog']) => new Set((catalog[k] as { id: string }[]).map((t) => t.id));
-  const types = { wall: typeIds('wall'), slab: typeIds('slab'), column: typeIds('column'), beam: typeIds('beam'), opening: typeIds('opening'), roof: typeIds('roof') };
+  const types = { wall: typeIds('wall'), slab: typeIds('slab'), column: typeIds('column'), beam: typeIds('beam'), opening: typeIds('opening'), roof: typeIds('roof'), vault: typeIds('vault') };
   const okElement = (e: unknown): e is BuildingElement => {
     if (!isObj(e) || typeof e.id !== 'string') return false;
     const onLevel = typeof e.levelId === 'string' && levelIds.has(e.levelId);
@@ -89,6 +91,16 @@ export function validateProject(raw: unknown): ValidationResult {
         return onLevel && types.beam.has(e.typeId as string) && isPt(e.a) && isPt(e.b);
       case 'stair':
         return onLevel && isPt(e.a) && isPt(e.b) && isNum(e.width);
+      case 'vault':
+        return (
+          onLevel &&
+          types.vault.has(e.typeId as string) &&
+          isPts(e.points, 4) &&
+          (e.points as unknown[]).length === 4 &&
+          (e.shape === 'botte' || e.shape === 'crociera') &&
+          isNum(e.spring) &&
+          isNum(e.rise)
+        );
       case 'opening':
         return typeof e.wallId === 'string' && types.opening.has(e.typeId as string) && isNum(e.offset);
       default:
@@ -141,7 +153,7 @@ export function validateProject(raw: unknown): ValidationResult {
     dimOffsets: isObj(raw.dimOffsets) ? Object.fromEntries(Object.entries(raw.dimOffsets).filter(([, v]) => isNum(v))) as Record<string, number> : {},
     sheets: Array.isArray(raw.sheets) ? (raw.sheets as Project['sheets']) : base.sheets,
     titleBlock: { ...base.titleBlock, ...(isObj(raw.titleBlock) ? raw.titleBlock : {}) },
-    prices: Array.isArray(raw.prices) ? (raw.prices as Project['prices']) : base.prices,
+    prices: Array.isArray(raw.prices) ? withVaultPrices(raw.prices as Project['prices'], base.prices) : base.prices,
     priceListName: typeof raw.priceListName === 'string' ? raw.priceListName : base.priceListName,
     siteLogistics: Array.isArray(raw.siteLogistics) ? (raw.siteLogistics as Project['siteLogistics']) : [],
     wallComputeOverride: raw.wallComputeOverride as Project['wallComputeOverride'],
@@ -151,4 +163,11 @@ export function validateProject(raw: unknown): ValidationResult {
   project.hiddenDims = refs.hiddenDims;
   project.dimOffsets = refs.dimOffsets;
   return { project, warnings };
+}
+
+/** Progetti precedenti alle volte: le voci delle volte si aggiungono all'elenco prezzi, se mancano */
+function withVaultPrices(prices: Project['prices'], base: Project['prices']): Project['prices'] {
+  const have = new Set(prices.map((x) => x.code));
+  const add = base.filter((x) => x.category === 'Volte' && !have.has(x.code));
+  return add.length ? [...prices, ...add] : prices;
 }

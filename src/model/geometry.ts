@@ -361,6 +361,8 @@ export function elementLabel(e: BuildingElement): string {
       return 'Scala';
     case 'roof':
       return 'Copertura';
+    case 'vault':
+      return 'Volta';
   }
 }
 
@@ -369,6 +371,7 @@ export function elementCode(p: Project, e: BuildingElement): string {
   const prefix: Record<string, string> = {
     wall: 'M',
     slab: 'S',
+    vault: 'V',
     column: 'P',
     beam: 'T',
     stair: 'SC',

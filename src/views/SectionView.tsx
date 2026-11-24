@@ -6,6 +6,7 @@ import { roofGeom } from '../model/roofs';
 import type { Project, SectionLine, Vec2, Wall } from '../model/types';
 import { add, byId, columnQuad, dist, dot, mul, norm, openingSpans, perp, roofBase, roofOutline, roofWithEave, roofUndersideAt, wallTopAt, slabHoles, stairLayout, flightQuad, flightProfile, LANDING_THICKNESS, slabOutline, sub, wallHeight, wallLength, wallSegmentQuad } from '../model/geometry';
 import { fixtureSpec, headAt, isBareOpening, springHeight } from '../model/openings';
+import { vaultIntradosAt, vaultLevels, vaultOutline, vaultType } from '../model/vaults';
 import { layerBands, wallGeom, wallOutline } from '../model/walls';
 import { HatchDefs, hatchFill, hatchOf, mainHatch, structHatch, useHatchPrefix } from './hatch';
 import { ElevationView, type ViewFrame } from './ElevationView';
@@ -362,6 +363,25 @@ export function SectionView({ project: p, section, mm, textScale = 1 }: { projec
         }
       });
       lay.landings.forEach((l, k) => cutIntervals(l.poly, f).forEach(([u0, u1], i) => rect(`${e.id}l${k}${i}`, u0, u1, l.z - LANDING_THICKNESS, l.z)));
+    } else if (e.kind === 'vault') {
+      // volta tagliata: guscio tra intradosso ed estradosso, rinfianco fino all'orizzontale della chiave
+      const lvv = vaultLevels(p, e);
+      const fill = !!vaultType(p, e)?.fillPriceCode;
+      cutIntervals(vaultOutline(e), f).forEach(([u0, u1], i) => {
+        const n = 48;
+        const us = Array.from({ length: n + 1 }, (_, k) => u0 + ((u1 - u0) * k) / n);
+        const zi = us.map((u) => vaultIntradosAt(p, e, add(f.origin, mul(f.u, u))) ?? lvv.spring);
+        const shell: [number, number][] = [...us.map((u, k) => [u, zi[k]] as [number, number]), ...us.map((u, k) => [u, zi[k] + lvv.th] as [number, number]).reverse()];
+        if (fill) {
+          const q: [number, number][] = [...us.map((u, k) => [u, zi[k] + lvv.th] as [number, number]), [u1, lvv.top], [u0, lvv.top]];
+          band(`${e.id}r${i}`, q, hatchFill(hp, 'massetto'), cuts);
+          outlineOf(`${e.id}ro${i}`, q, cuts);
+        }
+        if (layered) {
+          band(`${e.id}g${i}`, shell, hatchFill(hp, 'laterizio'), cuts);
+          outlineOf(`${e.id}go${i}`, shell, cuts);
+        } else cuts.push(<polygon key={`${e.id}g${i}`} points={polyPts(shell)} className="sc-cut" strokeWidth={sw} />);
+      });
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;

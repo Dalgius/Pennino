@@ -966,6 +966,13 @@ button.chip:hover {
 .canvas2d .pv-layer {
   stroke: var(--ink-2);
 }
+.canvas2d .pv-vault-line {
+  fill: none;
+  stroke: var(--ink-2);
+}
+.canvas2d .pv-vault-text {
+  fill: var(--ink-2);
+}
 .canvas2d .pv-beam {
   fill: none;
   stroke: var(--ink-2);
@@ -2033,6 +2040,10 @@ input.brand-project:focus {
 }
 .canvas2d .sc-view {
   fill: var(--hatch-paper, #fff);
+  stroke: var(--ink-2);
+}
+.canvas2d .ev-vault-line {
+  fill: none;
   stroke: var(--ink-2);
 }
 .canvas2d .sc-view-line {
