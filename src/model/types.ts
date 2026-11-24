@@ -392,7 +392,8 @@ export interface Viewport {
   stato?: ViewState;
 }
 
-export type PaperFormat = 'A3' | 'A2' | 'A1';
+/** A4v: A4 verticale; gli altri sono orizzontali */
+export type PaperFormat = 'A4' | 'A4v' | 'A3' | 'A2' | 'A1';
 
 export interface Sheet {
   id: ID;

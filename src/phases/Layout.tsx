@@ -7,7 +7,7 @@ import type { PaperFormat, Project, Sheet, Viewport, ViewportKind, ViewState } f
 import { byId, sortedLevels, uid } from '../model/geometry';
 import { NumberField, Panel, SelectField, TextField } from '../ui/controls';
 import { Icon } from '../ui/icons';
-import { PAPER, SCALES, SheetView, viewportFrame } from '../views/SheetView';
+import { PAPER, PAPER_LABEL, SCALES, SheetView, paperName, viewportFrame } from '../views/SheetView';
 
 const KIND_LABEL: Record<ViewportKind, string> = {
   pianta: 'Pianta',
@@ -145,7 +145,7 @@ export function Layout() {
               <button key={s.id} className={`sheet-row ${s.id === sheet.id ? 'on' : ''}`} onClick={() => { setSheetId(s.id); setVpId(null); }}>
                 <span className="sheet-num mono">{s.number}</span>
                 <span className="sheet-title">{s.title}</span>
-                <span className="muted mono">{s.format} · {s.viewports.length} viste · rev {s.revision}</span>
+                <span className="muted mono">{paperName(s.format)} · {s.viewports.length} viste · rev {s.revision}</span>
               </button>
             ))}
           </div>
@@ -191,7 +191,7 @@ export function Layout() {
         <div className="stage-bar">
           <div className="stage-bar-left">
             <span className="chip mono">{sheet.number}</span>
-            <span className="chip">{sheet.format} · {paper.w} × {paper.h} mm</span>
+            <span className="chip">{paperName(sheet.format)} · {paper.w} × {paper.h} mm</span>
             <span className="chip chip-live" title="Le viste sono collegate al modello">● Viste collegate al modello</span>
           </div>
           <div className="stage-bar-right">
@@ -236,9 +236,13 @@ export function Layout() {
       {printing &&
         createPortal(
           <div className="print-root">
-            <style>{`@page { size: ${PAPER[printing[0].format].w}mm ${PAPER[printing[0].format].h}mm; margin: 0; }`}</style>
+            {/* ogni tavola nel suo formato: una pagina con nome per formato */}
+            <style>
+              {`@page { size: ${PAPER[printing[0].format].w}mm ${PAPER[printing[0].format].h}mm; margin: 0; }` +
+                [...new Set(printing.map((s) => s.format))].map((f) => `@page fmt-${f} { size: ${PAPER[f].w}mm ${PAPER[f].h}mm; margin: 0; }`).join(' ')}
+            </style>
             {printing.map((s) => (
-              <div key={s.id} className="print-page">
+              <div key={s.id} className="print-page" style={{ page: `fmt-${s.format}` }}>
                 <SheetView project={project} sheet={s} revision={revision} />
               </div>
             ))}
@@ -309,7 +313,7 @@ function ViewportPanel({ project, sheet, vp, upd, onRemove }: { project: Project
         <div><span>Ingombro</span><b className="mono">{Math.round(f.w)} × {Math.round(f.h)} mm</b></div>
         {vp.levelId && <div><span>Livello</span><b>{byId(project.levels, vp.levelId)?.name}</b></div>}
       </div>
-      {outside && <div className="check-row warn"><b>! Fuori squadratura</b><span>La vista esce dai margini del foglio {sheet.format}.</span></div>}
+      {outside && <div className="check-row warn"><b>! Fuori squadratura</b><span>La vista esce dai margini del foglio {paperName(sheet.format)}.</span></div>}
       <div className="insp-actions">
         <button className="btn btn-danger" onClick={onRemove}><Icon name="trash" size={14} /> Rimuovi dal foglio</button>
       </div>
@@ -326,7 +330,7 @@ function SheetPanel({ project, sheet, upd, onRemove }: { project: Project; sheet
       <Panel title="Tavola">
         <div className="fields fields-2">
           <TextField label="Numero" value={sheet.number} onChange={(v) => upd((s) => (s.number = v))} />
-          <SelectField<PaperFormat> label="Formato" value={sheet.format} options={(['A3', 'A2', 'A1'] as PaperFormat[]).map((f) => ({ value: f, label: `${f} orizzontale` }))} onChange={(v) => upd((s) => (s.format = v))} />
+          <SelectField<PaperFormat> label="Formato" value={sheet.format} options={(Object.keys(PAPER_LABEL) as PaperFormat[]).map((f) => ({ value: f, label: PAPER_LABEL[f] }))} onChange={(v) => upd((s) => (s.format = v))} />
         </div>
         <TextField label="Oggetto della tavola" value={sheet.title} onChange={(v) => upd((s) => (s.title = v))} />
         <div className="fields fields-2">

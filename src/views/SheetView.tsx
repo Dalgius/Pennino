@@ -15,10 +15,16 @@ import { SectionView, sectionLength } from './SectionView';
 import { sceneBounds } from '../model/geometry';
 
 export const PAPER: Record<PaperFormat, { w: number; h: number }> = {
+  A4: { w: 297, h: 210 },
+  A4v: { w: 210, h: 297 },
   A3: { w: 420, h: 297 },
   A2: { w: 594, h: 420 },
   A1: { w: 841, h: 594 },
 };
+
+/** Nome del formato per il cartiglio e gli elenchi (l'A4 verticale è sempre un A4) */
+export const paperName = (f: PaperFormat) => (f === 'A4v' ? 'A4' : f);
+export const PAPER_LABEL: Record<PaperFormat, string> = { A4: 'A4 orizzontale', A4v: 'A4 verticale', A3: 'A3 orizzontale', A2: 'A2 orizzontale', A1: 'A1 orizzontale' };
 
 export const SCALES = [20, 50, 100, 200, 500];
 const TITLE_H = 9; // spazio per il titolo sotto la vista (mm)
@@ -404,7 +410,7 @@ function TitleBlock({ project: p, sheet, W, H }: { project: Project; sheet: Shee
       <text x={80} y={44} fontSize={2} className="sh-text sh-text-soft">REV.</text>
       <text x={80} y={49} fontSize={2.8} className="sh-text sh-mono">{sheet.revision}</text>
       <text x={96} y={44} fontSize={2} className="sh-text sh-text-soft">FORMATO</text>
-      <text x={96} y={49} fontSize={2.8} className="sh-text sh-mono">{sheet.format}</text>
+      <text x={96} y={49} fontSize={2.8} className="sh-text sh-mono">{paperName(sheet.format)}</text>
 
       <rect x={130} y={28} width={50} height={24} className="sh-tb-num" />
       <text x={133} y={32.5} fontSize={2} className="sh-text sh-text-inv">TAVOLA</text>

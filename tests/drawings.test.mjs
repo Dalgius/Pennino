@@ -15,6 +15,7 @@ const server = await createServer({ root, logLevel: 'error', server: { middlewar
 const { ElevationView } = await server.ssrLoadModule('/src/views/ElevationView.tsx');
 const { SectionView } = await server.ssrLoadModule('/src/views/SectionView.tsx');
 const { PlanView } = await server.ssrLoadModule('/src/views/PlanView.tsx');
+const { SheetView, PAPER } = await server.ssrLoadModule('/src/views/SheetView.tsx');
 const { sampleProject } = await server.ssrLoadModule('/src/model/defaults.ts');
 const G = await server.ssrLoadModule('/src/model/geometry.ts');
 const R = await server.ssrLoadModule('/src/model/roofs.ts');
@@ -211,6 +212,24 @@ test('piante: le scale del piano sotto si vedono solo dai fori del solaio', () =
   const svg2 = renderToStaticMarkup(React.createElement('svg', null, React.createElement(PlanView, { project: p, levelId: L1, mm: MM })));
   const mask2 = svg2.match(/<mask id="([^"]+-arr)"[\s\S]*?<\/mask>/);
   assert.ok(mask2 && (mask2[0].match(/fill="#fff"/g) ?? []).length === 1, 'solo lo sfondo bianco: nessun foro');
+});
+
+// ───────── Tavole ─────────
+
+test('tavole: in ogni formato il cartiglio sta dentro la squadratura', () => {
+  const p = sampleProject();
+  const sheet = { ...p.sheets[0], viewports: [] };
+  for (const format of Object.keys(PAPER)) {
+    const svg = renderToStaticMarkup(React.createElement(SheetView, { project: p, sheet: { ...sheet, format }, revision: 0 }));
+    const { w, h } = PAPER[format];
+    assert.match(svg, new RegExp(`viewBox="0 0 ${w} ${h}"`), format);
+    const frame = svg.match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" class="sh-frame"/);
+    const tb = svg.match(/<g transform="translate\(([-\d.]+) ([-\d.]+)\)" class="sh-tb">\s*<rect x="0" y="0" width="([\d.]+)" height="([\d.]+)"/);
+    assert.ok(frame && tb, format);
+    const [fx, fy, fw, fh] = frame.slice(1).map(Number);
+    const [tx, ty, tw, th] = tb.slice(1).map(Number);
+    assert.ok(tx >= fx - 1e-6 && ty >= fy - 1e-6 && tx + tw <= fx + fw + 1e-6 && ty + th <= fy + fh + 1e-6, `${format}: cartiglio fuori dalla squadratura`);
+  }
 });
 
 test.after(() => server.close());
