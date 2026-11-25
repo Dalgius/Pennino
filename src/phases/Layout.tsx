@@ -1,6 +1,6 @@
 import { CutField } from '../ui/CutField';
 import { usesStates, VIEW_STATE_LABEL } from '../model/states';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../model/store';
 import { downloadText } from '../model/store';
@@ -46,7 +46,63 @@ export function Layout() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [paper.w, paper.h]);
-  const k = zoom === 'adatta' ? fitK : zoom * (96 / 25.4);
+  const PX_MM = 96 / 25.4; // px per mm al 100%
+  const k = zoom === 'adatta' ? fitK : zoom * PX_MM;
+
+  // ───────── Zoom con la rotella (attorno al cursore) e spostamento del foglio ─────────
+  const anchor = useRef<{ mx: number; my: number; cx: number; cy: number } | null>(null);
+  const zoomTo = (nk: number, at?: { x: number; y: number }) => {
+    const el = stageRef.current;
+    const wrap = svgWrap.current;
+    if (!el || !wrap) return;
+    const r = wrap.getBoundingClientRect();
+    const c = at ?? { x: el.getBoundingClientRect().left + el.clientWidth / 2, y: el.getBoundingClientRect().top + el.clientHeight / 2 };
+    anchor.current = { mx: (c.x - r.left) / k, my: (c.y - r.top) / k, cx: c.x, cy: c.y };
+    setZoom(Math.min(30, Math.max(fitK * 0.25, nk)) / PX_MM);
+  };
+  useLayoutEffect(() => {
+    // il punto del foglio che stava sotto il cursore resta sotto il cursore
+    const a = anchor.current;
+    const el = stageRef.current;
+    const wrap = svgWrap.current;
+    anchor.current = null;
+    if (!a || !el || !wrap) return;
+    const r = wrap.getBoundingClientRect();
+    el.scrollLeft += r.left + a.mx * k - a.cx;
+    el.scrollTop += r.top + a.my * k - a.cy;
+  }, [k]);
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomTo(k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)), { x: e.clientX, y: e.clientY });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  });
+  const pan = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
+  const onStageDown = (e: React.PointerEvent) => {
+    const el = stageRef.current;
+    if (!el || (e.button !== 0 && e.button !== 1)) return;
+    e.preventDefault();
+    pan.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop, moved: false };
+    el.setPointerCapture(e.pointerId);
+  };
+  const onStageMove = (e: React.PointerEvent) => {
+    const pn = pan.current;
+    const el = stageRef.current;
+    if (!pn || !el) return;
+    if (!pn.moved && Math.hypot(e.clientX - pn.x, e.clientY - pn.y) < 3) return;
+    pn.moved = true;
+    el.scrollLeft = pn.sl - (e.clientX - pn.x);
+    el.scrollTop = pn.st - (e.clientY - pn.y);
+  };
+  const onStageUp = () => {
+    // clic senza trascinare sul foglio vuoto: si deseleziona la vista
+    if (pan.current && !pan.current.moved) setVpId(null);
+    pan.current = null;
+  };
 
   const updSheet = (fn: (s: Sheet) => void) =>
     edit((d) => {
@@ -196,14 +252,23 @@ export function Layout() {
             <span className="chip chip-live" title="Le viste sono collegate al modello">● Viste collegate al modello</span>
           </div>
           <div className="stage-bar-right">
+            <button className="tab" title="Riduci" onClick={() => zoomTo(k / 1.25)}>−</button>
+            <span className="chip mono" title="Rotella per lo zoom, trascina il foglio per spostarlo">{Math.round((k / PX_MM) * 100)}%</span>
+            <button className="tab" title="Ingrandisci" onClick={() => zoomTo(k * 1.25)}>+</button>
             <button className={`tab ${zoom === 'adatta' ? 'on' : ''}`} onClick={() => setZoom('adatta')}>Adatta</button>
-            <button className={`tab ${zoom === 1 ? 'on' : ''}`} onClick={() => setZoom(1)}>100%</button>
+            <button className={`tab ${zoom === 1 ? 'on' : ''}`} onClick={() => zoomTo(PX_MM)}>100%</button>
             <button className="tab tab-icon" onClick={exportSvg}><Icon name="download" size={15} /> SVG</button>
             <button className="tab tab-icon" onClick={() => print([sheet])}><Icon name="print" size={15} /> Stampa / PDF</button>
             <button className="tab" onClick={() => print(project.sheets)}>Stampa tutte</button>
           </div>
         </div>
-        <div className="stage-body sheet-stage" ref={stageRef} onPointerDown={() => setVpId(null)}>
+        <div
+          className={`stage-body sheet-stage ${pan.current?.moved ? 'panning' : ''}`}
+          ref={stageRef}
+          onPointerDown={onStageDown}
+          onPointerMove={onStageMove}
+          onPointerUp={onStageUp}
+        >
           <div
             ref={svgWrap}
             className="sheet-wrap"
@@ -224,7 +289,7 @@ export function Layout() {
         </div>
         <div className="prompt">
           <span className="prompt-label">Impaginazione</span>
-          <span className="prompt-text">Trascina le viste sul foglio. Le viste sono generate dal modello: ogni modifica in 02 le aggiorna.</span>
+          <span className="prompt-text">Trascina le viste sul foglio; trascina il foglio per spostarlo, rotella per lo zoom. Le viste sono generate dal modello: ogni modifica in 02 le aggiorna.</span>
         </div>
       </main>
 

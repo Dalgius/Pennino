@@ -4,6 +4,7 @@
 import { planeAt, roofGeom, type RoofGeom } from '../model/roofs';
 import * as THREE from 'three';
 import { norm, perp, sceneBounds, sub } from '../model/geometry';
+import { axoFraming } from '../model/axo';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
 import { archProfile, archRise, fixtureSpec, leafSpans, springHeight, THRESHOLD_NOSE } from '../model/openings';
 import { vaultFrame, vaultHeightLocal, vaultLevels, vaultPoint, vaultThickness } from '../model/vaults';
@@ -590,22 +591,6 @@ export function disposeObject(o: THREE.Object3D) {
   });
 }
 
-/**
- * Direzione da cui si guarda l'assonometria: di norma da sud-ovest; con lo spaccato su una sezione
- * dalla parte tolta, di sbieco, così si vede la faccia tagliata
- */
-export function axoDirection(p: Project, cut?: AxoCut): THREE.Vector3 {
-  const sec = cut?.kind === 'sezione' ? (p.sections ?? []).find((x) => x.id === cut.sectionId) : undefined;
-  if (!sec) return new THREE.Vector3(-1, 0.9, 1).normalize();
-  const a = sec.flip ? sec.b : sec.a;
-  const b = sec.flip ? sec.a : sec.b;
-  const u = norm(sub(b, a));
-  const d = perp(u);
-  // indietro rispetto al verso di vista e un po' di lato (verso l'inizio della traccia)
-  const h = { x: -d.x - 0.75 * u.x, y: -d.y - 0.75 * u.y };
-  return new THREE.Vector3(h.x, 0.95, -h.y).normalize();
-}
-
 /** Immagine assonometrica del modello per i fogli di stampa */
 export function renderAxonometric(p: Project, widthPx: number, heightPx: number, cut?: AxoCut): string {
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
@@ -619,10 +604,13 @@ export function renderAxonometric(p: Project, widthPx: number, heightPx: number,
   scene.add(model);
   const b = sceneBounds(p);
   const R = Math.max(b.w, b.h, b.top) * 0.85;
+  // inquadratura sull'ingombro reale del modello (lo stesso calcolo del riquadro sulla tavola)
+  const fr = axoFraming(p, cut);
   const aspect = widthPx / heightPx;
-  const cam = new THREE.OrthographicCamera(-R * aspect, R * aspect, R, -R, 0.1, 500);
-  const target = new THREE.Vector3(b.cx, b.top / 3, -b.cy);
-  cam.position.copy(target).add(axoDirection(p, cut).multiplyScalar(120));
+  const halfH = Math.max(fr.halfH, fr.halfW / aspect);
+  const cam = new THREE.OrthographicCamera(-halfH * aspect, halfH * aspect, halfH, -halfH, 0.1, 1000);
+  const target = new THREE.Vector3(...fr.center);
+  cam.position.copy(target).add(new THREE.Vector3(...fr.dir).multiplyScalar(200));
   cam.lookAt(target);
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb0a898, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);

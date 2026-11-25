@@ -12,7 +12,7 @@ import { HatchDefs, hatchFill, hatchOf, useHatchPrefix } from './hatch';
 import { ElevationView, elevationExtents, elevationHeight } from './ElevationView';
 import { SiteView } from './SiteView';
 import { SectionView, sectionLength } from './SectionView';
-import { sceneBounds } from '../model/geometry';
+import { axoSheetSize } from '../model/axo';
 
 export const PAPER: Record<PaperFormat, { w: number; h: number }> = {
   A4: { w: 297, h: 210 },
@@ -58,7 +58,7 @@ export function viewportFrame(p: Project, vp: Viewport) {
     return { w: (b.maxX - b.minX + 2 * m) * k, h: (b.maxY - b.minY + 2 * m) * k, ox: b.minX - m, oy: b.maxY + m, k };
   }
   if (vp.kind === 'assonometria') {
-    const { w, h } = axoSize(p, vp.scale);
+    const { w, h } = axoSheetSize(p, vp.scale, vp.cut);
     return { w, h, ox: 0, oy: 0, k };
   }
   if (vp.kind === 'abaco') {
@@ -70,13 +70,6 @@ export function viewportFrame(p: Project, vp: Viewport) {
   return { w: 140, h: 16 + p.catalog.wall.length * 9 + 5 * 8, ox: 0, oy: 0, k };
 }
 
-function axoSize(p: Project, scale: number) {
-  const b = sceneBounds(p);
-  const R = Math.max(b.w, b.h, b.top) * 0.85;
-  const aspect = 1.4;
-  const k = 1000 / scale;
-  return { w: 2 * R * aspect * k, h: 2 * R * k, aspect };
-}
 
 // Cache delle immagini assonometriche per revisione del modello
 const axoCache = new Map<string, string>();
