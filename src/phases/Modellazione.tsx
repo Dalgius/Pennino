@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { BuildingElement, ElementStatus, Project, Vec2, VaultShape, ViewState, WallRef } from '../model/types';
+import type { BuildingElement, ElementStatus, Project, Vec2, VaultShape, Wall, ViewState, WallRef } from '../model/types';
 import { defaultVault } from '../model/vaults';
+import { copyElements, extendTarget, extendWall, moveElements, splitWall, trimPiece, trimWall, wallStation } from '../model/wallEdit';
 import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
   add,
@@ -32,7 +33,7 @@ import { anchorAt } from '../model/anchors';
 import { projectInState, STATUS_LABEL, VIEW_STATE_LABEL } from '../model/states';
 import { AnnotationInspector, ContextMenu, LayersPanel, RoomInspector, type MenuItem } from './ModellazioneExtras';
 import { applyHandle, dragEdge, dragHandle, dragMove, elementLevel, moveJoined, translated } from '../model/dragging';
-import { columnUnder, copyElementsToLevel, deleteElements, elementsInRect, getHandles, hitTestModel, nearestWall, snapModel, snapPoint, snapPoints, snapSegments, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
+import { columnUnder, copyElementsToLevel, deleteElements, elementOutlines, elementsInRect, getHandles, hitTestModel, nearestWall, snapModel, snapPoint, snapPoints, snapSegments, type Snap, type SnapCandidate, type SnapSegment } from '../model/edit';
 import { Canvas2D, type CanvasPointer } from '../ui/Canvas2D';
 import { PlanView, pts, type DimTarget } from '../views/PlanView';
 import { ElevationView, elevationExtents, elevationHeight, type Direction } from '../views/ElevationView';
@@ -77,7 +78,7 @@ function rectangleOf(poly: Vec2[] | undefined): Vec2[] | null {
 
 const alignOrtho = (from: Vec2, q: Vec2): Vec2 => (Math.abs(q.x - from.x) >= Math.abs(q.y - from.y) ? { x: q.x, y: from.y } : { x: from.x, y: q.y });
 
-export type Tool = 'select' | 'wall' | 'slab' | 'vault' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
+export type Tool = 'select' | 'dividi' | 'taglia' | 'estendi' | 'sposta' | 'copia' | 'wall' | 'slab' | 'vault' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
 
 type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
 
@@ -117,7 +118,17 @@ const EXTRA_TOOLS: ToolDef[] = [
   { id: 'testo', label: 'Testo', key: 'E', icon: 'edit', hint: 'Clic dove scrivere. Con Alt: primo clic sul punto da indicare, secondo clic sul testo (linea di richiamo).' },
   { id: 'altimetrica', label: 'Quota alt.', key: 'H', icon: 'level', hint: 'Clic per inserire la quota altimetrica del piano finito.' },
 ];
-const ALL_TOOLS = () => [...TOOLS, SECTION_TOOL, ...EXTRA_TOOLS];
+/** Comandi di modifica da CAD */
+const EDIT_TOOLS: ToolDef[] = [
+  { id: 'sposta', label: 'Sposta', key: 'W', icon: 'move', hint: 'Clic sul punto base e poi sul punto d’arrivo, oppure digita la distanza e Invio (verso del mouse). Senza selezione, il primo clic sceglie l’elemento.' },
+  { id: 'copia', label: 'Copia', key: 'Y', icon: 'copy', hint: 'Clic sul punto base e poi su ogni punto dove copiare, oppure digita la distanza e Invio. Si copia più volte dallo stesso punto base; Esc per finire.' },
+  { id: 'dividi', label: 'Dividi', key: 'D', icon: 'split', hint: 'Clic sul muro nel punto in cui dividerlo (si aggancia a incroci, punti medi e griglia).' },
+  { id: 'taglia', label: 'Taglia', key: 'K', icon: 'trim', hint: 'Clic sul tratto di muro da togliere: si taglia agli assi dei muri che lo attraversano.' },
+  { id: 'estendi', label: 'Estendi', key: 'J', icon: 'extend', hint: 'Clic vicino all’estremo del muro da allungare: prosegue fino all’asse del primo muro che incontra.' },
+];
+const WALL_EDIT: Tool[] = ['dividi', 'taglia', 'estendi'];
+
+const ALL_TOOLS = () => [...TOOLS, SECTION_TOOL, ...EXTRA_TOOLS, ...EDIT_TOOLS];
 
 function readLayers(): Layers {
   try {
@@ -209,7 +220,7 @@ export function Modellazione() {
   };
   const [viewState, setViewState] = useState<ViewState>('progetto');
   const [layersOpen, setLayersOpen] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number; id: string | null } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string | null; world?: Vec2 } | null>(null);
   // ciò che si vede (stato e categorie non nascoste) e ciò che si può prendere (non bloccato)
   const stateProject = projectInState(project, viewState);
   const viewProject = withoutLayers(stateProject, layersWith(layers, ['nascosto']));
@@ -222,6 +233,8 @@ export function Modellazione() {
   // forma delle nuove scale
   const [stairShape, setStairShape] = useState<'dritta' | 'L' | 'U'>('dritta');
   const [vaultShape, setVaultShape] = useState<VaultShape>('botte');
+  /** anteprima dei comandi sui muri: tratto da togliere, prolungamento, punto di divisione */
+  const [wallEditPreview, setWallEditPreview] = useState<{ kind: 'taglia' | 'estendi' | 'dividi'; a: Vec2; b: Vec2 } | null>(null);
   // linea di riferimento dei muri disegnati (ricordata tra le sessioni)
   const [wallRef, setWallRefState] = useState<WallRef>(() => {
     try {
@@ -322,6 +335,8 @@ export function Modellazione() {
     setTool(t);
     resetDraft();
     setOpeningPreview(null);
+    setWallEditPreview(null);
+    if ((t === 'sposta' || t === 'copia') && !selectedIds.length) setNotice('Clic sull’elemento da ' + (t === 'sposta' ? 'spostare' : 'copiare') + ', poi sul punto base.');
     if (t !== 'select') setEditingType(null);
   };
 
@@ -429,6 +444,26 @@ export function Modellazione() {
   /** free: Maiusc premuto, l'ortogonale si inverte */
   const commitPoint = (q: Vec2, free = false) => {
     const pts2 = [...draft, q];
+    if (tool === 'sposta' || tool === 'copia') {
+      if (!draft.length) return setDraft([q]);
+      const delta = sub(q, draft[0]);
+      if (Math.hypot(delta.x, delta.y) < 1e-6) return;
+      const ids = selectedIds.filter((id) => project.elements.some((x) => x.id === id && x.kind !== 'opening') || findRoom(project, id) || findAnnotation(project, id));
+      if (tool === 'sposta') {
+        edit((d) => moveElements(d, project, ids, delta));
+        setNotice(`Spostati di ${fmt(Math.hypot(delta.x, delta.y), 2)} m.`);
+        changeTool('select');
+      } else {
+        let made: string[] = [];
+        edit((d) => {
+          made = copyElements(d, ids, lvlId, delta);
+        });
+        // si resta nel comando: altre copie dallo stesso punto base
+        setTyped('');
+        setNotice(`${made.length} ${made.length === 1 ? 'copia' : 'copie'} a ${fmt(Math.hypot(delta.x, delta.y), 2)} m. Clic per un’altra copia, Esc per finire.`);
+      }
+      return;
+    }
     if (tool === 'wall') {
       if (draft.length >= 1) {
         const last = draft[draft.length - 1];
@@ -595,6 +630,58 @@ export function Modellazione() {
 
     if (menu) setMenu(null);
     if (tool === 'select') return handleSelect(e, snap, tol);
+
+    if (WALL_EDIT.includes(tool)) {
+      setCursor(tool === 'dividi' ? snap : { p: e.world, kind: 'libero' });
+      const nw = nearestWall(pickProject, tool === 'dividi' ? snap.p : e.world, lvlId, tol * 1.5 + 0.3);
+      const w = nw && project.elements.find((x): x is Wall => x.kind === 'wall' && x.id === nw.id);
+      if (!w) return setWallEditPreview(null);
+      const sAt = wallStation(w, tool === 'dividi' ? snap.p : e.world);
+      const at = (sv: number) => add(w.a, mul(norm(sub(w.b, w.a)), sv));
+      if (e.type === 'move') {
+        if (tool === 'taglia') {
+          const pc = trimPiece(project, w, sAt);
+          setWallEditPreview(pc ? { kind: 'taglia', a: at(pc[0]), b: at(pc[1]) } : null);
+        } else if (tool === 'estendi') {
+          const end = dist(e.world, w.a) <= dist(e.world, w.b) ? 'a' : 'b';
+          const tq = extendTarget(project, w, end);
+          setWallEditPreview(tq ? { kind: 'estendi', a: end === 'a' ? w.a : w.b, b: tq } : null);
+        } else {
+          const q = at(sAt);
+          const n = mul({ x: -(w.b.y - w.a.y), y: w.b.x - w.a.x }, 0.5 / (wallLength(w) || 1));
+          setWallEditPreview({ kind: 'dividi', a: sub(q, n), b: add(q, n) });
+        }
+        return;
+      }
+      if (e.type !== 'down' || e.button !== 0) return;
+      let msg = '';
+      edit((d) => {
+        const r = tool === 'dividi' ? splitWall(d, w.id, sAt) : tool === 'taglia' ? trimWall(d, w.id, sAt) : extendWall(d, w.id, e.world);
+        if ('error' in r) msg = r.error;
+        else if ('added' in r) msg = `Muro allungato di ${fmt(r.added, 2)} m.`;
+        else if ('removed' in r) msg = `Tolto un tratto di ${fmt(r.removed, 2)} m${r.openings ? ` con ${r.openings} ${r.openings === 1 ? 'apertura' : 'aperture'}` : ''}.`;
+        else msg = `Muro diviso a ${fmt(sAt, 2)} m dall’inizio.`;
+      });
+      setWallEditPreview(null);
+      setNotice(msg);
+      return;
+    }
+
+    if (tool === 'sposta' || tool === 'copia') {
+      setCursor(snap);
+      if (e.type !== 'down' || e.button !== 0) return;
+      // senza selezione: il primo clic sceglie l'elemento
+      if (!selectedIds.length) {
+        const id = hitTestModel(pickProject, e.world, lvlId, tol);
+        if (id && project.elements.find((x) => x.id === id)?.kind !== 'opening') {
+          select('modello', [id]);
+          setNotice('Ora clic sul punto base.');
+        }
+        return;
+      }
+      commitPoint(snap.p);
+      return;
+    }
 
     if (tool === 'room' || tool === 'quota' || tool === 'testo' || tool === 'altimetrica') {
       // il locale va dove si clicca; le annotazioni si agganciano agli oggetti
@@ -1011,7 +1098,25 @@ export function Modellazione() {
             else x.status = st;
           }
       });
+    const wallHere = el.kind === 'wall' && menu?.world ? el : null;
+    const runWall = (fn: (d: Project) => { error: string } | object, ok: string) => {
+      let msg = ok;
+      edit((d) => {
+        const r = fn(d);
+        if ('error' in r) msg = r.error;
+      });
+      setNotice(msg);
+    };
     return [
+      ...(wallHere && menu?.world
+        ? [
+            { label: 'Dividi qui', onClick: () => runWall((d) => splitWall(d, wallHere.id, wallStation(wallHere, menu.world!)), 'Muro diviso.') },
+            { label: 'Taglia questo tratto', onClick: () => runWall((d) => trimWall(d, wallHere.id, wallStation(wallHere, menu.world!)), 'Tratto tolto.') },
+            { label: 'Estendi fino al muro', onClick: () => runWall((d) => extendWall(d, wallHere.id, menu.world!), 'Muro allungato.') },
+          ]
+        : []),
+      { label: 'Sposta… (W)', onClick: () => changeTool('sposta') },
+      { label: 'Copia… (Y)', onClick: () => changeTool('copia') },
       { label: 'Seleziona simili sul livello', onClick: () => select('modello', similarElements(pickProject, id)) },
       { label: 'Copia (Ctrl+C)', onClick: () => copySelection(targets) },
       ...(['nuovo', 'esistente', 'demolito'] as ElementStatus[]).map((st) => ({ label: `Stato: ${STATUS_LABEL[st].toLowerCase()}`, onClick: () => setStatus(st) })),
@@ -1051,7 +1156,7 @@ export function Modellazione() {
         const id = hitExtras(pickProject, lvlId, m.world, tolM) ?? hitTestModel(pickProject, m.world, lvlId, tolM);
         if (id && !selectedIds.includes(id)) select('modello', [id]);
         if (tool !== 'select') changeTool('select');
-        setMenu({ x: m.x, y: m.y, id });
+        setMenu({ x: m.x, y: m.y, id, world: m.world });
       }}
       hud={
         <>
@@ -1129,6 +1234,34 @@ export function Modellazione() {
                   : undefined
               }
             />
+            {wallEditPreview && WALL_EDIT.includes(tool) && (
+              // anteprima: tratto da togliere (rosso), prolungamento (tratteggiato), punto di divisione
+              <line
+                x1={wallEditPreview.a.x}
+                y1={-wallEditPreview.a.y}
+                x2={wallEditPreview.b.x}
+                y2={-wallEditPreview.b.y}
+                className={`wall-edit-preview wall-edit-${wallEditPreview.kind}`}
+                strokeWidth={(wallEditPreview.kind === 'taglia' ? 1.2 : 0.6) * mm}
+                strokeDasharray={wallEditPreview.kind === 'estendi' ? `${2 * mm} ${1 * mm}` : undefined}
+                pointerEvents="none"
+              />
+            )}
+            {(tool === 'sposta' || tool === 'copia') && draft.length === 1 && cursor && (
+              // anteprima degli elementi nella posizione d'arrivo
+              <g className="draft" pointerEvents="none">
+                {(() => {
+                  const lenV = parseFloat(typed);
+                  const dir = norm(sub(cursor.p, draft[0]));
+                  const delta = typed && lenV > 0 && isFinite(dir.x) ? mul(dir, lenV) : sub(cursor.p, draft[0]);
+                  return selectedIds.flatMap((id) => {
+                    const el = project.elements.find((x) => x.id === id);
+                    if (!el) return [];
+                    return elementOutlines(project, el).map((q, i) => <polygon key={`${id}${i}`} points={pts(q.map((v) => add(v, delta)))} className="draft-poly" strokeWidth={0.35 * mm} />);
+                  });
+                })()}
+              </g>
+            )}
             {tool === 'vault' && draft.length === 1 && cursor && (
               // anteprima del campo della volta
               <g className="draft" pointerEvents="none">
@@ -1248,6 +1381,17 @@ export function Modellazione() {
                 </button>
               );
             })}
+          </div>
+
+          <div className="subhead">Modifica</div>
+          <div className="toolgrid">
+            {EDIT_TOOLS.map((t) => (
+              <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} onClick={() => changeTool(t.id)} title={`${t.label} (${t.key})`}>
+                <Icon name={t.icon} size={20} />
+                <span>{t.label}</span>
+                <kbd>{t.key}</kbd>
+              </button>
+            ))}
           </div>
 
           <div className="subhead">Locali e annotazioni</div>
@@ -1476,7 +1620,7 @@ export function Modellazione() {
           </span>
           {typed && (
             <span className="prompt-typed mono">
-              L = {typed} m <kbd>Invio</kbd>
+              {tool === 'sposta' || tool === 'copia' ? 'Distanza' : 'L'} = {typed} m <kbd>Invio</kbd>
             </span>
           )}
           <span className="prompt-keys">

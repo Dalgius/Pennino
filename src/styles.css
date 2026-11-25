@@ -2390,3 +2390,13 @@ select.chip:disabled {
   fill: var(--primary);
   stroke: none;
 }
+
+/* Comandi di modifica sui muri: anteprime */
+.wall-edit-preview {
+  stroke: var(--primary);
+  stroke-linecap: round;
+}
+.wall-edit-taglia {
+  stroke: #e5484d;
+  opacity: 0.8;
+}

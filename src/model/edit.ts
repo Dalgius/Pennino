@@ -513,6 +513,14 @@ function footprintOf(p: Project, e: BuildingElement): Vec2[] {
   }
 }
 
+/** Contorni in pianta di un elemento, per le anteprime (una scala ha più rampe e pianerottoli) */
+export function elementOutlines(p: Project, e: BuildingElement): Vec2[][] {
+  if (e.kind === 'opening') return [];
+  if (e.kind === 'stair') return stairFootprints(p, e);
+  const f = footprintOf(p, e);
+  return f.length >= 2 ? [f] : [];
+}
+
 function openingLevel(p: Project, e: BuildingElement) {
   if (e.kind !== 'opening') return e.levelId;
   const w = p.elements.find((x) => x.id === e.wallId);
