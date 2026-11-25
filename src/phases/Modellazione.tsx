@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useStore } from '../model/store';
 import type { BuildingElement, ElementStatus, Project, Vec2, VaultShape, Wall, ViewState, WallRef } from '../model/types';
 import { defaultVault } from '../model/vaults';
-import { copyElements, extendTarget, extendWall, moveElements, splitWall, trimPiece, trimWall, wallStation } from '../model/wallEdit';
+import { axisCrossing, copyElements, cornerEnds, cornerWalls, extendTarget, extendWall, moveElements, splitWall, trimPiece, trimWall, wallStation } from '../model/wallEdit';
 import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
   add,
@@ -78,7 +78,7 @@ function rectangleOf(poly: Vec2[] | undefined): Vec2[] | null {
 
 const alignOrtho = (from: Vec2, q: Vec2): Vec2 => (Math.abs(q.x - from.x) >= Math.abs(q.y - from.y) ? { x: q.x, y: from.y } : { x: from.x, y: q.y });
 
-export type Tool = 'select' | 'dividi' | 'taglia' | 'estendi' | 'sposta' | 'copia' | 'wall' | 'slab' | 'vault' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
+export type Tool = 'select' | 'dividi' | 'taglia' | 'estendi' | 'cima' | 'sposta' | 'copia' | 'wall' | 'slab' | 'vault' | 'column' | 'beam' | 'door' | 'window' | 'stair' | 'roof' | 'section' | 'room' | 'quota' | 'testo' | 'altimetrica';
 
 type ToolDef = { id: Tool; label: string; key: string; icon: string; catalog?: CatalogKey; hint: string };
 
@@ -125,6 +125,7 @@ const EDIT_TOOLS: ToolDef[] = [
   { id: 'dividi', label: 'Dividi', key: 'D', icon: 'split', hint: 'Clic sul muro nel punto in cui dividerlo (si aggancia a incroci, punti medi e griglia).' },
   { id: 'taglia', label: 'Taglia', key: 'K', icon: 'trim', hint: 'Clic sul tratto di muro da togliere: si taglia agli assi dei muri che lo attraversano.' },
   { id: 'estendi', label: 'Estendi', key: 'J', icon: 'extend', hint: 'Clic vicino all’estremo del muro da allungare: prosegue fino all’asse del primo muro che incontra.' },
+  { id: 'cima', label: 'Cima', key: 'I', icon: 'corner', hint: 'Clic su due muri: si allungano o si accorciano fino a chiudere l’angolo (come Cima con distanza 0). Di ogni muro resta la parte dove clicchi.' },
 ];
 const WALL_EDIT: Tool[] = ['dividi', 'taglia', 'estendi'];
 
@@ -235,6 +236,9 @@ export function Modellazione() {
   const [vaultShape, setVaultShape] = useState<VaultShape>('botte');
   /** anteprima dei comandi sui muri: tratto da togliere, prolungamento, punto di divisione */
   const [wallEditPreview, setWallEditPreview] = useState<{ kind: 'taglia' | 'estendi' | 'dividi'; a: Vec2; b: Vec2 } | null>(null);
+  /** Cima: primo muro scelto (con il punto del clic) e anteprima dei due muri a angolo chiuso */
+  const [cimaFirst, setCimaFirst] = useState<{ id: string; q: Vec2 } | null>(null);
+  const [cimaPreview, setCimaPreview] = useState<[Vec2, Vec2][] | null>(null);
   // linea di riferimento dei muri disegnati (ricordata tra le sessioni)
   const [wallRef, setWallRefState] = useState<WallRef>(() => {
     try {
@@ -336,6 +340,8 @@ export function Modellazione() {
     resetDraft();
     setOpeningPreview(null);
     setWallEditPreview(null);
+    setCimaFirst(null);
+    setCimaPreview(null);
     if ((t === 'sposta' || t === 'copia') && !selectedIds.length) setNotice('Clic sull’elemento da ' + (t === 'sposta' ? 'spostare' : 'copiare') + ', poi sul punto base.');
     if (t !== 'select') setEditingType(null);
   };
@@ -663,6 +669,42 @@ export function Modellazione() {
         else msg = `Muro diviso a ${fmt(sAt, 2)} m dall’inizio.`;
       });
       setWallEditPreview(null);
+      setNotice(msg);
+      return;
+    }
+
+    if (tool === 'cima') {
+      setCursor({ p: e.world, kind: 'libero' });
+      const nw = nearestWall(pickProject, e.world, lvlId, tol * 1.5 + 0.3);
+      const w = nw && project.elements.find((x): x is Wall => x.kind === 'wall' && x.id === nw.id);
+      const first = cimaFirst && project.elements.find((x): x is Wall => x.kind === 'wall' && x.id === cimaFirst.id);
+      if (e.type === 'move') {
+        if (first && w && w.id !== first.id) {
+          const x = axisCrossing(first, w);
+          if (x) {
+            const e1 = cornerEnds(first, x, cimaFirst!.q);
+            const e2 = cornerEnds(w, x, e.world);
+            return setCimaPreview([[e1.a, e1.b], [e2.a, e2.b]]);
+          }
+        }
+        setCimaPreview(first ? [[first.a, first.b]] : null);
+        return;
+      }
+      if (e.type !== 'down' || e.button !== 0 || !w) return;
+      if (!cimaFirst) {
+        setCimaFirst({ id: w.id, q: e.world });
+        setCimaPreview([[w.a, w.b]]);
+        setNotice('Ora clic sul secondo muro.');
+        return;
+      }
+      let msg = 'Angolo chiuso.';
+      edit((d) => {
+        const r = cornerWalls(d, cimaFirst.id, cimaFirst.q, w.id, e.world);
+        if ('error' in r) msg = r.error;
+        else if (r.openings) msg = `Angolo chiuso: ${r.openings} ${r.openings === 1 ? 'apertura rimasta fuori dal muro è stata eliminata' : 'aperture rimaste fuori dal muro sono state eliminate'}.`;
+      });
+      setCimaFirst(null);
+      setCimaPreview(null);
       setNotice(msg);
       return;
     }
@@ -1113,6 +1155,15 @@ export function Modellazione() {
             { label: 'Dividi qui', onClick: () => runWall((d) => splitWall(d, wallHere.id, wallStation(wallHere, menu.world!)), 'Muro diviso.') },
             { label: 'Taglia questo tratto', onClick: () => runWall((d) => trimWall(d, wallHere.id, wallStation(wallHere, menu.world!)), 'Tratto tolto.') },
             { label: 'Estendi fino al muro', onClick: () => runWall((d) => extendWall(d, wallHere.id, menu.world!), 'Muro allungato.') },
+            {
+              label: 'Cima con un altro muro…',
+              onClick: () => {
+                changeTool('cima');
+                setCimaFirst({ id: wallHere.id, q: menu.world! });
+                setCimaPreview([[wallHere.a, wallHere.b]]);
+                setNotice('Ora clic sul secondo muro.');
+              },
+            },
           ]
         : []),
       { label: 'Sposta… (W)', onClick: () => changeTool('sposta') },
@@ -1247,6 +1298,10 @@ export function Modellazione() {
                 pointerEvents="none"
               />
             )}
+            {tool === 'cima' &&
+              cimaPreview?.map(([a, b], i) => (
+                <line key={`cima${i}`} x1={a.x} y1={-a.y} x2={b.x} y2={-b.y} className="wall-edit-preview" strokeWidth={0.6 * mm} strokeDasharray={i === 1 || cimaPreview.length === 1 ? `${2 * mm} ${1 * mm}` : undefined} pointerEvents="none" />
+              ))}
             {(tool === 'sposta' || tool === 'copia') && draft.length === 1 && cursor && (
               // anteprima degli elementi nella posizione d'arrivo
               <g className="draft" pointerEvents="none">

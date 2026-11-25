@@ -107,4 +107,32 @@ test('sposta e copia di un vettore', () => {
   assert.deepEqual(wall(q, 'm1').a, P(0, 0), 'l’originale resta');
 });
 
+test('cima: due muri fino all’angolo, resta la parte cliccata', () => {
+  // muri che non si toccano: si allungano entrambi
+  let p = withWalls([['h', P(0, 0), P(4, 0)], ['v', P(6, 1), P(6, 5)]]);
+  let r = W.cornerWalls(p, 'h', P(1, 0), 'v', P(6, 3));
+  assert.equal(r.openings, 0);
+  assert.deepEqual(wall(p, 'h').b, P(6, 0));
+  assert.deepEqual(wall(p, 'v').a, P(6, 0));
+  // muri che si incrociano: di ciascuno resta il lato del clic
+  p = withWalls([['h', P(0, 0), P(10, 0)], ['v', P(4, -3), P(4, 3)]], [['o1', 'h', 7]]);
+  r = W.cornerWalls(p, 'h', P(1, 0), 'v', P(4, 2));
+  assert.deepEqual(wall(p, 'h').a, P(0, 0));
+  assert.deepEqual(wall(p, 'h').b, P(4, 0));
+  assert.deepEqual(wall(p, 'v').a, P(4, 0));
+  assert.deepEqual(wall(p, 'v').b, P(4, 3));
+  // la finestra rimasta fuori dal muro accorciato si elimina
+  assert.equal(r.openings, 1);
+  assert.ok(!p.elements.some((e) => e.id === 'o1'));
+  // l'altro lato: si tiene la parte destra, le aperture restano ferme sul disegno
+  p = withWalls([['h', P(0, 0), P(10, 0)], ['v', P(4, -3), P(4, 3)]], [['o1', 'h', 7]]);
+  W.cornerWalls(p, 'h', P(8, 0), 'v', P(4, -2));
+  assert.deepEqual(wall(p, 'h').a, P(4, 0));
+  assert.ok(near(wall(p, 'o1').offset, 3));
+  assert.deepEqual(wall(p, 'v').b, P(4, 0));
+  // paralleli o stesso muro: no
+  assert.ok(W.cornerWalls(withWalls([['a', P(0, 0), P(4, 0)], ['b', P(0, 2), P(4, 2)]]), 'a', P(1, 0), 'b', P(1, 2)).error);
+  assert.ok(W.cornerWalls(p, 'h', P(5, 0), 'h', P(6, 0)).error);
+});
+
 test.after(() => server.close());

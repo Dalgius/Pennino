@@ -164,6 +164,70 @@ export function extendTarget(p: Project, w: Wall, end: 'a' | 'b'): Vec2 | null {
 }
 
 /**
+ * Nuovi estremi di un muro (stessa retta d'asse): le aperture restano ferme sul disegno; quelle che
+ * non stanno più dentro il muro si eliminano. Restituisce quante aperture sono state tolte.
+ */
+function resetEnds(d: Project, w: Wall, a: Vec2, b: Vec2): number {
+  const dir = norm(sub(w.b, w.a));
+  const shift = dot(sub(a, w.a), dir);
+  w.a = { ...a };
+  w.b = { ...b };
+  const L = wallLength(w);
+  let gone = 0;
+  for (const o of openingsOf(d, w.id)) {
+    o.offset -= shift;
+    const h = (byId(d.catalog.opening, o.typeId)?.width ?? 0) / 2;
+    if (o.offset - h < -1e-6 || o.offset + h > L + 1e-6) {
+      d.elements = d.elements.filter((e) => e !== o);
+      gone++;
+    }
+  }
+  return gone;
+}
+
+/** Incrocio delle rette d'asse di due muri, o null se sono paralleli */
+export function axisCrossing(w1: Wall, w2: Wall): Vec2 | null {
+  const d1 = sub(w1.b, w1.a);
+  const d2 = sub(w2.b, w2.a);
+  const den = d1.x * d2.y - d1.y * d2.x;
+  if (Math.abs(den) < 1e-9 * (wallLength(w1) * wallLength(w2) || 1)) return null;
+  const r = sub(w2.a, w1.a);
+  const t = (r.x * d2.y - r.y * d2.x) / den;
+  return add(w1.a, mul(d1, t));
+}
+
+/** Estremi del muro dopo Cima: si tiene la parte dalla parte del clic q, fino all'incrocio x */
+export function cornerEnds(w: Wall, x: Vec2, q: Vec2): { a: Vec2; b: Vec2 } {
+  const L = wallLength(w);
+  const dir = norm(sub(w.b, w.a));
+  const sx = dot(sub(x, w.a), dir);
+  const sq = dot(sub(q, w.a), dir);
+  if (sx >= L) return { a: w.a, b: x }; // l'incrocio è oltre la fine: si allunga la fine
+  if (sx <= 0) return { a: x, b: w.b }; // oltre l'inizio: si allunga l'inizio
+  // incrocio dentro il muro: resta il lato cliccato
+  return sq < sx ? { a: w.a, b: x } : { a: x, b: w.b };
+}
+
+/**
+ * Cima (distanza 0): due muri si allungano o si accorciano fino a incontrarsi sull'incrocio degli
+ * assi, formando l'angolo. Di ciascun muro resta la parte dalla parte in cui si è cliccato.
+ */
+export function cornerWalls(d: Project, id1: string, q1: Vec2, id2: string, q2: Vec2): { openings: number } | { error: string } {
+  if (id1 === id2) return { error: 'Scegli due muri diversi.' };
+  const w1 = wallOf(d, id1);
+  const w2 = wallOf(d, id2);
+  if (!w1 || !w2) return { error: 'Muro non trovato.' };
+  if (w1.levelId !== w2.levelId) return { error: 'I due muri stanno su livelli diversi.' };
+  const x = axisCrossing(w1, w2);
+  if (!x) return { error: 'I due muri sono paralleli: non si incontrano.' };
+  const e1 = cornerEnds(w1, x, q1);
+  const e2 = cornerEnds(w2, x, q2);
+  if (dist(e1.a, e1.b) < MIN_PIECE || dist(e2.a, e2.b) < MIN_PIECE) return { error: 'Uno dei due muri resterebbe senza lunghezza.' };
+  const openings = resetEnds(d, w1, e1.a, e1.b) + resetEnds(d, w2, e2.a, e2.b);
+  return { openings };
+}
+
+/**
  * Sposta gli elementi di un vettore (sulla bozza, partendo dal progetto di origine). Un muro spostato
  * da solo si porta dietro gli estremi dei muri collegati, come trascinandolo.
  */
