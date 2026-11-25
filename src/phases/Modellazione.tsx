@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../model/store';
-import type { BuildingElement, ElementStatus, Project, Vec2, VaultShape, Wall, ViewState, WallRef } from '../model/types';
+import type { AxoCut, BuildingElement, ElementStatus, Project, Vec2, VaultShape, Wall, ViewState, WallRef } from '../model/types';
 import { defaultVault } from '../model/vaults';
+import { CutField } from '../ui/CutField';
 import { axisCrossing, copyElements, cornerEnds, cornerWalls, extendTarget, extendWall, moveElements, splitWall, trimPiece, trimWall, wallStation } from '../model/wallEdit';
 import { axisPolyline, extendToHost, WALL_REF_LABEL } from '../model/wallRef';
 import {
@@ -234,6 +235,8 @@ export function Modellazione() {
   // forma delle nuove scale
   const [stairShape, setStairShape] = useState<'dritta' | 'L' | 'U'>('dritta');
   const [vaultShape, setVaultShape] = useState<VaultShape>('botte');
+  /** Spaccato della Vista 3D (non fa parte del progetto: è un modo di guardarlo) */
+  const [cut3d, setCut3d] = useState<AxoCut | undefined>(undefined);
   /** anteprima dei comandi sui muri: tratto da togliere, prolungamento, punto di divisione */
   const [wallEditPreview, setWallEditPreview] = useState<{ kind: 'taglia' | 'estendi' | 'dividi'; a: Vec2; b: Vec2 } | null>(null);
   /** Cima: primo muro scelto (con il punto del clic) e anteprima dei due muri a angolo chiuso */
@@ -1652,6 +1655,8 @@ export function Modellazione() {
               revision={revision}
               selectedIds={selectedIds}
               dark={theme === 'scuro'}
+              cut={cut3d}
+              overlay={<CutField project={project} cut={cut3d} onChange={setCut3d} compact />}
               onPick={(id) => {
                 if (!id) return select('modello', []);
                 select('modello', [id]);

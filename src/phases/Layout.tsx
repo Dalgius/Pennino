@@ -1,3 +1,4 @@
+import { CutField } from '../ui/CutField';
 import { usesStates, VIEW_STATE_LABEL } from '../model/states';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -291,6 +292,7 @@ function ViewportPanel({ project, sheet, vp, upd, onRemove }: { project: Project
           onChange={(v) => upd((x) => (x.stato = v))}
         />
       )}
+      {vp.kind === 'assonometria' && <CutField project={project} cut={vp.cut} onChange={(c) => upd((x) => (c ? (x.cut = c) : delete x.cut))} />}
       {vp.kind === 'prospetto' && (
         <SelectField label="Fronte" value={vp.direction ?? 'sud'} options={['sud', 'nord', 'est', 'ovest'].map((d) => ({ value: d as 'sud', label: `Prospetto ${d}` }))} onChange={(v) => upd((x) => (x.direction = v))} />
       )}

@@ -2400,3 +2400,19 @@ select.chip:disabled {
   stroke: #e5484d;
   opacity: 0.8;
 }
+
+/* Vista 3D: comandi sovrapposti (spaccato) */
+.view3d-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 240px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

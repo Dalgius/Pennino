@@ -187,8 +187,10 @@ test('volte: proposta su un vano chiuso, altezza media del locale, controllo del
   assert.ok(shape, 'vano rettangolare');
   const d = V.defaultVault(p, L0, shape.net, 'botte', 'vt_mattoni');
   const lvl = p.levels.find((l) => l.id === L0);
-  // la chiave con lo spessore sta sotto il solaio sopra, l'imposta non sotto i 2,20 m
-  assert.ok(d.spring + d.rise + 0.06 <= lvl.height - 0.1 + 1e-9);
+  // la chiave con lo spessore sta sotto l'intradosso del solaio sopra, l'imposta non sotto i 2,20 m
+  const above = p.elements.find((e) => e.kind === 'slab' && e.levelId === 'lvl_p1');
+  const slabTh = p.catalog.slab.find((t) => t.id === above.typeId).thickness;
+  assert.ok(d.spring + d.rise + 0.06 <= lvl.height - slabTh + 1e-9, `${d.spring + d.rise + 0.06} > ${lvl.height - slabTh}`);
   assert.ok(d.spring >= 2.2 - 1e-9);
   p.elements.push({ id: 'v2', kind: 'vault', levelId: L0, typeId: 'vt_mattoni', ...d });
   // altezza media del locale sotto la volta

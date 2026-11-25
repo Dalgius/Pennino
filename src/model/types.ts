@@ -437,7 +437,15 @@ export interface Viewport {
   showDimensions?: boolean;
   /** Stato rappresentato (ristrutturazioni); assente = progetto */
   stato?: ViewState;
+  /** Assonometria: spaccato (taglio orizzontale sopra un livello o lungo una sezione) */
+  cut?: AxoCut;
 }
+
+/**
+ * Spaccato assonometrico: si toglie la parte del modello sopra un piano orizzontale (quota dal piano
+ * del livello) oppure davanti al piano di una sezione (dalla parte opposta al verso di vista)
+ */
+export type AxoCut = { kind: 'piano'; levelId: ID; height: number } | { kind: 'sezione'; sectionId: ID };
 
 /** A4v: A4 verticale; gli altri sono orizzontali */
 export type PaperFormat = 'A4' | 'A4v' | 'A3' | 'A2' | 'A1';

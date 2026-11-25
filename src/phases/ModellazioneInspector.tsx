@@ -31,7 +31,7 @@ import {
 import { copyElementsToLevel, deleteElements } from '../model/edit';
 import { roofSurface, wallTypeUnitCosts } from '../model/quantities';
 import { isConvexPolygon, isOrthogonal, ROOF_SHAPE_LABEL, roofTop } from '../model/roofs';
-import { VAULT_NOTE, VAULT_SHAPE_LABEL, vaultMaxRise, vaultFrame, vaultLevels, vaultQuantities, vaultSpans, vaultType } from '../model/vaults';
+import { VAULT_NOTE, VAULT_SHAPE_LABEL, vaultCeiling, vaultMaxRise, vaultFrame, vaultLevels, vaultQuantities, vaultSpans, vaultType } from '../model/vaults';
 import { ARCH_LABEL, archRise, defaultRise, fixtureSpec, frameDepth, frameDistance, hasThreshold, isBareOpening, leavesOf, openingAreaIn } from '../model/openings';
 import { isExteriorWall } from '../model/dimensions';
 import { wallGeom } from '../model/walls';
@@ -519,7 +519,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
         const q = vaultQuantities(project, e);
         const lvl = byId(project.levels, e.levelId);
         const half = vaultMaxRise(e, fr);
-        const keyOver = lvl && lv.top > lvl.elevation + lvl.height + 1e-3;
+        const keyOver = lv.top > vaultCeiling(project, e) + 1e-3;
         return (
           <>
             {typeSelect('vault', e.typeId)}
@@ -553,7 +553,7 @@ export function Inspector({ ids, onEditType }: { ids: string[]; onEditType: (k: 
               <div><span>Superficie d’intradosso</span><b className="mono">{fmt(q.area)} m²</b></div>
               <div><span>Rinfianco</span><b className="mono">{vaultType(project, e)?.fillPriceCode ? `${fmt(q.fill)} m³` : '—'}</b></div>
             </div>
-            {keyOver && <p className="note warn">La volta in chiave, con il suo spessore, supera l’altezza del piano: abbassa l’imposta o la freccia.</p>}
+            {keyOver && <p className="note warn">La volta in chiave, con il suo spessore, entra nel solaio del piano superiore: abbassa l’imposta o la freccia.</p>}
             <p className="note">
               Quote dal piano del livello. {VAULT_NOTE[e.shape]} Trascina gli angoli per cambiare il campo.
             </p>

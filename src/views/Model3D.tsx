@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../model/store';
 import { fmt } from '../model/geometry';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Project } from '../model/types';
-import { buildScene, disposeObject, sceneBounds, sunVector } from './scene3d';
+import type { AxoCut, Project } from '../model/types';
+import { buildScene, cutPlanes, disposeObject, sceneBounds, sunVector } from './scene3d';
 
 interface Props {
   project: Project;
@@ -13,10 +13,14 @@ interface Props {
   maxElevation?: number;
   onPick?: (id: string | null) => void;
   dark: boolean;
+  /** Spaccato: piani di taglio sull'edificio */
+  cut?: AxoCut;
+  /** Comandi sovrapposti alla vista (in alto a sinistra) */
+  overlay?: ReactNode;
 }
 
 /** Vista 3D navigabile, rigenerata a ogni modifica del modello */
-export function Model3D({ project, revision, selectedIds, maxElevation, onPick, dark }: Props) {
+export function Model3D({ project, revision, selectedIds, maxElevation, onPick, dark, cut, overlay }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const ctx = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -24,6 +28,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     model: THREE.Group | null;
+    planes: THREE.Plane[];
     sun: THREE.DirectionalLight;
     raf: number;
   } | null>(null);
@@ -38,6 +43,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.localClippingEnabled = true;
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
@@ -74,7 +80,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
       renderer.render(scene, camera);
       ctx.current!.raf = requestAnimationFrame(loop);
     };
-    ctx.current = { renderer, scene, camera, controls, model: null, sun, raf: 0 };
+    ctx.current = { renderer, scene, camera, controls, model: null, planes: [], sun, raf: 0 };
     loop();
 
     // Selezione con un clic (senza trascinamento)
@@ -87,7 +93,9 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
       const model = ctx.current?.model;
       if (!model) return;
-      const hit = ray.intersectObject(model, true).find((h) => h.object.userData.id);
+      // con lo spaccato non si prende ciò che è stato tolto (il raggio non conosce i piani di taglio)
+      const planes = ctx.current?.planes ?? [];
+      const hit = ray.intersectObject(model, true).find((h) => h.object.userData.id && planes.every((pl) => pl.distanceToPoint(h.point) >= -1e-4));
       onPickRef.current?.(hit ? (hit.object.userData.id as string) : null);
     };
     renderer.domElement.addEventListener('pointerdown', pd);
@@ -114,11 +122,12 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
       c.scene.remove(c.model);
       disposeObject(c.model);
     }
-    c.model = buildScene(project, { selectedIds, maxElevation });
+    c.model = buildScene(project, { selectedIds, maxElevation, cut });
+    c.planes = cutPlanes(project, cut);
     c.scene.add(c.model);
     c.scene.background = new THREE.Color(dark ? 0xe8e8e8 : 0xeef0f2);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.elements, project.levels, project.catalog, site.context, site.lot, site.groundLevel, selectedIds, maxElevation, dark]);
+  }, [project.elements, project.levels, project.catalog, project.sections, site.context, site.lot, site.groundLevel, selectedIds, maxElevation, dark, JSON.stringify(cut ?? null)]);
 
   // Sole: direzione da latitudine, longitudine, data, ora e nord geografico
   useEffect(() => {
@@ -139,6 +148,7 @@ export function Model3D({ project, revision, selectedIds, maxElevation, onPick, 
   return (
     <div className="view3d-wrap">
       <div ref={host} className="view3d" />
+      {overlay && <div className="view3d-overlay">{overlay}</div>}
       <SunHud cameraAzimuth={azimuth} />
     </div>
   );

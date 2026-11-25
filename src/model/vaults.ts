@@ -4,7 +4,7 @@
 // freccia è metà della luce, ribassati se minore).
 
 import type { Project, Vault, VaultShape, VaultType, Vec2 } from './types';
-import { add, byId, dist, dot, mul, norm, sub } from './geometry';
+import { add, byId, dist, dot, levelAbove, mul, norm, pointInPolygon, slabOutline, sub } from './geometry';
 
 export const VAULT_SHAPE_LABEL: Record<VaultShape, string> = { botte: 'Volta a botte', crociera: 'Volta a crociera', padiglione: 'Volta a padiglione', vela: 'Volta a vela' };
 
@@ -221,6 +221,23 @@ export function vaultQuantities(p: Project, v: Vault, n = 64) {
   return { plan: fr.L1 * fr.L2, area, fill, volume: area * th };
 }
 
+/** Spessore del solaio del piano superiore sopra il punto c (0 se non c'è) */
+function slabAboveThickness(p: Project, levelId: string, c: Vec2): number {
+  const up = levelAbove(p, levelId);
+  let slab = 0;
+  if (up)
+    for (const e of p.elements)
+      if (e.kind === 'slab' && e.levelId === up.id && pointInPolygon(c, slabOutline(p, e))) slab = Math.max(slab, byId(p.catalog.slab, e.typeId)?.thickness ?? 0);
+  return slab;
+}
+
+/** Quota assoluta dell'intradosso del solaio sopra la volta (o della sommità del piano): la volta deve starci sotto */
+export function vaultCeiling(p: Project, v: Vault): number {
+  const lv = byId(p.levels, v.levelId);
+  const fr = vaultFrame(v);
+  return (lv?.elevation ?? 0) + (lv?.height ?? 0) - slabAboveThickness(p, v.levelId, vaultPoint(fr, fr.L1 / 2, fr.L2 / 2));
+}
+
 /** Proposta per una volta nuova su un campo: freccia e imposta con la chiave sotto il solaio sopra */
 export function defaultVault(p: Project, levelId: string, points: Vec2[], shape: VaultShape, typeId: string): Pick<Vault, 'spring' | 'rise' | 'points' | 'shape'> {
   const fr = vaultFrame({ points });
@@ -228,8 +245,10 @@ export function defaultVault(p: Project, levelId: string, points: Vec2[], shape:
   const H = lv?.height ?? 3;
   const th = byId(p.catalog.vault ?? [], typeId)?.thickness ?? 0.12;
   const span = 2 * vaultMaxRise({ shape, points }, fr);
+  // la volta, con lo spessore, sta sotto l'intradosso del solaio del piano sopra
+  const slab = slabAboveThickness(p, levelId, vaultPoint(fr, fr.L1 / 2, fr.L2 / 2));
   // tutto sesto se ci sta con l'imposta ad almeno 2,20 m; altrimenti ribassata
-  const room = H - th - 0.1; // chiave: spessore e 10 cm di riempimento sotto il solaio sopra
+  const room = H - slab - th - 0.05; // chiave: spessore e 5 cm di riempimento sotto il solaio sopra
   const rise = Math.round(Math.max(0.1, Math.min(span / 2, room - 2.2)) * 100) / 100;
   return { points, shape, rise, spring: Math.round((room - rise) * 100) / 100 };
 }

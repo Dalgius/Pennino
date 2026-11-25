@@ -3,7 +3,7 @@
 
 import type { Project, Wall } from './types';
 import { cached } from './cache';
-import { vaultLevels } from './vaults';
+import { vaultCeiling, vaultLevels } from './vaults';
 import { byId, dist, JOIN_TOL, openingSpans, pointInPolygon, projectOnSegment, slabOutline, sortedLevels, stairSteps, wallLength, wallThickness } from './geometry';
 import { isHabitable, MIN_LIGHT_RATIO, MIN_ROOM_HEIGHT, roomInfo } from './rooms';
 import { projectInState } from './states';
@@ -78,8 +78,9 @@ function run(p: Project, full: Project): Issue[] {
       if (!('levelId' in e) || e.levelId !== lv.id) continue;
       if (e.kind === 'vault') {
         const vl = vaultLevels(p, e);
-        if (vl.top > lv.elevation + lv.height + 1e-3)
-          out.push({ id: e.id, levelId: lv.id, severity: 'avviso', text: `Volta che in chiave, con lo spessore, supera l’interpiano (${fmt(vl.top - lv.elevation)} m su ${fmt(lv.height)} m).` });
+        const ceil = vaultCeiling(p, e);
+        if (vl.top > ceil + 1e-3)
+          out.push({ id: e.id, levelId: lv.id, severity: 'avviso', text: `Volta che in chiave, con lo spessore, entra nel solaio sopra (${fmt(vl.top - lv.elevation)} m su ${fmt(ceil - lv.elevation)} m disponibili).` });
       }
       if (e.kind === 'stair') {
         const s = stairSteps(p, e);

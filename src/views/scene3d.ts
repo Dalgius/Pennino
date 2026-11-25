@@ -3,11 +3,11 @@
 
 import { planeAt, roofGeom, type RoofGeom } from '../model/roofs';
 import * as THREE from 'three';
-import { sceneBounds } from '../model/geometry';
+import { norm, perp, sceneBounds, sub } from '../model/geometry';
 import { bandPolygon, endAt, startAt, wallGeom, type WallGeom } from '../model/walls';
 import { archProfile, archRise, fixtureSpec, leafSpans, springHeight, THRESHOLD_NOSE } from '../model/openings';
 import { vaultFrame, vaultHeightLocal, vaultLevels, vaultPoint, vaultThickness } from '../model/vaults';
-import type { Opening, OpeningType, Project, Vault, Vec2, Wall } from '../model/types';
+import type { AxoCut, Opening, OpeningType, Project, Vault, Vec2, Wall } from '../model/types';
 import {
   add,
   bbox,
@@ -30,6 +30,8 @@ import {
 } from '../model/geometry';
 
 export interface SceneOptions {
+  /** Spaccato: piani di taglio applicati all'edificio (non al contesto) */
+  cut?: AxoCut;
   /** Mostra solo i livelli con quota ≤ di questo valore */
   maxElevation?: number;
   context?: boolean;
@@ -123,16 +125,43 @@ function extrudePolygon(points: Vec2[], zTop: number, thickness: number, materia
 
 export { sceneBounds };
 
+/** Materiali del contesto e del terreno: lo spaccato non li taglia */
+const UNCUT = new Set(['ground', 'lot', 'context', 'road', 'tree']);
+/** Colore delle superfici tagliate dallo spaccato */
+const CUT_COLOR = 0x3b3b3b;
+
+/**
+ * Piani di taglio dello spaccato (three.js tiene i punti con distanza ≥ 0). Piano: sotto la quota del
+ * livello più l'altezza di taglio; sezione: oltre il piano, nel verso di vista.
+ */
+export function cutPlanes(p: Project, cut?: AxoCut): THREE.Plane[] {
+  if (!cut) return [];
+  if (cut.kind === 'piano') {
+    const lv = byId(p.levels, cut.levelId);
+    if (!lv) return [];
+    return [new THREE.Plane(new THREE.Vector3(0, -1, 0), lv.elevation + cut.height)];
+  }
+  const sec = (p.sections ?? []).find((x) => x.id === cut.sectionId);
+  if (!sec) return [];
+  const a = sec.flip ? sec.b : sec.a;
+  const b = sec.flip ? sec.a : sec.b;
+  const d = perp(norm(sub(b, a)));
+  // punto del modello (x, y, z) → three (x, z, −y): D = d·(q − a)
+  return [new THREE.Plane(new THREE.Vector3(d.x, 0, -d.y), -(d.x * a.x + d.y * a.y))];
+}
+
 export function buildScene(p: Project, opts: SceneOptions = {}) {
   const root = new THREE.Group();
   const sel = new Set(opts.selectedIds ?? []);
   const maxZ = opts.maxElevation ?? Infinity;
+  const clip = cutPlanes(p, opts.cut);
+  const cutOpts = (key: string) => (clip.length && !UNCUT.has(key) ? { clippingPlanes: clip, clipShadows: true } : {});
   const cache = new Map<string, THREE.Material>();
   const M = (key: string, color: number, extra?: Partial<THREE.MeshStandardMaterialParameters>) => {
-    if (!cache.has(key)) cache.set(key, mat(color, extra));
+    if (!cache.has(key)) cache.set(key, mat(color, { ...extra, ...cutOpts(key) }));
     return cache.get(key)!;
   };
-  const selMat = mat(COLORS.selected, { emissive: COLORS.selected, emissiveIntensity: 0.35 });
+  const selMat = mat(COLORS.selected, { emissive: COLORS.selected, emissiveIntensity: 0.35, ...cutOpts('sel') });
   const tag = (o: THREE.Object3D, id: string) => {
     o.userData.id = id;
     o.castShadow = true;
@@ -186,7 +215,7 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
       for (const l of lay.landings) g.add(tag(extrudePolygon(l.poly, l.z, LANDING_THICKNESS, mat), e.id));
       root.add(g);
     } else if (e.kind === 'vault') {
-      root.add(tag(vaultMesh(p, e, pick(e.id, M('vault', COLORS.vault, { side: THREE.DoubleSide }))), e.id));
+      root.add(tag(vaultMesh(p, e, pick(e.id, M('vault', COLORS.vault))), e.id));
     } else if (e.kind === 'roof') {
       const t = byId(p.catalog.roof, e.typeId);
       const th = t?.thickness ?? 0.3;
@@ -195,12 +224,28 @@ export function buildScene(p: Project, opts: SceneOptions = {}) {
         root.add(tag(extrudePolygon(roofOutline(roofWithEave(p, e)), base + th, th, pick(e.id, M('roofFlat', COLORS.roofFlat))), e.id));
       } else {
         const g = roofGeom(p, e);
-        if (g) root.add(tag(roofMesh(g, pick(e.id, M('roof', COLORS.roof, { side: THREE.DoubleSide }))), e.id));
+        if (g) root.add(tag(roofMesh(g, pick(e.id, M('roof', COLORS.roof))), e.id));
       }
     }
   }
 
   if (opts.context !== false) buildContext(p, root, M);
+  // spaccato: dentro i solidi tagliati si vedono le loro facce posteriori, campite di scuro
+  if (clip.length) {
+    const capMat = new THREE.MeshBasicMaterial({ color: CUT_COLOR, side: THREE.BackSide, clippingPlanes: clip });
+    const meshes: THREE.Mesh[] = [];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      const mt = m.material as THREE.Material | undefined;
+      if (m.isMesh && mt && mt.clippingPlanes?.length && !mt.transparent) meshes.push(m);
+    });
+    for (const m of meshes) {
+      const cap = new THREE.Mesh(m.geometry, capMat);
+      cap.userData.id = m.userData.id;
+      cap.userData.cap = true;
+      m.add(cap);
+    }
+  }
   return root;
 }
 
@@ -367,22 +412,37 @@ function buildFixture(
  * Copertura a falde: per ogni falda visibile l'estradosso (th sopra) e l'intradosso, più le fasce
  * verticali lungo il contorno (gronde e profili sui timpani).
  */
+type V3 = [number, number, number];
+
+/** Aggiunge il triangolo con la normale rivolta verso out (scambiando due vertici se serve) */
+function pushTri(pos: number[], A: V3, B: V3, C: V3, out: V3) {
+  const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const w = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+  const nn = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+  const flip = nn[0] * out[0] + nn[1] * out[1] + nn[2] * out[2] < 0;
+  pos.push(...A, ...(flip ? C : B), ...(flip ? B : C));
+}
+
 /** Volta: guscio tra intradosso ed estradosso su una griglia del campo, con i bordi */
 function vaultMesh(p: Project, v: Vault, material: THREE.Material, n = 32) {
   const fr = vaultFrame(v);
   const z0 = vaultLevels(p, v).spring;
   const th = vaultThickness(p, v);
   const pos: number[] = [];
-  const P = (i: number, j: number, up: boolean) => {
+  const P = (i: number, j: number, up: boolean): V3 => {
     const a = (fr.L1 * i) / n;
     const b = (fr.L2 * j) / n;
     const q = vaultPoint(fr, a, b);
-    pos.push(q.x, z0 + vaultHeightLocal(v, a, b, fr) + (up ? th : 0), -q.y);
+    return [q.x, z0 + vaultHeightLocal(v, a, b, fr) + (up ? th : 0), -q.y];
   };
+  const c3 = vaultPoint(fr, fr.L1 / 2, fr.L2 / 2);
   const quad = (c: [number, number, boolean][], diag: boolean) => {
-    const [A, B, C, D] = c;
-    const tri = diag ? [A, B, C, A, C, D] : [A, B, D, B, C, D];
-    for (const x of tri) P(...x);
+    const [A, B, C, D] = c.map((x) => P(...x));
+    // verso esterno: intradosso in basso, estradosso in alto, bordi via dal centro del campo
+    const side = c[0][2] !== c[2][2];
+    const mid = [(A[0] + C[0]) / 2, (A[1] + C[1]) / 2, (A[2] + C[2]) / 2];
+    const out: V3 = side ? [mid[0] - c3.x, 0, mid[2] + c3.y] : [0, c[0][2] ? 1 : -1, 0];
+    for (const t of diag ? [[A, B, C], [A, C, D]] : [[A, B, D], [B, C, D]]) pushTri(pos, t[0], t[1], t[2], out);
   };
   for (let i = 0; i < n; i++)
     for (let j = 0; j < n; j++) {
@@ -428,18 +488,18 @@ function vaultMesh(p: Project, v: Vault, material: THREE.Material, n = 32) {
 
 function roofMesh(g: RoofGeom, material: THREE.Material) {
   const pos: number[] = [];
-  const V = (q: Vec2, z: number) => pos.push(q.x, z, -q.y);
-  const tri = (a: Vec2, za: number, b: Vec2, zb: number, c: Vec2, zc: number) => {
-    V(a, za);
-    V(b, zb);
-    V(c, zc);
-  };
+  const V = (q: Vec2, z: number): V3 => [q.x, z, -q.y];
+  // triangoli rivolti verso l'esterno del manto (in alto, in basso o verso il bordo)
+  let out: V3 = [0, 1, 0];
+  const tri = (a: Vec2, za: number, b: Vec2, zb: number, c: Vec2, zc: number) => pushTri(pos, V(a, za), V(b, zb), V(c, zc), out);
   const inOutline = (q: Vec2) => pointInPolygon(q, g.outline);
   for (const fr of g.fragments) {
     const poly = fr.poly;
     const z = (q: Vec2) => planeAt(fr.plane, q);
     for (let i = 1; i + 1 < poly.length; i++) {
+      out = [0, 1, 0];
       tri(poly[0], z(poly[0]) + g.th, poly[i], z(poly[i]) + g.th, poly[i + 1], z(poly[i + 1]) + g.th);
+      out = [0, -1, 0];
       tri(poly[0], z(poly[0]), poly[i + 1], z(poly[i + 1]), poly[i], z(poly[i]));
     }
     poly.forEach((a, i) => {
@@ -450,6 +510,7 @@ function roofMesh(g: RoofGeom, material: THREE.Material) {
       const n = { x: (b.y - a.y) / L, y: -(b.x - a.x) / L };
       // bordo esterno: appena fuori dal frammento non c'è più copertura
       if (inOutline({ x: m.x + n.x * 1e-3, y: m.y + n.y * 1e-3 }) && inOutline({ x: m.x - n.x * 1e-3, y: m.y - n.y * 1e-3 })) return;
+      out = [n.x, 0, -n.y];
       tri(a, z(a), b, z(b), b, z(b) + g.th);
       tri(a, z(a), b, z(b) + g.th, a, z(a) + g.th);
     });
@@ -529,22 +590,39 @@ export function disposeObject(o: THREE.Object3D) {
   });
 }
 
+/**
+ * Direzione da cui si guarda l'assonometria: di norma da sud-ovest; con lo spaccato su una sezione
+ * dalla parte tolta, di sbieco, così si vede la faccia tagliata
+ */
+export function axoDirection(p: Project, cut?: AxoCut): THREE.Vector3 {
+  const sec = cut?.kind === 'sezione' ? (p.sections ?? []).find((x) => x.id === cut.sectionId) : undefined;
+  if (!sec) return new THREE.Vector3(-1, 0.9, 1).normalize();
+  const a = sec.flip ? sec.b : sec.a;
+  const b = sec.flip ? sec.a : sec.b;
+  const u = norm(sub(b, a));
+  const d = perp(u);
+  // indietro rispetto al verso di vista e un po' di lato (verso l'inizio della traccia)
+  const h = { x: -d.x - 0.75 * u.x, y: -d.y - 0.75 * u.y };
+  return new THREE.Vector3(h.x, 0.95, -h.y).normalize();
+}
+
 /** Immagine assonometrica del modello per i fogli di stampa */
-export function renderAxonometric(p: Project, widthPx: number, heightPx: number): string {
+export function renderAxonometric(p: Project, widthPx: number, heightPx: number, cut?: AxoCut): string {
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+  renderer.localClippingEnabled = true;
   renderer.setPixelRatio(1);
   renderer.setSize(widthPx, heightPx, false);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
-  const model = buildScene(p, { context: false });
+  const model = buildScene(p, { context: false, cut });
   scene.add(model);
   const b = sceneBounds(p);
   const R = Math.max(b.w, b.h, b.top) * 0.85;
   const aspect = widthPx / heightPx;
   const cam = new THREE.OrthographicCamera(-R * aspect, R * aspect, R, -R, 0.1, 500);
   const target = new THREE.Vector3(b.cx, b.top / 3, -b.cy);
-  cam.position.copy(target).add(new THREE.Vector3(-1, 0.9, 1).normalize().multiplyScalar(120));
+  cam.position.copy(target).add(axoDirection(p, cut).multiplyScalar(120));
   cam.lookAt(target);
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb0a898, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);

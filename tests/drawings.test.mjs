@@ -320,4 +320,37 @@ test('tavole: in ogni formato il cartiglio sta dentro la squadratura', () => {
   }
 });
 
+// ───────── Spaccato assonometrico ─────────
+
+test('spaccato: piani di taglio orizzontale e lungo una sezione', async () => {
+  const S3 = await server.ssrLoadModule('/src/views/scene3d.ts');
+  const p = sampleProject();
+  const lv = p.levels.find((l) => l.id === L1);
+  // modello (x, y, z) → three (x, z, −y)
+  const V = (x, y, z) => ({ x, y: z, z: -y });
+  const keep = (pl, q) => pl.normal.x * q.x + pl.normal.y * q.y + pl.normal.z * q.z + pl.constant >= 0;
+  const [h] = S3.cutPlanes(p, { kind: 'piano', levelId: L1, height: 1.2 });
+  assert.ok(keep(h, V(3, 3, lv.elevation + 1.1)) && !keep(h, V(3, 3, lv.elevation + 1.3)));
+  // sezione: resta ciò che sta oltre il piano, nel verso di vista (a sinistra della traccia)
+  const sec = { id: 's', name: 'S', a: { x: 0, y: 4 }, b: { x: 12, y: 4 }, depth: 20, flip: false };
+  p.sections = [sec];
+  const [v] = S3.cutPlanes(p, { kind: 'sezione', sectionId: 's' });
+  assert.ok(keep(v, V(5, 6, 1)) && !keep(v, V(5, 2, 1)));
+  sec.flip = true;
+  const [w] = S3.cutPlanes(p, { kind: 'sezione', sectionId: 's' });
+  assert.ok(!keep(w, V(5, 6, 1)) && keep(w, V(5, 2, 1)));
+  // nessun taglio o sezione inesistente: nessun piano
+  assert.equal(S3.cutPlanes(p).length, 0);
+  assert.equal(S3.cutPlanes(p, { kind: 'sezione', sectionId: 'x' }).length, 0);
+  // la scena tagliata ha materiali con i piani e le superfici di taglio campite
+  const scene = S3.buildScene(p, { cut: { kind: 'piano', levelId: L1, height: 1.2 }, context: false });
+  let clipped = 0;
+  let caps = 0;
+  scene.traverse((o) => {
+    if (o.userData.cap) caps++;
+    else if (o.material?.clippingPlanes?.length) clipped++;
+  });
+  assert.ok(clipped > 10 && caps > 10, `${clipped} tagliati, ${caps} campiture`);
+});
+
 test.after(() => server.close());

@@ -3,7 +3,7 @@
 
 import { projectInState } from '../model/states';
 import { useEffect, useState } from 'react';
-import type { PaperFormat, Project, Sheet, Viewport } from '../model/types';
+import type { AxoCut, PaperFormat, Project, Sheet, Viewport } from '../model/types';
 import { bbox, fmt, sortedLevels, wallThickness } from '../model/geometry';
 import { openingSchedule, wallSchedule } from '../model/quantities';
 import { getHandles } from '../model/edit';
@@ -81,8 +81,8 @@ function axoSize(p: Project, scale: number) {
 // Cache delle immagini assonometriche per revisione del modello
 const axoCache = new Map<string, string>();
 
-function useAxonometric(p: Project, revision: number, wmm: number, hmm: number) {
-  const key = `${revision}:${Math.round(wmm)}x${Math.round(hmm)}`;
+function useAxonometric(p: Project, revision: number, wmm: number, hmm: number, cut?: AxoCut) {
+  const key = `${revision}:${Math.round(wmm)}x${Math.round(hmm)}:${cut ? JSON.stringify(cut) : ''}`;
   const [url, setUrl] = useState(() => axoCache.get(key) ?? '');
   useEffect(() => {
     if (axoCache.has(key)) return setUrl(axoCache.get(key)!);
@@ -90,7 +90,7 @@ function useAxonometric(p: Project, revision: number, wmm: number, hmm: number) 
       const px = Math.min(2400, Math.max(600, wmm * 6));
       // three.js si carica solo quando serve un'assonometria
       import('./scene3d').then(({ renderAxonometric }) => {
-        const u = renderAxonometric(p, px, px * (hmm / wmm));
+        const u = renderAxonometric(p, px, px * (hmm / wmm), cut);
         if (axoCache.size > 24) axoCache.clear();
         axoCache.set(key, u);
         setUrl(u);
@@ -192,7 +192,7 @@ function ViewportBox({
           </g>
         );
       case 'assonometria':
-        return <AxoImage project={p} revision={revision} w={f.w} h={f.h} />;
+        return <AxoImage project={p} revision={revision} w={f.w} h={f.h} cut={vp.cut} />;
       case 'abaco':
         return vp.schedule === 'muri' ? <WallTable project={p} /> : <OpeningTable project={p} />;
       case 'legenda':
@@ -226,8 +226,8 @@ function ViewportBox({
   );
 }
 
-function AxoImage({ project, revision, w, h }: { project: Project; revision: number; w: number; h: number }) {
-  const url = useAxonometric(project, revision, w, h);
+function AxoImage({ project, revision, w, h, cut }: { project: Project; revision: number; w: number; h: number; cut?: AxoCut }) {
+  const url = useAxonometric(project, revision, w, h, cut);
   return url ? (
     <image href={url} x={0} y={0} width={w} height={h} preserveAspectRatio="xMidYMid meet" />
   ) : (
